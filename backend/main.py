@@ -33,14 +33,22 @@ def read_root():
 def get_documents():
     return {"documents": pdf_engine.get_all_documents()}
 
+# Update the upload endpoint
 @app.post("/upload")
 async def upload_document(file: UploadFile = File(...)):
     if not file.filename.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="File must be a PDF")
     
-    content = await file.read()
-    doc_id = await pdf_engine.process_pdf(content, file.filename)
-    return {"status": "success", "doc_id": doc_id}
+    try:
+        content = await file.read()
+        doc_id = await pdf_engine.process_pdf(content, file.filename)
+        return {"status": "success", "doc_id": doc_id}
+        
+    except ValueError as e:
+        # This catches our "Page Limit" error
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Server Error processing PDF")
 
 @app.post("/chat")
 async def chat(request: ChatRequest):

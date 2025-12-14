@@ -14,17 +14,22 @@ class PDFEngine:
     async def process_pdf(self, file_content: bytes, filename: str) -> str:
         try:
             reader = PdfReader(io.BytesIO(file_content))
+            
+            # --- GUARDRAIL 1: Page Limit ---
+            if len(reader.pages) > 20:
+                # We raise a specific error that we can catch later
+                raise ValueError(f"Page limit exceeded. Max 20 pages allowed, but this file has {len(reader.pages)}.")
+            
             full_text = ""
             for page in reader.pages:
                 text = page.extract_text()
                 if text: full_text += text + "\n"
             
-            # Generate Unique ID
             doc_id = str(uuid.uuid4())
             
             # Store data
+            self.document_files[doc_id] = file_content # Save raw file
             self.document_content[doc_id] = full_text
-            self.document_files[doc_id] = file_content
             self.document_metadata[doc_id] = {
                 "id": doc_id,
                 "title": filename,
