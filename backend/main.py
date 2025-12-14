@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from fastapi.responses import Response
 from typing import List
-
+import io
 # Import our new services
 from services.pdf_engine import PDFEngine
 from services.openai_service import OpenAIService
@@ -58,3 +58,17 @@ def download_pdf(doc_id: str):
         raise HTTPException(status_code=404, detail="PDF not found")
     
     return Response(content=pdf_bytes, media_type="application/pdf")
+
+@app.post("/transcribe")
+async def transcribe_audio(file: UploadFile = File(...)):
+    # 1. Read the audio bytes
+    content = await file.read()
+    
+    # 2. Create a file-like object for OpenAI (Must have a name with extension)
+    audio_file = io.BytesIO(content)
+    audio_file.name = "recording.webm" # Standard web audio format
+    
+    # 3. Send to Whisper
+    text = ai_service.transcribe_audio(audio_file)
+    
+    return {"text": text}

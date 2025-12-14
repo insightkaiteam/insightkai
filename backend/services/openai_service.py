@@ -37,3 +37,14 @@ class OpenAIService:
             return response.choices[0].message.content
         except Exception as e:
             return f"Error contacting OpenAI: {str(e)}"
+        
+    def transcribe_audio(self, audio_file):
+        try:
+            transcription = self.client.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_file
+            )
+            return transcription.text
+        except Exception as e:
+            print(f"Whisper Error: {e}")
+            return ""
