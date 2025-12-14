@@ -44,11 +44,19 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {messages.map((m, i) => (
             <div key={i} className={`p-3 rounded-lg max-w-[90%] ${m.role === 'user' ? 'bg-blue-100 self-end ml-auto' : 'bg-gray-100'}`}>
-              {m.role === 'ai' ? (
-                <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]} className="prose text-sm">
-                  {m.content}
-                </ReactMarkdown>
-              ) : m.content}
+{m.role === 'ai' ? (
+                  /* FIX: Wrap ReactMarkdown in a div and move className there */
+                  <div className="prose text-sm">
+                    <ReactMarkdown 
+                      remarkPlugins={[remarkMath]} 
+                      rehypePlugins={[rehypeKatex]}
+                    >
+                      {m.content}
+                    </ReactMarkdown>
+                  </div>
+                ) : (
+                  m.content
+                )}
             </div>
           ))}
           {isLoading && <p className="text-gray-400 p-4">Thinking...</p>}
