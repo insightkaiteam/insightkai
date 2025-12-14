@@ -6,10 +6,10 @@ import uuid
 
 class PDFEngine:
     def __init__(self):
-        # Stores content: {"doc_id": "full text..."}
         self.document_content: Dict[str, str] = {}
-        # Stores metadata: {"doc_id": {"title": "...", "date": "..."}}
         self.document_metadata: Dict[str, dict] = {}
+        # NEW: Store the actual PDF file bytes in memory
+        self.document_files: Dict[str, bytes] = {}
 
     async def process_pdf(self, file_content: bytes, filename: str) -> str:
         try:
@@ -24,6 +24,7 @@ class PDFEngine:
             
             # Store data
             self.document_content[doc_id] = full_text
+            self.document_files[doc_id] = file_content
             self.document_metadata[doc_id] = {
                 "id": doc_id,
                 "title": filename,
@@ -35,6 +36,8 @@ class PDFEngine:
             print(f"Error: {e}")
             raise e
 
+    def get_pdf_bytes(self, doc_id: str) -> bytes:
+        return self.document_files.get(doc_id, None)
     def get_document_context(self, doc_id: str) -> str:
         return self.document_content.get(doc_id, "")
 

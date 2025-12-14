@@ -1,6 +1,7 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from fastapi.responses import Response
 from typing import List
 
 # Import our new services
@@ -49,3 +50,11 @@ async def chat(request: ChatRequest):
 
     answer = ai_service.get_answer(context, request.message)
     return {"answer": answer}
+
+@app.get("/documents/{doc_id}/download")
+def download_pdf(doc_id: str):
+    pdf_bytes = pdf_engine.get_pdf_bytes(doc_id)
+    if not pdf_bytes:
+        raise HTTPException(status_code=404, detail="PDF not found")
+    
+    return Response(content=pdf_bytes, media_type="application/pdf")

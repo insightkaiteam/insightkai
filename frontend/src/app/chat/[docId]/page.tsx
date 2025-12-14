@@ -38,7 +38,14 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
   return (
     <div className="flex h-screen bg-gray-100">
       <div className="w-1/2 bg-gray-800 text-white flex items-center justify-center">
-        <h2>PDF Viewer (Placeholder)</h2>
+      </div>
+{/* LEFT SIDE: Real PDF Viewer */}
+      <div className="w-1/2 bg-gray-800 border-r border-gray-700">
+        <iframe
+          src={`${BACKEND_URL}/documents/${docId}/download`}
+          className="w-full h-full"
+          title="PDF Viewer"
+        />
       </div>
       <div className="w-1/2 flex flex-col bg-white">
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
