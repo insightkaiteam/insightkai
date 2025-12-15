@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from fastapi.responses import Response
@@ -25,6 +25,8 @@ class ChatRequest(BaseModel):
     message: str
     document_id: str
 
+
+
 @app.get("/")
 def read_root():
     return {"status": "Backend is running", "message": "Ready"}
@@ -33,23 +35,43 @@ def read_root():
 def get_documents():
     return {"documents": pdf_engine.get_all_documents()}
 
+# --- NEW ENDPOINTS ---
+
+@app.get("/folders")
+def get_folders():
+    return {"folders": pdf_engine.get_folders()}
+
+@app.post("/folders")
+def create_folder(req: FolderRequest):
+    pdf_engine.create_folder(req.name)
+    return {"status": "success", "folders": pdf_engine.get_folders()}
+
+@app.delete("/documents/{doc_id}")
+def delete_document(doc_id: str):
+    pdf_engine.delete_document(doc_id)
+    return {"status": "success"}
+
+
 # Update the upload endpoint
 @app.post("/upload")
-async def upload_document(file: UploadFile = File(...)):
+@app.post("/upload")
+async def upload_document(
+    file: UploadFile = File(...),
+    folder: str = Form("General") # Defaults to "General" if not specified
+):
     if not file.filename.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="File must be a PDF")
     
     try:
         content = await file.read()
-        doc_id = await pdf_engine.process_pdf(content, file.filename)
+        # Pass the folder to the engine
+        doc_id = await pdf_engine.process_pdf(content, file.filename, folder)
         return {"status": "success", "doc_id": doc_id}
-        
     except ValueError as e:
-        # This catches our "Page Limit" error
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail="Server Error processing PDF")
-
+        raise HTTPException(status_code=500, detail="Server Error")
+    
 @app.post("/chat")
 async def chat(request: ChatRequest):
     context = pdf_engine.get_document_context(request.document_id)
