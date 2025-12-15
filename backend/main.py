@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from fastapi.responses import Response
 from typing import List
 import io
-from backend.routers import folders
+from routers import folders
 # Import services
 from services.pdf_engine import PDFEngine
 from services.openai_service import OpenAIService
