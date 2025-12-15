@@ -4,7 +4,8 @@ from pydantic import BaseModel
 from fastapi.responses import Response
 from typing import List
 import io
-# Import our new services
+
+# Import services
 from services.pdf_engine import PDFEngine
 from services.openai_service import OpenAIService
 
@@ -25,7 +26,9 @@ class ChatRequest(BaseModel):
     message: str
     document_id: str
 
-
+# --- FIX 1: ADD THIS MISSING CLASS ---
+class FolderRequest(BaseModel):
+    name: str
 
 @app.get("/")
 def read_root():
@@ -51,9 +54,7 @@ def delete_document(doc_id: str):
     pdf_engine.delete_document(doc_id)
     return {"status": "success"}
 
-
-# Update the upload endpoint
-@app.post("/upload")
+# --- FIX 2: REMOVED DUPLICATE DECORATOR HERE ---
 @app.post("/upload")
 async def upload_document(
     file: UploadFile = File(...),
@@ -91,14 +92,8 @@ def download_pdf(doc_id: str):
 
 @app.post("/transcribe")
 async def transcribe_audio(file: UploadFile = File(...)):
-    # 1. Read the audio bytes
     content = await file.read()
-    
-    # 2. Create a file-like object for OpenAI (Must have a name with extension)
     audio_file = io.BytesIO(content)
-    audio_file.name = "recording.webm" # Standard web audio format
-    
-    # 3. Send to Whisper
+    audio_file.name = "recording.webm"
     text = ai_service.transcribe_audio(audio_file)
-    
     return {"text": text}
