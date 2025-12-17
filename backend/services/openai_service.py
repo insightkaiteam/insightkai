@@ -1,28 +1,46 @@
 from openai import OpenAI
 import os
+from typing import List
 
 class OpenAIService:
     def __init__(self):
         self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-    def get_answer(self, context: str, question: str) -> str:
-        # ... (Your existing chat logic remains the same)
+    # Updated to accept a LIST of image strings (base64)
+    def get_answer(self, context_images: List[str], question: str) -> str:
+        
+        # 1. Prepare the User Message
+        # We start with the text question
+        user_content = [
+            {"type": "text", "text": f"Here are the pages of a PDF document. Please answer this question based on these images: {question}"}
+        ]
+
+        # 2. Append each image to the message
+        # (Limit to first 5 pages to avoid token errors if document is large)
+        for img_base64 in context_images[:10]: 
+            user_content.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/jpeg;base64,{img_base64}",
+                    "detail": "auto" # "low" is cheaper, "high" is better for charts
+                }
+            })
+
+        # 3. Send to GPT-4o-mini
         response = self.client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "You are a helpful assistant. Use the provided context to answer questions."},
-                {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {question}"}
-            ]
+                {"role": "system", "content": "You are a helpful assistant. You are analyzing PDF slides/pages provided as images."},
+                {"role": "user", "content": user_content}
+            ],
+            max_tokens=500
         )
         return response.choices[0].message.content
 
-    # --- UPDATED METHOD ---
     def transcribe_audio(self, audio_file) -> str:
         transcript = self.client.audio.transcriptions.create(
-            model="gpt-4o-mini-transcribe",  # <--- CHANGED from "whisper-1"
+            model="gpt-4o-mini-transcribe", 
             file=audio_file,
-            response_format="text" # Optional: "json" or "text"
+            response_format="text"
         )
-        # Note: If you use response_format="json" (default), use transcript.text
-        # If you use response_format="text", transcript is the string itself.
         return transcript
