@@ -47,3 +47,17 @@ class OpenAIService:
             return response.choices[0].message.content
         except Exception as e:
             return f"Error: {str(e)}"
+
+# ... (Keep existing get_answer methods above) ...
+
+    def transcribe_audio(self, audio_file):
+        # Calls the Whisper model (speech-to-text)
+        try:
+            transcript = self.client.audio.transcriptions.create(
+                model="whisper-1", 
+                file=audio_file
+            )
+            return transcript.text
+        except Exception as e:
+            print(f"Whisper Error: {e}")
+            return "Error transcribing audio."
