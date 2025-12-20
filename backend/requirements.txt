@@ -6,3 +6,4 @@ pypdf
 pydantic
 pypdfium2
 pillow
+supabase

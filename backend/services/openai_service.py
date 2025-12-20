@@ -17,14 +17,14 @@ class OpenAIService:
 
         # 2. Append each image to the message
         # (Limit to first 5 pages to avoid token errors if document is large)
-        for img_base64 in context_images[:10]: 
-            user_content.append({
-                "type": "image_url",
-                "image_url": {
-                    "url": f"data:image/jpeg;base64,{img_base64}",
-                    "detail": "auto" # "low" is cheaper, "high" is better for charts
-                }
-            })
+        for img_url in context_images: 
+                user_content.append({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": img_url,  # Direct URL from Supabase
+                        "detail": "auto"
+                    }
+                })
 
         # 3. Send to GPT-4o-mini
         response = self.client.chat.completions.create(
