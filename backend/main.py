@@ -73,17 +73,18 @@ async def upload_document(
     
 @app.post("/chat")
 async def chat(request: ChatRequest):
-    # 1. Search DB for the most relevant pages based on the question
-    # This replaces "get_document_context" which used to return EVERYTHING
+    # 1. Search for relevant pages
     relevant_image_urls = pdf_engine.get_relevant_pages(request.message, request.document_id)
     
-    if not relevant_image_urls:
-        return {"answer": "I couldn't find any relevant pages in this document to answer your question."}
-
-    print(f"Found {len(relevant_image_urls)} relevant pages. Sending to AI...")
-
-    # 2. Send those specific images to OpenAI
-    answer = ai_service.get_answer(relevant_image_urls, request.message)
+    # 2. Decide: Document Mode vs. Normal Mode
+    if relevant_image_urls:
+        print(f"RAG MODE: Found {len(relevant_image_urls)} pages. Sending images to AI.")
+        answer = ai_service.get_answer(relevant_image_urls, request.message)
+    else:
+        print("CHAT MODE: No relevant pages found. Asking AI directly.")
+        # Send empty list -> AI Service will act like normal ChatGPT
+        answer = ai_service.get_answer([], request.message)
+        
     return {"answer": answer}
 
 @app.get("/documents/{doc_id}/download")

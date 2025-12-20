@@ -17,28 +17,33 @@ class OpenAIService:
         )
 
     def get_answer(self, context_images: List[str], question: str) -> str:
-        user_content = [
-            {"type": "text", "text": f"Answer based on these images: {question}"}
-        ]
 
-        # Use 'detail: low' to Force-Save tokens (Optional but recommended)
-        for img_url in context_images[:5]: 
-            user_content.append({
-                "type": "image_url",
-                "image_url": {
-                    "url": img_url,
-                    "detail": "auto" # or change to "low" for cheapest cost
-                }
-            })
+# Scenario A: Normal Chat (No images)
+        if not context_images:
+            messages = [
+                {"role": "system", "content": "You are a helpful AI assistant. Answer the user's question directly."},
+                {"role": "user", "content": question}
+            ]
+# Scenario B: Document Chat (With images)
+        else:
+            user_content = [
+                {"type": "text", "text": f"Answer strictly based on these images: {question}"}
+            ]
+            # Add images (Limit to 5)
+            for img_url in context_images[:5]: 
+                user_content.append({
+                    "type": "image_url",
+                    "image_url": {"url": img_url, "detail": "auto"}
+                })
+            
+            messages = [
+                {"role": "system", "content": "You are a helpful assistant analyzing PDF images."},
+                {"role": "user", "content": user_content}
+            ]
 
+        # Call OpenAI (with Retry Wrapper)
         try:
-            # CALL THE WRAPPED FUNCTION
-            response = self.get_answer_with_backoff(
-                messages=[
-                    {"role": "system", "content": "You are a helpful assistant."},
-                    {"role": "user", "content": user_content}
-                ]
-            )
+            response = self.get_answer_with_backoff(messages=messages)
             return response.choices[0].message.content
         except Exception as e:
-            return f"Server is busy (Rate Limit). Please try again in 5 seconds."
+            return f"Error: {str(e)}"
