@@ -62,7 +62,7 @@ class PDFEngine:
                 vector = self.get_embedding(extracted_text)
 
                 # C. Render Image (For the Vision AI)
-                bitmap = page.render(scale=2) # High Res
+                bitmap = page.render(scale=1) # High Res
                 pil_image = bitmap.to_pil()
                 
                 # Convert to Bytes
