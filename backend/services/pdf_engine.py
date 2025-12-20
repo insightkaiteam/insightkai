@@ -21,15 +21,21 @@ class PDFEngine:
         # Initialize OpenAI for Embeddings
         self.openai = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
+# REPLACE the old get_folders method with this:
     def get_folders(self) -> List[str]:
-        # Simple query to get unique folders (optional optimization: cache this)
-        response = self.supabase.table("document_pages").select("folder").execute()
-        folders = set(row['folder'] for row in response.data)
-        return list(sorted(folders)) if folders else ["General"]
+        # Fetch actual folders from the new table
+        response = self.supabase.table("folders").select("name").execute()
+        # Return a list of names like ["General", "Finance", "Receipts"]
+        return sorted([row['name'] for row in response.data])
 
+    # REPLACE the old create_folder method with this:
     def create_folder(self, folder_name: str):
-        pass # Folders are now just metadata tags in the DB, no explicit creation needed
-
+        # Now we actually save it to the DB!
+        try:
+            self.supabase.table("folders").insert({"name": folder_name}).execute()
+        except Exception as e:
+            print(f"Folder might already exist: {e}")
+            
     def get_embedding(self, text: str) -> List[float]:
         # Generate vector for text search (Cost: extremely cheap)
         text = text.replace("\n", " ")
