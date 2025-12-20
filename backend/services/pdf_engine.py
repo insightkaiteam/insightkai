@@ -51,6 +51,14 @@ class PDFEngine:
 
             doc_id = str(uuid.uuid4())
 
+# --- NEW: Save the ORIGINAL PDF file for the previewer ---
+            # We save it as 'source.pdf' inside the document's folder
+            self.supabase.storage.from_("document-pages").upload(
+                file=file_content,
+                path=f"{doc_id}/source.pdf",
+                file_options={"content-type": "application/pdf"}
+            )
+
             print(f"Processing {filename} ({n_pages} pages)...")
 
             for i in range(n_pages):
@@ -117,7 +125,7 @@ class PDFEngine:
         # Call the Postgres function we created
         params = {
             "query_embedding": query_vector,
-            "match_threshold": 0.5, # Tune this (0.1 to 0.8)
+            "match_threshold": 0.01, # Tune this (0.1 to 0.8)
             "match_count": 2        # Return Top 2 pages to save cost
         }
         
@@ -150,6 +158,16 @@ class PDFEngine:
         # 2. Delete files (Supabase storage doesn't support folder delete easily via API, 
         # usually you list files then delete. Skip for MVP to avoid complexity).
         pass
+
+    def get_pdf_bytes(self, doc_id: str) -> Optional[bytes]:
+            try:
+                # Download the original PDF from Supabase Storage
+                response = self.supabase.storage.from_("document-pages").download(f"{doc_id}/source.pdf")
+                return response
+            except Exception as e:
+                print(f"Error downloading PDF: {e}")
+                return None
+
 
     def get_all_documents(self) -> List[dict]:
         try:
