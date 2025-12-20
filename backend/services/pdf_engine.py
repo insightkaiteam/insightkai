@@ -94,7 +94,8 @@ class PDFEngine:
                     "page_number": i + 1,
                     "folder": folder,
                     "image_url": public_url,
-                    "embedding": vector
+                    "embedding": vector,
+                    "title": filename
                 }
                 self.supabase.table("document_pages").insert(data).execute()
 
@@ -151,8 +152,28 @@ class PDFEngine:
         pass
 
     def get_all_documents(self) -> List[dict]:
-        # Retrieve unique documents
-        # Since we store pages, we need to group by document_id
-        # This is a bit heavy for the DB, optimization: Create a separate 'documents' table.
-        # MVP: Just return a dummy list or simple query
-        return []
+        try:
+            # Fetch "Page 1" of every document to get the list of unique files
+            response = self.supabase.table("document_pages")\
+                .select("document_id, title, folder, created_at")\
+                .eq("page_number", 1)\
+                .execute()
+            
+            documents = []
+            for row in response.data:
+                # Format the date nicely
+                date_str = row['created_at']
+                if date_str:
+                    date_str = date_str.split("T")[0] # Just keep YYYY-MM-DD
+                
+                documents.append({
+                    "id": row['document_id'],
+                    "title": row.get('title') or "Untitled PDF", # Handle old files
+                    "folder": row['folder'],
+                    "upload_date": date_str,
+                    "page_count": "N/A" # Optimization: Skip counting for now
+                })
+            return documents
+        except Exception as e:
+            print(f"Error fetching documents: {e}")
+            return []
