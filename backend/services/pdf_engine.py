@@ -126,7 +126,8 @@ class PDFEngine:
         params = {
             "query_embedding": query_vector,
             "match_threshold": 0.25, # Tune this (0.1 to 0.8)
-            "match_count": 2        # Return Top 2 pages to save cost
+            "match_count": 2,        # Return Top 2 pages to save cost
+            "filter_doc_id": doc_id
         }
         
         # We also need to filter by document_id so we don't search OTHER files
