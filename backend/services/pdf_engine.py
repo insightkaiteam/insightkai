@@ -113,6 +113,28 @@ class PDFEngine:
             print(f"Error processing PDF: {e}")
             raise e
 
+
+# ... inside PDFEngine class ...
+
+    def get_relevant_folder_pages(self, query: str, folder_name: str) -> List[dict]:
+        """
+        Search for pages across an ENTIRE folder.
+        Returns: [{"image_url": "...", "document_name": "file.pdf"}, ...]
+        """
+        query_vector = self.get_embedding(query)
+        
+        params = {
+            "query_embedding": query_vector,
+            "match_threshold": 0.25,
+            "match_count": 5, # Fetch top 5 pages from ANY file in the folder
+            "filter_folder_name": folder_name
+        }
+        
+        # Call the new SQL function
+        response = self.supabase.rpc("match_folder_pages", params).execute()
+        
+        return response.data
+
     # --- NEW: SEARCH LOGIC ---
     def get_relevant_pages(self, query: str, doc_id: str) -> List[str]:
         """

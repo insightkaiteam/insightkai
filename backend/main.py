@@ -2,7 +2,7 @@ from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from fastapi.responses import Response
-from typing import List
+from typing import List, Optional
 import io
 # Import services
 from services.pdf_engine import PDFEngine
@@ -22,7 +22,8 @@ ai_service = OpenAIService()
 
 class ChatRequest(BaseModel):
     message: str
-    document_id: str
+    document_id: Optional[str] = None # Now optional
+    folder_name: Optional[str] = None # New field
 
 # --- FIX 1: ADD THIS MISSING CLASS ---
 class FolderRequest(BaseModel):
@@ -73,16 +74,30 @@ async def upload_document(
     
 @app.post("/chat")
 async def chat(request: ChatRequest):
-    # 1. Search for relevant pages
-    relevant_image_urls = pdf_engine.get_relevant_pages(request.message, request.document_id)
     
-    # 2. Decide: Document Mode vs. Normal Mode
-    if relevant_image_urls:
-        print(f"RAG MODE: Found {len(relevant_image_urls)} pages. Sending images to AI.")
-        answer = ai_service.get_answer(relevant_image_urls, request.message)
+    relevant_chunks = []
+
+    # CASE A: Chat with Folder
+    if request.folder_name:
+        print(f"FOLDER CHAT: Searching folder '{request.folder_name}'")
+        # Returns list of dicts: [{'image_url': '...', 'document_name': '...'}]
+        data = pdf_engine.get_relevant_folder_pages(request.message, request.folder_name)
+        
+        # Format for AI Service
+        # We just send the URLs for now. 
+        # (Optional: You can update OpenAI service to take document names too)
+        relevant_chunks = [item['image_url'] for item in data]
+
+    # CASE B: Chat with Single Document
+    elif request.document_id:
+        print(f"DOC CHAT: Searching document {request.document_id}")
+        relevant_chunks = pdf_engine.get_relevant_pages(request.message, request.document_id)
+
+    # 3. Get Answer from AI
+    if relevant_chunks:
+        answer = ai_service.get_answer(relevant_chunks, request.message)
     else:
-        print("CHAT MODE: No relevant pages found. Asking AI directly.")
-        # Send empty list -> AI Service will act like normal ChatGPT
+        # Fallback: Normal AI Chat if no docs found
         answer = ai_service.get_answer([], request.message)
         
     return {"answer": answer}
