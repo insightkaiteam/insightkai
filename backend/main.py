@@ -54,7 +54,8 @@ def create_folder(req: FolderRequest):
 
 @app.delete("/documents/{doc_id}")
 def delete_document(doc_id: str):
-    pdf_engine.delete_document(doc_id)
+    # Use the OCR engine to delete
+    ocr_engine.delete_document(doc_id)
     return {"status": "success"}
 
 @app.post("/upload")
@@ -107,20 +108,21 @@ def get_document_status(doc_id: str):
 
 @app.post("/chat")
 async def chat(request: ChatRequest):
-    
     relevant_chunks = []
 
     # CASE A: Chat with Folder
     if request.folder_name:
-        print(f"FOLDER CHAT: Searching folder '{request.folder_name}'")
-        relevant_chunks = pdf_engine.get_relevant_folder_pages(request.message, request.folder_name)
+        # Implementation for folder search (Hybrid)
+        results = ocr_engine.search(request.message, folder_name=request.folder_name)
+        relevant_chunks = [r['content'] for r in results]
 
     # CASE B: Chat with Single Document
     elif request.document_id:
-        print(f"DOC CHAT: Searching document {request.document_id}")
-        relevant_chunks = pdf_engine.get_relevant_pages(request.message, request.document_id)
+        print(f"Searching Text in Doc: {request.document_id}")
+        # Use the NEW text-based search
+        relevant_chunks = ocr_engine.search_single_doc(request.message, request.document_id)
 
-    # 3. Get Answer from AI (Passing the full chunks now, not just URLs)
+    # 3. Get Answer (Now sending TEXT, not images)
     answer = ai_service.get_answer(relevant_chunks, request.message)
         
     return {"answer": answer}

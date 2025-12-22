@@ -16,36 +16,21 @@ class OpenAIService:
         )
 
     # Updated to accept List of Dicts (Structured Data)
-    def get_answer(self, context_chunks: List[Dict[str, Any]], question: str) -> str:
+# Change the signature to accept List[str] which are TEXT chunks
+    def get_answer(self, context_chunks: List[str], question: str) -> str:
         
-        # Scenario A: No Context found
         if not context_chunks:
-            return "I couldn't find any relevant information in your documents to answer that question."
+            # Fallback for empty context
+            return "I couldn't find any relevant information in the document."
 
-        # Scenario B: Text-Based RAG (SOTA Approach)
-        # 1. Build the Context String
-        context_text = ""
-        for chunk in context_chunks:
-            # Handle both Folder search (has 'document_name') and Doc search (might not)
-            source = chunk.get('document_name', 'Current Document')
-            page = chunk.get('page_number', '?')
-            content = chunk.get('content', '') # This is the Markdown from Mistral
-            
-            context_text += f"\n--- SOURCE: {source} (Page {page}) ---\n{content}\n"
-
-        # 2. Construct the Prompt
-        system_prompt = (
-            "You are an expert research assistant. Answer the user's question using ONLY the provided context.\n"
-            "GUIDELINES:\n"
-            "1. Use the provided Markdown context to answer.\n"
-            "2. CITE YOUR SOURCES. Every claim must be followed by [Page X].\n"
-            "3. If the answer involves a table, format it as a Markdown table.\n"
-            "4. If the answer is not in the context, say so."
-        )
+        # 1. Build Text Context
+        # context_chunks is now a list of strings like "**[Page 1]** ...text..."
+        system_context = "You are a helpful assistant. Use the following context to answer the user's question.\n\n"
+        system_context += "\n---\n".join(context_chunks)
 
         messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"CONTEXT:\n{context_text}\n\nUSER QUESTION: {question}"}
+            {"role": "system", "content": system_context},
+            {"role": "user", "content": question}
         ]
 
         try:

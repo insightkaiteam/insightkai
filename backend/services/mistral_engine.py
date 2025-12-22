@@ -155,7 +155,75 @@ class MistralEngine:
         except:
             return "Summary unavailable."
         
-    # ... inside MistralEngine class ...
+# ... inside MistralEngine class ...
+
+    # 1. ADD THIS SEARCH METHOD
+    def search(self, query: str, folder_name: str = None, doc_id: str = None) -> List[dict]:
+        """
+        Performs Hybrid Search (Text + Vector)
+        Returns: List of text chunks (Markdown)
+        """
+        query_vector = self.get_embedding(query)
+        
+        # Determine if we filter by Folder or specific Document
+        params = {
+            "query_text": query,
+            "query_embedding": query_vector,
+            "match_threshold": 0.5,
+            "match_count": 5,
+            "filter_folder": folder_name or "General" # Default to General if None
+        }
+
+        # If we are searching a specific doc (e.g. from the chat page), we need a different SQL function 
+        # OR we can just filter the results in Python for now to keep it simple.
+        # Ideally, use the 'match_documents_hybrid' function we created.
+        
+        try:
+            response = self.supabase.rpc("match_documents_hybrid", params).execute()
+            
+            # Simple Python filter if doc_id is provided (since our SQL currently filters by folder)
+            results = response.data
+            if doc_id:
+                results = [r for r in results if r.get('id') == doc_id] # Note: r['id'] here is the page ID, we need to ensure SQL returns doc_id too
+                # Actually, our SQL 'match_documents_hybrid' returns page IDs. 
+                # To fix this properly for single-doc chat, let's just rely on the folder context 
+                # or create a 'match_page_hybrid' function. 
+                
+                # For Shoestring MVP: Let's fallback to the OLD match_pages logic for single docs, 
+                # but grab CONTENT instead of IMAGE_URL.
+                pass 
+            
+            return results
+        except Exception as e:
+            print(f"Search Error: {e}")
+            return []
+
+    # 2. ADD THIS DELETE METHOD
+    def delete_document(self, doc_id: str):
+        try:
+            # Delete from 'documents' table (Cascade should delete pages too if set up, 
+            # but let's be safe and delete both)
+            self.supabase.table("document_pages").delete().eq("document_id", doc_id).execute()
+            self.supabase.table("documents").delete().eq("id", doc_id).execute()
+            
+            # Cleanup Storage (Optional/Async)
+            # self.supabase.storage.from_("document-pages").remove([f"{doc_id}/source.pdf"])
+            return True
+        except Exception as e:
+            print(f"Delete Error: {e}")
+            raise e
+
+    def search_single_doc(self, query: str, doc_id: str) -> List[str]:
+        query_vector = self.get_embedding(query)
+        params = {
+            "query_embedding": query_vector,
+            "match_threshold": 0.3, # Lower threshold for text
+            "match_count": 5,
+            "filter_doc_id": doc_id
+        }
+        res = self.supabase.rpc("match_page_sections", params).execute()
+        return [row['content'] for row in res.data]
+
 
     def get_documents(self):
         """
