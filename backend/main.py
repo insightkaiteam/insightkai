@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from fastapi.responses import Response
 from typing import List, Optional
 import io
+import uuid
 # Import services
 from services.pdf_engine import PDFEngine
 from services.openai_service import OpenAIService
