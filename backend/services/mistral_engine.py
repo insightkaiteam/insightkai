@@ -217,8 +217,8 @@ class MistralEngine:
         query_vector = self.get_embedding(query)
         params = {
             "query_embedding": query_vector,
-            "match_threshold": 0.3, # Lower threshold for text
-            "match_count": 5,
+            "match_threshold": 0.01, # Lower threshold for text
+            "match_count": 8,
             "filter_doc_id": doc_id
         }
         res = self.supabase.rpc("match_page_sections", params).execute()
