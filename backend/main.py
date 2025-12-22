@@ -58,6 +58,11 @@ def delete_document(doc_id: str):
     ocr_engine.delete_document(doc_id)
     return {"status": "success"}
 
+
+@app.get("/documents/{doc_id}/debug")
+def debug_document(doc_id: str):
+    return ocr_engine.debug_document(doc_id)
+
 @app.post("/upload")
 async def upload_document(
     background_tasks: BackgroundTasks, # <--- Magic handled here

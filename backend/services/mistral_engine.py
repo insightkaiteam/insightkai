@@ -225,6 +225,51 @@ class MistralEngine:
         return [row['content'] for row in res.data]
 
 
+# ... inside MistralEngine class ...
+
+    def debug_document(self, doc_id: str):
+        """
+        Diagnostic tool to check if OCR actually worked.
+        Returns the raw data stored in the database for a specific document.
+        """
+        try:
+            # 1. Check Parent Document Status
+            doc_res = self.supabase.table("documents").select("*").eq("id", doc_id).execute()
+            if not doc_res.data:
+                return {"error": "Document ID not found in 'documents' table."}
+            
+            doc_info = doc_res.data[0]
+
+            # 2. Count the text chunks
+            count_res = self.supabase.table("document_pages")\
+                .select("id", count="exact")\
+                .eq("document_id", doc_id)\
+                .execute()
+            
+            total_chunks = count_res.count if count_res.count is not None else len(count_res.data)
+
+            # 3. Fetch the first 3 chunks to preview text
+            preview_res = self.supabase.table("document_pages")\
+                .select("page_number, content")\
+                .eq("document_id", doc_id)\
+                .limit(3)\
+                .execute()
+
+            return {
+                "filename": doc_info.get("title"),
+                "status": doc_info.get("status"),
+                "summary_snippet": doc_info.get("summary", "")[:100],
+                "total_text_chunks_stored": total_chunks,
+                "preview_of_chunks": [
+                    f"[Page {row['page_number']}] {row['content'][:200]}..." 
+                    for row in preview_res.data
+                ]
+            }
+
+        except Exception as e:
+            return {"error": f"Debug failed: {str(e)}"}
+
+
     def get_documents(self):
         """
         Fetch all documents from the NEW table, including their status (processing/ready).
