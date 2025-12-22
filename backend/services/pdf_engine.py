@@ -28,6 +28,8 @@ class PDFEngine:
         # Return a list of names like ["General", "Finance", "Receipts"]
         return sorted([row['name'] for row in response.data])
 
+
+
     # REPLACE the old create_folder method with this:
     def create_folder(self, folder_name: str):
         # Now we actually save it to the DB!
@@ -117,63 +119,34 @@ class PDFEngine:
 # ... inside PDFEngine class ...
 
     def get_relevant_folder_pages(self, query: str, folder_name: str) -> List[dict]:
-        """
-        Search for pages across an ENTIRE folder.
-        Returns: [{"image_url": "...", "document_name": "file.pdf"}, ...]
-        """
         query_vector = self.get_embedding(query)
+        params = {
+            "query_embedding": query_vector,
+            "match_threshold": 0.25,
+            "match_count": 5,
+            "filter_folder_name": folder_name
+        }
+        # This RPC (match_folder_pages) returns 'content' and 'page_number'
+        response = self.supabase.rpc("match_folder_pages", params).execute()
+        return response.data
+
+    # --- NEW: SEARCH LOGIC ---
+    def get_relevant_pages(self, query: str, doc_id: str) -> List[dict]:
+        query_vector = self.get_embedding(query)
+        
+        # We use the Hybrid function but we need to trick it or update it. 
+        # Actually, let's use the 'match_pages' but ensure it returns CONTENT.
+        # Run the SQL below if you haven't yet, otherwise this logic works:
         
         params = {
             "query_embedding": query_vector,
             "match_threshold": 0.25,
-            "match_count": 5, # Fetch top 5 pages from ANY file in the folder
-            "filter_folder_name": folder_name
-        }
-        
-        # Call the new SQL function
-        response = self.supabase.rpc("match_folder_pages", params).execute()
-        
-        return response.data
-
-    # --- NEW: SEARCH LOGIC ---
-    def get_relevant_pages(self, query: str, doc_id: str) -> List[str]:
-        """
-        1. Convert user question to vector.
-        2. Search Supabase for nearest page.
-        3. Return the Image URLs of those pages.
-        """
-        query_vector = self.get_embedding(query)
-        
-        # Call the Postgres function we created
-        params = {
-            "query_embedding": query_vector,
-            "match_threshold": 0.25, # Tune this (0.1 to 0.8)
-            "match_count": 2,        # Return Top 2 pages to save cost
+            "match_count": 5,
             "filter_doc_id": doc_id
         }
         
-        # We also need to filter by document_id so we don't search OTHER files
-        # (The match_pages function needs a slight filter update, or we do it here)
-        # Note: Since our SQL function was simple, let's just fetch matches and filter in python 
-        # OR better: Add doc_id filter to the SQL function later.
-        # For now, let's trust the vector similarity handles context well, 
-        # but ideally we should update the SQL function to accept a filter.
-        
         response = self.supabase.rpc("match_pages", params).execute()
-        
-        # Filter results to ONLY the current document
-        # (In production, update the SQL function to accept doc_id as a parameter!)
-        relevant_urls = []
-        for match in response.data:
-            # We need to fetch the doc_id for this match to verify
-            # (Optimization: Select doc_id in the RPC function)
-            
-            # Simple workaround: Just return the matches. 
-            # If you have 100 PDFs, this might return a page from another PDF. 
-            # We will assume for this MVP you rely on the query specificities.
-            relevant_urls.append(match['image_url'])
-            
-        return relevant_urls
+        return response.data
 
     def delete_document(self, doc_id: str):
         # 1. Delete rows

@@ -7,3 +7,4 @@ pydantic
 pypdfium2
 pillow
 supabase
+mistralai

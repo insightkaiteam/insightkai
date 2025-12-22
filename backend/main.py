@@ -7,6 +7,8 @@ import io
 # Import services
 from services.pdf_engine import PDFEngine
 from services.openai_service import OpenAIService
+from services.mistral_engine import MistralEngine
+
 #here
 app = FastAPI()
 app.add_middleware(
@@ -19,7 +21,7 @@ app.add_middleware(
 
 pdf_engine = PDFEngine()
 ai_service = OpenAIService()
-
+ocr_engine = MistralEngine()
 class ChatRequest(BaseModel):
     message: str
     document_id: Optional[str] = None # Now optional
@@ -35,7 +37,8 @@ def read_root():
 
 @app.get("/documents")
 def get_documents():
-    return {"documents": pdf_engine.get_all_documents()}
+    # Use ocr_engine so we get the 'status' and 'summary' fields
+    return {"documents": ocr_engine.get_documents()}
 
 # --- NEW ENDPOINTS ---
 
@@ -53,25 +56,54 @@ def delete_document(doc_id: str):
     pdf_engine.delete_document(doc_id)
     return {"status": "success"}
 
-# --- FIX 2: REMOVED DUPLICATE DECORATOR HERE ---
 @app.post("/upload")
 async def upload_document(
+    background_tasks: BackgroundTasks, # <--- Magic handled here
     file: UploadFile = File(...),
-    folder: str = Form("General") # Defaults to "General" if not specified
+    folder: str = Form("General")
 ):
     if not file.filename.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="File must be a PDF")
     
-    try:
-        content = await file.read()
-        # Pass the folder to the engine
-        doc_id = await pdf_engine.process_pdf(content, file.filename, folder)
-        return {"status": "success", "doc_id": doc_id}
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Server Error")
+    # 1. Read file bytes immediately (Before request closes)
+    file_bytes = await file.read()
     
+    # 2. Create an ID and Initial DB Entry
+    doc_id = str(uuid.uuid4())
+    
+    try:
+        # Insert "Processing" record into NEW documents table
+        ocr_engine.supabase.table("documents").insert({
+            "id": doc_id,
+            "title": file.filename,
+            "folder": folder,
+            "status": "processing"
+        }).execute()
+        
+        # 3. Offload the heavy lifting to Background Task
+        background_tasks.add_task(
+            ocr_engine.process_pdf_background, 
+            doc_id, 
+            file_bytes, 
+            file.filename, 
+            folder
+        )
+        
+        # 4. Return IMMEDIATELY
+        return {"status": "processing", "doc_id": doc_id}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/documents/{doc_id}/status")
+def get_document_status(doc_id: str):
+    # Fetch status from DB
+    res = ocr_engine.supabase.table("documents").select("status, summary").eq("id", doc_id).execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return res.data[0]
+
+
 @app.post("/chat")
 async def chat(request: ChatRequest):
     
@@ -80,25 +112,15 @@ async def chat(request: ChatRequest):
     # CASE A: Chat with Folder
     if request.folder_name:
         print(f"FOLDER CHAT: Searching folder '{request.folder_name}'")
-        # Returns list of dicts: [{'image_url': '...', 'document_name': '...'}]
-        data = pdf_engine.get_relevant_folder_pages(request.message, request.folder_name)
-        
-        # Format for AI Service
-        # We just send the URLs for now. 
-        # (Optional: You can update OpenAI service to take document names too)
-        relevant_chunks = [item['image_url'] for item in data]
+        relevant_chunks = pdf_engine.get_relevant_folder_pages(request.message, request.folder_name)
 
     # CASE B: Chat with Single Document
     elif request.document_id:
         print(f"DOC CHAT: Searching document {request.document_id}")
         relevant_chunks = pdf_engine.get_relevant_pages(request.message, request.document_id)
 
-    # 3. Get Answer from AI
-    if relevant_chunks:
-        answer = ai_service.get_answer(relevant_chunks, request.message)
-    else:
-        # Fallback: Normal AI Chat if no docs found
-        answer = ai_service.get_answer([], request.message)
+    # 3. Get Answer from AI (Passing the full chunks now, not just URLs)
+    answer = ai_service.get_answer(relevant_chunks, request.message)
         
     return {"answer": answer}
 

@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { Folder, FileText, Trash2, Plus, ArrowLeft, MessageSquare, X, Send } from 'lucide-react';
+import { Folder, FileText, Trash2, Plus, ArrowLeft, MessageSquare, X, Send, Loader2, FileClock } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
 // ⚠️ REPLACE WITH YOUR RENDER URL
@@ -36,6 +36,21 @@ export default function Dashboard() {
         refreshData();
     }
   }, []);
+
+  // 2. POLLING LOGIC: Auto-refresh if any doc is "processing"
+  useEffect(() => {
+    // Check if we have any docs in 'processing' state
+    const processingDocs = docs.filter(d => d.status === 'processing');
+    
+    if (processingDocs.length > 0) {
+        // If yes, wait 3 seconds and refresh
+        const interval = setInterval(() => {
+            console.log("Polling for updates...");
+            refreshData();
+        }, 3000);
+        return () => clearInterval(interval);
+    }
+  }, [docs]);
 
   const refreshData = async () => {
     try {
@@ -84,6 +99,7 @@ export default function Dashboard() {
         const err = await res.json();
         alert(`Upload Failed: ${err.detail}`);
       } else {
+        // Immediate refresh to show the "Processing" state
         await refreshData();
       }
     } catch (error) { alert("Upload failed."); } 
@@ -221,18 +237,45 @@ export default function Dashboard() {
                       {docs.filter(doc => doc.folder === currentFolder).map((doc) => (
                           <div key={doc.id} className="p-4 flex justify-between items-center hover:bg-gray-50 transition">
                               <div className="flex items-center gap-4">
-                                  <div className="p-2 bg-red-50 rounded-lg">
-                                      <FileText className="text-red-500" size={24} />
+                                  {/* ICON LOGIC: Show Spinner if Processing */}
+                                  <div className={`p-2 rounded-lg ${doc.status === 'processing' ? 'bg-yellow-50' : 'bg-red-50'}`}>
+                                      {doc.status === 'processing' ? (
+                                        <Loader2 className="text-yellow-600 animate-spin" size={24} />
+                                      ) : (
+                                        <FileText className="text-red-500" size={24} />
+                                      )}
                                   </div>
+                                  
                                   <div>
                                       <h3 className="font-medium text-gray-900">{doc.title}</h3>
-                                      <p className="text-sm text-gray-500">{doc.page_count} pages • {doc.upload_date}</p>
+                                      <div className="flex items-center gap-2 text-sm text-gray-500">
+                                        {/* Status Badge */}
+                                        {doc.status === 'processing' && (
+                                            <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full font-bold">
+                                                PROCESSING...
+                                            </span>
+                                        )}
+                                        {doc.status === 'failed' && (
+                                            <span className="text-xs bg-red-100 text-red-800 px-2 py-0.5 rounded-full font-bold">
+                                                FAILED
+                                            </span>
+                                        )}
+                                        <span>{doc.upload_date}</span>
+                                      </div>
                                   </div>
                               </div>
                               <div className="flex gap-3">
-                                  <Link href={`/chat/${doc.id}`}>
-                                      <button className="bg-white border border-gray-300 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50">Open & Chat</button>
-                                  </Link>
+                                  {/* Disable Chat Button if processing */}
+                                  {doc.status === 'processing' ? (
+                                     <button disabled className="bg-gray-100 text-gray-400 px-4 py-2 rounded-lg text-sm font-medium cursor-not-allowed">
+                                        Wait...
+                                     </button>
+                                  ) : (
+                                    <Link href={`/chat/${doc.id}`}>
+                                        <button className="bg-white border border-gray-300 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50">Open & Chat</button>
+                                    </Link>
+                                  )}
+                                  
                                   <button onClick={(e) => handleDelete(doc.id, e)} className="p-2 text-gray-400 hover:text-red-600 transition">
                                       <Trash2 size={20} />
                                   </button>
