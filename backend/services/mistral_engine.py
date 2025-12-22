@@ -47,7 +47,7 @@ class MistralEngine:
             uploaded_file = self.client.files.upload(
                 file={
                     "file_name": filename,
-                    "content": io.BytesIO(file_bytes),
+                    "content": file_bytes,
                 },
                 purpose="ocr"
             )
