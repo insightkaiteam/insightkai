@@ -7,4 +7,4 @@ pydantic
 pypdfium2
 pillow
 supabase
-mistralai
+mistralai>=1.0.0

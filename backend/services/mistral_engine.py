@@ -2,7 +2,6 @@ import os
 import io
 import uuid
 from typing import List
-from datetime import datetime
 from mistralai import Mistral
 from openai import OpenAI
 from supabase import create_client, Client
@@ -14,36 +13,34 @@ class MistralEngine:
         key: str = os.environ.get("SUPABASE_KEY")
         self.supabase: Client = create_client(url, key)
         
-        # 2. Initialize OpenAI (For Embeddings only - dirt cheap)
+        # 2. Initialize OpenAI (Embeddings & Chat)
         self.openai = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
-        # 3. Initialize Mistral (For OCR & Extraction)
+        # 3. Initialize Mistral (OCR & Vision)
         api_key = os.environ.get("MISTRAL_API_KEY")
         if not api_key:
             raise ValueError("MISTRAL_API_KEY is missing!")
+        
+        # The new SDK uses 'Mistral' class, not 'MistralClient'
         self.client = Mistral(api_key=api_key)
 
     def get_embedding(self, text: str) -> List[float]:
-        # Clean text slightly
         text = text.replace("\n", " ")
         return self.openai.embeddings.create(input=[text], model="text-embedding-3-small").data[0].embedding
 
+    # --- MAIN PROCESSING TASK ---
     async def process_pdf_background(self, doc_id: str, file_bytes: bytes, filename: str, folder: str):
-        """
-        This runs in the BACKGROUND. It does not block the user.
-        """
         try:
-            print(f"[{doc_id}] Starting Mistral OCR for {filename}...")
+            print(f"[{doc_id}] Starting Mistral OCR 3.0 processing for {filename}...")
 
-            # A. Upload Source PDF to Storage (So we can view it later)
+            # A. Upload Source PDF to Supabase (Backup)
             self.supabase.storage.from_("document-pages").upload(
                 file=file_bytes,
                 path=f"{doc_id}/source.pdf",
                 file_options={"content-type": "application/pdf"}
             )
 
-            # B. Call Mistral OCR (The "Vision" Step)
-            # We send the bytes directly. 
+            # B. Upload File to Mistral
             uploaded_file = self.client.files.upload(
                 file={
                     "file_name": filename,
@@ -52,36 +49,56 @@ class MistralEngine:
                 purpose="ocr"
             )
             
-            # Wait for OCR processing
+            # Get signed URL for the OCR engine
             signed_url = self.client.files.get_signed_url(file_id=uploaded_file.id, expiry=1)
+            
+            # C. Run OCR (Model: mistral-ocr-latest covers v25.12)
             ocr_response = self.client.ocr.process(
                 document={
                     "type": "document_url",
                     "document_url": signed_url.url,
                 },
                 model="mistral-ocr-latest",
-                include_image_base64=False 
+                include_image_base64=True # <--- CRITICAL: Get images back to describe them
             )
 
-            # C. Process the Markdown Output
             full_summary_text = ""
             
+            # D. Iterate through Pages
             for i, page in enumerate(ocr_response.pages):
                 page_num = i + 1
                 markdown = page.markdown
                 
-                # 1. Enrich with Metadata (The "Citation" Fix)
-                # We prepend the Page Number so it sticks to the text chunks
+                # --- PIXTRAL ANNOTATION STEP ---
+                # Look for images Mistral found, describe them, and inject the description.
+                for img in page.images:
+                    img_id = img.id 
+                    base64_data = img.image_base64
+                    
+                    if base64_data:
+                        # 1. Ask Pixtral to describe this specific chart/image
+                        description = self._describe_with_pixtral(base64_data)
+                        
+                        # 2. Inject description into Markdown
+                        # Mistral OCR puts placeholders like ![img-id](img-id)
+                        # We append the description right after it.
+                        target_tag = f"![{img_id}]({img_id})"
+                        annotation = f"\n\n> **[Visual Data]:** {description}\n\n"
+                        
+                        if target_tag in markdown:
+                            markdown = markdown.replace(target_tag, target_tag + annotation)
+                        else:
+                            markdown += annotation
+
+                # Enrich with Page Metadata
                 enriched_markdown = f"**[Page {page_num}]**\n{markdown}"
                 
-                # 2. Accumulate text for the Summary (First 2000 chars of doc)
-                if len(full_summary_text) < 2000:
-                    full_summary_text += markdown + "\n"
+                if len(full_summary_text) < 4000:
+                    full_summary_text += enriched_markdown + "\n"
 
-                # 3. CHUNK: Split by Headers (H1, H2)
+                # Chunk & Save
                 chunks = self._chunk_markdown(enriched_markdown)
 
-                # 4. Embed & Save each chunk
                 for chunk_text in chunks:
                     if not chunk_text.strip(): continue
                     
@@ -91,239 +108,120 @@ class MistralEngine:
                         "document_id": doc_id,
                         "page_number": page_num,
                         "folder": folder,
-                        "content": chunk_text, # Saving the text!
+                        "content": chunk_text,
                         "embedding": vector,
                         "title": filename,
-                        # We don't have individual image_urls anymore with pure OCR, 
-                        # but we can link to the source PDF later.
-                        "image_url": None 
+                        "image_url": "" # No image URL needed for pure text RAG
                     }).execute()
 
-            # D. Generate Summary (The "Layer 1" Search)
+            # E. Generate Summary & Finish
             summary = self._generate_summary(full_summary_text)
-
-            # E. Mark as READY
             self.supabase.table("documents").update({
                 "status": "ready",
                 "summary": summary
             }).eq("id", doc_id).execute()
             
-            print(f"[{doc_id}] Processing Complete.")
+            print(f"[{doc_id}] Success.")
 
         except Exception as e:
             print(f"[{doc_id}] FAILED: {e}")
-            self.supabase.table("documents").update({
-                "status": "failed"
-            }).eq("id", doc_id).execute()
+            self.supabase.table("documents").update({"status": "failed"}).eq("id", doc_id).execute()
+
+    def _describe_with_pixtral(self, base64_img: str) -> str:
+        """
+        Sends the image crop to Pixtral 12B for analysis.
+        """
+        try:
+            res = self.client.chat.complete(
+                model="pixtral-12b-2409",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "Analyze this image. If it's a chart, output the data trends and numbers. If it's a diagram, explain the flow. Be concise."},
+                            {"type": "image_url", "image_url": f"data:image/jpeg;base64,{base64_img}"}
+                        ]
+                    }
+                ]
+            )
+            return res.choices[0].message.content
+        except Exception:
+            return "Image description unavailable."
+
+    # --- UTILS (No changes needed below here) ---
 
     def _chunk_markdown(self, text: str) -> List[str]:
-        """
-        Intelligent Splitting:
-        Splits text by Markdown headers (#, ##, ###) so we keep logical sections together.
-        """
         chunks = []
         current_chunk = ""
-        
         lines = text.split('\n')
         for line in lines:
-            # If line is a header (e.g. "# Financials"), it's a new chunk
             if line.strip().startswith("#"):
-                if current_chunk:
-                    chunks.append(current_chunk.strip())
+                if current_chunk: chunks.append(current_chunk.strip())
                 current_chunk = line + "\n"
             else:
                 current_chunk += line + "\n"
-                
-            # Safety: If chunk gets too big (>1000 words), force a split
             if len(current_chunk) > 4000:
                 chunks.append(current_chunk.strip())
                 current_chunk = ""
-        
-        if current_chunk:
-            chunks.append(current_chunk.strip())
-            
+        if current_chunk: chunks.append(current_chunk.strip())
         return chunks
 
     def _generate_summary(self, text: str) -> str:
-        # Use GPT-4o-mini to generate a quick 3-sentence summary
         try:
             res = self.openai.chat.completions.create(
                 model="gpt-4o-mini",
-                messages=[{"role": "user", "content": f"Summarize this document in 3 concise sentences for search indexing:\n\n{text[:3000]}"}]
+                messages=[{"role": "user", "content": f"Summarize in 3 sentences:\n\n{text[:3000]}"}]
             )
             return res.choices[0].message.content
-        except:
-            return "Summary unavailable."
-        
-# ... inside MistralEngine class ...
+        except: return "Summary unavailable."
 
-    # 1. ADD THIS SEARCH METHOD
-    def search(self, query: str, folder_name: str = None, doc_id: str = None) -> List[dict]:
-        """
-        Performs Hybrid Search (Text + Vector)
-        Returns: List of text chunks (Markdown)
-        """
+    def search(self, query: str, folder_name: str = None) -> List[dict]:
         query_vector = self.get_embedding(query)
-        
-        # Determine if we filter by Folder or specific Document
         params = {
             "query_text": query,
             "query_embedding": query_vector,
             "match_threshold": 0.5,
             "match_count": 5,
-            "filter_folder": folder_name or "General" # Default to General if None
+            "filter_folder": folder_name or "General"
         }
-
-        # If we are searching a specific doc (e.g. from the chat page), we need a different SQL function 
-        # OR we can just filter the results in Python for now to keep it simple.
-        # Ideally, use the 'match_documents_hybrid' function we created.
-        
         try:
             response = self.supabase.rpc("match_documents_hybrid", params).execute()
-            
-            # Simple Python filter if doc_id is provided (since our SQL currently filters by folder)
-            results = response.data
-            if doc_id:
-                results = [r for r in results if r.get('id') == doc_id] # Note: r['id'] here is the page ID, we need to ensure SQL returns doc_id too
-                # Actually, our SQL 'match_documents_hybrid' returns page IDs. 
-                # To fix this properly for single-doc chat, let's just rely on the folder context 
-                # or create a 'match_page_hybrid' function. 
-                
-                # For Shoestring MVP: Let's fallback to the OLD match_pages logic for single docs, 
-                # but grab CONTENT instead of IMAGE_URL.
-                pass 
-            
-            return results
-        except Exception as e:
-            print(f"Search Error: {e}")
-            return []
-
-    # 2. ADD THIS DELETE METHOD
-    def delete_document(self, doc_id: str):
-        try:
-            # Delete from 'documents' table (Cascade should delete pages too if set up, 
-            # but let's be safe and delete both)
-            self.supabase.table("document_pages").delete().eq("document_id", doc_id).execute()
-            self.supabase.table("documents").delete().eq("id", doc_id).execute()
-            
-            # Cleanup Storage (Optional/Async)
-            # self.supabase.storage.from_("document-pages").remove([f"{doc_id}/source.pdf"])
-            return True
-        except Exception as e:
-            print(f"Delete Error: {e}")
-            raise e
+            return response.data
+        except: return []
 
     def search_single_doc(self, query: str, doc_id: str) -> List[str]:
         query_vector = self.get_embedding(query)
         params = {
             "query_embedding": query_vector,
-            "match_threshold": 0.01, # Lower threshold for text
+            "match_threshold": 0.01, # Low threshold for safety
             "match_count": 8,
             "filter_doc_id": doc_id
         }
-        res = self.supabase.rpc("match_page_sections", params).execute()
-        return [row['content'] for row in res.data]
-
-
-# ... inside MistralEngine class ...
-
-    def debug_document(self, doc_id: str):
-        """
-        Diagnostic tool to check if OCR actually worked.
-        Returns the raw data stored in the database for a specific document.
-        """
         try:
-            # 1. Check Parent Document Status
-            doc_res = self.supabase.table("documents").select("*").eq("id", doc_id).execute()
-            if not doc_res.data:
-                return {"error": "Document ID not found in 'documents' table."}
-            
-            doc_info = doc_res.data[0]
-
-            # 2. Count the text chunks
-            count_res = self.supabase.table("document_pages")\
-                .select("id", count="exact")\
-                .eq("document_id", doc_id)\
-                .execute()
-            
-            total_chunks = count_res.count if count_res.count is not None else len(count_res.data)
-
-            # 3. Fetch the first 3 chunks to preview text
-            preview_res = self.supabase.table("document_pages")\
-                .select("page_number, content")\
-                .eq("document_id", doc_id)\
-                .limit(3)\
-                .execute()
-
-            return {
-                "filename": doc_info.get("title"),
-                "status": doc_info.get("status"),
-                "summary_snippet": doc_info.get("summary", "")[:100],
-                "total_text_chunks_stored": total_chunks,
-                "preview_of_chunks": [
-                    f"[Page {row['page_number']}] {row['content'][:200]}..." 
-                    for row in preview_res.data
-                ]
-            }
-
-        except Exception as e:
-            return {"error": f"Debug failed: {str(e)}"}
-
-
-    def debug_search(self, doc_id: str, query: str):
-        """
-        Test the search logic directly without the Chat AI.
-        """
-        try:
-            # 1. Generate Embedding
-            query_vector = self.get_embedding(query)
-            
-            # 2. Call the SQL Function
-            params = {
-                "query_embedding": query_vector,
-                "match_threshold": 0.1, # Very low threshold to catch ANYTHING
-                "match_count": 3,
-                "filter_doc_id": doc_id
-            }
             res = self.supabase.rpc("match_page_sections", params).execute()
-            
-            return {
-                "query": query,
-                "chunks_found": len(res.data),
-                "top_match_preview": res.data[0]['content'][:200] if res.data else "No matches found."
-            }
-        except Exception as e:
-            return {"error": str(e)}
-
+            return [row['content'] for row in res.data if row.get('content')]
+        except: return []
+    
+    def delete_document(self, doc_id: str):
+        self.supabase.table("document_pages").delete().eq("document_id", doc_id).execute()
+        self.supabase.table("documents").delete().eq("id", doc_id).execute()
 
     def get_documents(self):
-        """
-        Fetch all documents from the NEW table, including their status (processing/ready).
-        """
         try:
-            # Select everything, including the new 'summary' and 'status' columns
-            response = self.supabase.table("documents")\
-                .select("*")\
-                .order("created_at", desc=True)\
-                .execute()
-            
-            # Helper to format the date safely
-            docs = []
-            for row in response.data:
-                # Basic date formatting
-                created = row['created_at'].split("T")[0] if row.get('created_at') else "Unknown"
-                
-                docs.append({
-                    "id": row['id'],
-                    "title": row.get('title', 'Untitled'),
-                    "folder": row.get('folder', 'General'),
-                    "status": row.get('status', 'ready'), # Default to ready if missing
-                    "summary": row.get('summary', ''),
-                    "upload_date": created,
-                    "page_count": "N/A" # We can calculate this later if needed
-                })
-            return docs
-            
-        except Exception as e:
-            print(f"Error fetching documents: {e}")
-            return []
+            res = self.supabase.table("documents").select("*").order("created_at", desc=True).execute()
+            return [{
+                "id": r['id'], 
+                "title": r.get('title','Untitled'), 
+                "folder": r.get('folder','General'),
+                "status": r.get('status','ready'),
+                "summary": r.get('summary',''),
+                "upload_date": r['created_at'].split("T")[0] if r.get('created_at') else "N/A"
+            } for r in res.data]
+        except: return []
+
+    def debug_document(self, doc_id: str):
+        try:
+            doc = self.supabase.table("documents").select("*").eq("id", doc_id).execute().data[0]
+            pages = self.supabase.table("document_pages").select("page_number, content").eq("document_id", doc_id).limit(3).execute()
+            return {"status": doc['status'], "preview": [p['content'][:200] for p in pages.data]}
+        except Exception as e: return {"error": str(e)}
