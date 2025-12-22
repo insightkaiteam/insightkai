@@ -270,6 +270,32 @@ class MistralEngine:
             return {"error": f"Debug failed: {str(e)}"}
 
 
+    def debug_search(self, doc_id: str, query: str):
+        """
+        Test the search logic directly without the Chat AI.
+        """
+        try:
+            # 1. Generate Embedding
+            query_vector = self.get_embedding(query)
+            
+            # 2. Call the SQL Function
+            params = {
+                "query_embedding": query_vector,
+                "match_threshold": 0.1, # Very low threshold to catch ANYTHING
+                "match_count": 3,
+                "filter_doc_id": doc_id
+            }
+            res = self.supabase.rpc("match_page_sections", params).execute()
+            
+            return {
+                "query": query,
+                "chunks_found": len(res.data),
+                "top_match_preview": res.data[0]['content'][:200] if res.data else "No matches found."
+            }
+        except Exception as e:
+            return {"error": str(e)}
+
+
     def get_documents(self):
         """
         Fetch all documents from the NEW table, including their status (processing/ready).

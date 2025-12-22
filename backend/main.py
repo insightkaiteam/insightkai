@@ -58,6 +58,9 @@ def delete_document(doc_id: str):
     ocr_engine.delete_document(doc_id)
     return {"status": "success"}
 
+@app.get("/documents/{doc_id}/debug_search")
+def debug_search_endpoint(doc_id: str, query: str):
+    return ocr_engine.debug_search(doc_id, query)
 
 @app.get("/documents/{doc_id}/debug")
 def debug_document(doc_id: str):
