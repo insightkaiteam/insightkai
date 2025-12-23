@@ -30,79 +30,65 @@ class MistralEngine:
         text = text.replace("\n", " ")
         return self.openai.embeddings.create(input=[text], model="text-embedding-3-small").data[0].embedding
 
-    # --- NEW: GET FOLDER OVERVIEW (THE "MANIFEST") ---
-    def get_folder_manifest(self, folder_name: str) -> str:
+# --- UPDATED: STRUCTURED SUMMARY FOR GROUPING ---
+    def _generate_summary(self, full_text: str) -> str:
         """
-        Fetches a list of all files in the folder and their summaries.
-        This gives the AI 'Global Awareness' of what is in the folder.
+        Uses GPT-4o-mini to classify and summarize the document.
+        Format: [CATEGORY]: Description
         """
         try:
-            # Fetch all documents in this folder
-            res = self.supabase.table("documents")\
-                .select("title, summary, created_at")\
-                .eq("folder", folder_name)\
-                .execute()
+            preview_text = full_text[:3000]
+            
+            # We explicitly tell the AI to classify first.
+            system_prompt = (
+                "You are a document classifier. Your job is to: "
+                "1. Classify the document into a high-level category (e.g., INVOICE, RESEARCH, FINANCIAL, LEGAL, RECEIPT, OTHER, etc. etc.). "
+                "2. Provide a specific 1-sentence description. "
+                "3. Return the result strictly in this format: '[CATEGORY]: Description'. "
+                "Example: '[INVOICE]: August 2023 Power Bill for $150.'"
+            )
+
+            response = self.openai.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"Analyze this text:\n\n{preview_text}"}
+                ],
+                max_tokens=100
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            print(f"Summary Generation Error: {e}")
+            return "[UNKNOWN]: No summary available."
+
+    # --- UPDATED: GET FOLDER OVERVIEW ---
+    def get_folder_manifest(self, folder_name: str) -> str:
+        try:
+            res = self.supabase.table("documents").select("title, summary, created_at").eq("folder", folder_name).execute()
             
             if not res.data:
                 return "This folder is empty."
 
             manifest = f"### 📂 FOLDER CONTENT MANIFEST ({len(res.data)} files):\n"
+            manifest += "The user has access to the following files. Use this list to answer questions like 'What is in this folder?'.\n\n"
+            
             for doc in res.data:
-                # Truncate summary to keep context light
-                short_summary = (doc.get('summary') or "No summary available.")[:200].replace("\n", " ")
-                manifest += f"- 📄 **{doc['title']}**: {short_summary}...\n"
+                raw_summary = doc.get('summary') or ""
+                # Split: The summary field now contains [REAL SUMMARY] ... [LOG]
+                # We only want the REAL SUMMARY part for the chat context.
+                clean_summary = raw_summary.split("---_SEPARATOR_---")[0].replace("**Content Summary:**", "").strip()
+                
+                if not clean_summary:
+                    clean_summary = "Processed document."
+
+                manifest += f"- 📄 **{doc['title']}**: {clean_summary}\n"
             
             return manifest
         except Exception as e:
             return f"Error fetching folder manifest: {e}"
 
-    # --- UPDATED SEARCH WITH TITLE LOOKUP ---
-    def search(self, query: str, folder_name: str = None, limit: int = 5) -> List[dict]:
-        query_vector = self.get_embedding(query)
-        params = {
-            "query_text": query, 
-            "query_embedding": query_vector, 
-            "match_threshold": 0.01,  
-            "match_count": limit, 
-            "filter_folder": folder_name or "General"
-        }
-        try:
-            # 1. Run Vector Search
-            response = self.supabase.rpc("match_documents_hybrid", params).execute()
-            results = []
-            
-            if not response.data:
-                return []
-
-            # 2. Extract Document IDs to fetch Titles (Fixes "Unknown File")
-            doc_ids = list(set([row['document_id'] for row in response.data]))
-            
-            # 3. Batch Fetch Titles
-            title_map = {}
-            if doc_ids:
-                docs_res = self.supabase.table("documents").select("id, title").in_("id", doc_ids).execute()
-                for d in docs_res.data:
-                    title_map[d['id']] = d['title']
-
-            # 4. Inject Titles into Content
-            for row in response.data:
-                doc_id = row['document_id']
-                filename = title_map.get(doc_id, "Unknown File")
-                
-                # Context Injection
-                injected_content = f"[[SOURCE: {filename} | Page {row.get('page_number', '?')}]]\n{row['content']}"
-                row['content'] = injected_content
-                results.append(row)
-                
-            return results
-        except Exception as e:
-            print(f"Search Error: {e}")
-            return []
-
-    # --- EXISTING METHODS (UNCHANGED) ---
+    # --- MAIN TASK ---
     async def process_pdf_background(self, doc_id: str, file_bytes: bytes, filename: str, folder: str):
-        # (Keep your existing process_pdf_background code EXACTLY as is)
-        # It is working fine, no need to touch it.
         try:
             print(f"[{doc_id}] Starting Mistral Native OCR (Latest) for {filename}...")
             self.supabase.storage.from_("document-pages").upload(file=file_bytes, path=f"{doc_id}/source.pdf", file_options={"content-type": "application/pdf"})
@@ -115,6 +101,8 @@ class MistralEngine:
                 bbox_annotation_format=response_format_from_pydantic_model(VisualContext)
             )
 
+            # We will accumulate text to generate a real summary later
+            full_document_text = ""
             manifest_log = f"**🔍 Extraction Verification Log: {filename}**\n\n"
             
             for i, page in enumerate(ocr_response.pages):
@@ -154,6 +142,10 @@ class MistralEngine:
                 enriched_content = f"**[Page {page_num}]**\n{markdown}\n"
                 if visual_section: enriched_content += "\n### 📊 Visual Data Extracted:\n" + visual_section
 
+                # Append to full text for summary generation
+                if len(full_document_text) < 10000: # Limit size for summary context
+                    full_document_text += enriched_content + "\n"
+
                 chunks = self._chunk_markdown(enriched_content)
                 for chunk in chunks:
                     if not chunk.strip(): continue
@@ -163,14 +155,21 @@ class MistralEngine:
                         "content": chunk, "embedding": vector, "title": filename, "image_url": ""
                     }).execute()
 
-            manifest_log += "\n✅ **Extraction Complete.**"
-            self.supabase.table("documents").update({"status": "ready", "summary": manifest_log}).eq("id", doc_id).execute()
-            print(f"[{doc_id}] Success. Manifest saved.")
+            # --- GENERATE REAL SUMMARY ---
+            content_summary = self._generate_summary(full_document_text)
+            
+            # Combine Summary (for AI) and Log (for User)
+            # We use a separator so we can split them later
+            final_summary_field = f"**Content Summary:** {content_summary}\n\n---_SEPARATOR_---\n\n{manifest_log}\n✅ **Extraction Complete.**"
+
+            self.supabase.table("documents").update({"status": "ready", "summary": final_summary_field}).eq("id", doc_id).execute()
+            print(f"[{doc_id}] Success. Summary: {content_summary}")
 
         except Exception as e:
             print(f"[{doc_id}] FAILED: {e}")
             self.supabase.table("documents").update({"status": "failed"}).eq("id", doc_id).execute()
 
+    # --- HELPERS (Keep existing) ---
     def _chunk_markdown(self, text: str) -> List[str]:
         chunks = []
         current_chunk = ""
@@ -191,6 +190,40 @@ class MistralEngine:
             return [row['content'] for row in res.data if row.get('content')]
         except: return []
 
+    def search(self, query: str, folder_name: str = None, limit: int = 5) -> List[dict]:
+        query_vector = self.get_embedding(query)
+        params = {
+            "query_text": query, 
+            "query_embedding": query_vector, 
+            "match_threshold": 0.01,  
+            "match_count": limit, 
+            "filter_folder": folder_name or "General"
+        }
+        try:
+            response = self.supabase.rpc("match_documents_hybrid", params).execute()
+            
+            # Extract IDs to fetch Titles
+            doc_ids = list(set([row['document_id'] for row in response.data])) if response.data else []
+            title_map = {}
+            if doc_ids:
+                docs_res = self.supabase.table("documents").select("id, title").in_("id", doc_ids).execute()
+                for d in docs_res.data:
+                    title_map[d['id']] = d['title']
+
+            results = []
+            for row in response.data:
+                doc_id = row['document_id']
+                filename = title_map.get(doc_id, "Unknown File")
+                injected_content = f"[[SOURCE: {filename} | Page {row.get('page_number', '?')}]]\n{row['content']}"
+                row['content'] = injected_content
+                results.append(row)
+                
+            return results
+        except Exception as e:
+            print(f"Search Error: {e}")
+            return []
+
+    # ... (Keep get_documents, delete_document, debug methods) ...
     def get_documents(self):
         try:
             res = self.supabase.table("documents").select("*").order("created_at", desc=True).execute()
