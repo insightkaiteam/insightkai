@@ -357,7 +357,10 @@ export default function Dashboard() {
                     <div className={`p-4 max-w-[85%] rounded-2xl text-sm leading-relaxed shadow-sm ${
                         m.role === 'user' ? 'bg-blue-600 text-white rounded-br-sm' : 'bg-white border border-gray-100 text-gray-700 rounded-bl-sm'
                     }`}>
-                        <ReactMarkdown className="prose prose-sm prose-invert">{m.content}</ReactMarkdown>
+                        {/* FIX: WRAPPED REACT MARKDOWN AND ADJUSTED CLASSES */}
+                        <div className={`prose prose-sm ${m.role === 'user' ? 'prose-invert' : ''}`}>
+                            <ReactMarkdown>{m.content}</ReactMarkdown>
+                        </div>
                     </div>
                 </div>
             ))}
