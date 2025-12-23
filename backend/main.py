@@ -26,7 +26,8 @@ ocr_engine = MistralEngine()
 class ChatRequest(BaseModel):
     message: str
     document_id: Optional[str] = None 
-    folder_name: Optional[str] = None 
+    folder_name: Optional[str] = None
+    mode: Optional[str] = "simple" # 'simple' (Fast) or 'deep' (Compare multiple docs)
 
 class FolderRequest(BaseModel):
     name: str
@@ -48,7 +49,6 @@ def create_folder(req: FolderRequest):
     pdf_engine.create_folder(req.name)
     return {"status": "success", "folders": pdf_engine.get_folders()}
 
-# --- NEW: DELETE FOLDER ENDPOINT ---
 @app.delete("/folders/{folder_name}")
 def delete_folder(folder_name: str):
     try:
@@ -114,13 +114,23 @@ def get_document_status(doc_id: str):
 async def chat(request: ChatRequest):
     relevant_chunks = []
 
-    # CASE A: Chat with Folder
+    # CASE A: Chat with Folder (The "Intelligence" Engine)
     if request.folder_name:
-        results = ocr_engine.search(request.message, folder_name=request.folder_name)
+        # 1. Decide Depth based on Mode
+        limit = 5 # Default Simple
+        if request.mode == "deep":
+            limit = 25 # Deep Chat (Reads 5x more content for comparison)
+            print(f"Deep Chat Activated: Fetching {limit} chunks...")
+
+        # 2. Search with Context Injection
+        results = ocr_engine.search(request.message, folder_name=request.folder_name, limit=limit)
+        
+        # 3. Use the injected content (which now has [[Source: filename]])
         relevant_chunks = [r['content'] for r in results]
 
-    # CASE B: Chat with Single Document
+    # CASE B: Chat with Single Document (Unaffected)
     elif request.document_id:
+        print(f"Searching Single Doc: {request.document_id}")
         relevant_chunks = ocr_engine.search_single_doc(request.message, request.document_id)
 
     answer = ai_service.get_answer(relevant_chunks, request.message)

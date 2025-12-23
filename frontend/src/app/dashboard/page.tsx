@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { Folder, FileText, Trash2, Plus, ArrowLeft, MessageSquare, X, Send, Loader2, FileClock } from 'lucide-react';
+import { Folder, FileText, Trash2, Plus, ArrowLeft, MessageSquare, X, Send, Loader2, FileClock, BrainCircuit } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
 // ⚠️ REPLACE WITH YOUR RENDER URL
@@ -24,6 +24,7 @@ export default function Dashboard() {
   const [chatMessages, setChatMessages] = useState<{role: string, content: string}[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [isChatLoading, setIsChatLoading] = useState(false);
+  const [chatMode, setChatMode] = useState<'simple' | 'deep'>('simple'); // NEW: Chat Mode
 
   // Auth State
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -83,9 +84,8 @@ export default function Dashboard() {
     } catch(e) { alert("Failed to create folder"); }
   };
 
-  // --- NEW: DELETE FOLDER HANDLER ---
   const handleDeleteFolder = async (folderName: string, e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent entering the folder when clicking delete
+    e.stopPropagation();
     if (!confirm(`Are you sure you want to delete folder "${folderName}"? Documents inside will be moved to 'General'.`)) return;
     
     try {
@@ -143,7 +143,8 @@ export default function Dashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
             message: msgToSend, 
-            folder_name: currentFolder 
+            folder_name: currentFolder,
+            mode: chatMode // <--- SEND MODE HERE
         }),
       });
       const data = await res.json();
@@ -237,8 +238,6 @@ export default function Dashboard() {
                           <p className="text-sm text-gray-400">
                               {docs.filter(d => d.folder === folder).length} files
                           </p>
-                          
-                          {/* DELETE ICON (Only show if not General) */}
                           {folder !== "General" && (
                               <button 
                                 onClick={(e) => handleDeleteFolder(folder, e)}
@@ -272,14 +271,10 @@ export default function Dashboard() {
                                       <h3 className="font-medium text-gray-900">{doc.title}</h3>
                                       <div className="flex items-center gap-2 text-sm text-gray-500">
                                         {doc.status === 'processing' && (
-                                            <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full font-bold">
-                                                PROCESSING...
-                                            </span>
+                                            <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full font-bold">PROCESSING...</span>
                                         )}
                                         {doc.status === 'failed' && (
-                                            <span className="text-xs bg-red-100 text-red-800 px-2 py-0.5 rounded-full font-bold">
-                                                FAILED
-                                            </span>
+                                            <span className="text-xs bg-red-100 text-red-800 px-2 py-0.5 rounded-full font-bold">FAILED</span>
                                         )}
                                         <span>{doc.upload_date}</span>
                                       </div>
@@ -295,7 +290,6 @@ export default function Dashboard() {
                                         <button className="bg-white border border-gray-300 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50">Open & Chat</button>
                                     </Link>
                                   )}
-                                  
                                   <button onClick={(e) => handleDelete(doc.id, e)} className="p-2 text-gray-400 hover:text-red-600 transition">
                                       <Trash2 size={20} />
                                   </button>
@@ -316,10 +310,34 @@ export default function Dashboard() {
       {/* RIGHT SIDEBAR: FOLDER CHAT */}
       <div className={`fixed top-0 right-0 h-full w-96 bg-white shadow-2xl border-l border-gray-200 transform transition-transform duration-300 flex flex-col ${showChat ? 'translate-x-0' : 'translate-x-full'}`}>
         <div className="p-4 border-b flex justify-between items-center bg-gray-50">
-            <h2 className="font-bold text-lg">Chat with {currentFolder}</h2>
+            <div>
+                <h2 className="font-bold text-lg">Chat with Folder</h2>
+                <p className="text-xs text-gray-400">{currentFolder}</p>
+            </div>
             <button onClick={() => setShowChat(false)} className="p-2 text-gray-500 hover:bg-gray-200 rounded-full">
                 <X size={20} />
             </button>
+        </div>
+
+        {/* CHAT MODE TOGGLE */}
+        <div className="p-4 bg-gray-50 border-b border-gray-200">
+            <div className="flex bg-gray-200 p-1 rounded-lg">
+                <button 
+                    onClick={() => setChatMode('simple')}
+                    className={`flex-1 py-1 text-xs font-semibold rounded-md transition ${chatMode === 'simple' ? 'bg-white shadow text-black' : 'text-gray-500'}`}
+                >
+                    Fast Search
+                </button>
+                <button 
+                    onClick={() => setChatMode('deep')}
+                    className={`flex-1 py-1 text-xs font-semibold rounded-md transition flex items-center justify-center gap-1 ${chatMode === 'deep' ? 'bg-purple-600 text-white shadow' : 'text-gray-500'}`}
+                >
+                    <BrainCircuit size={12} /> Deep Compare
+                </button>
+            </div>
+            <p className="text-xs text-gray-400 mt-2 text-center">
+                {chatMode === 'simple' ? "Best for finding specific files or facts." : "Reads 5x more data. Good for summaries."}
+            </p>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
@@ -340,7 +358,7 @@ export default function Dashboard() {
             <div className="flex gap-2">
                 <input 
                     className="flex-1 border p-2 rounded-lg text-sm" 
-                    placeholder="Ask about this folder..."
+                    placeholder={chatMode === 'deep' ? "Ask a complex comparison question..." : "Search for a file..."}
                     value={chatInput}
                     onChange={e => setChatInput(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && sendFolderMessage()}
