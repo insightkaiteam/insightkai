@@ -25,7 +25,7 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
-/* --- HERO CARD ANIMATIONS --- */
+/* --- HERO CARD SHUFFLE ANIMATIONS --- */
 @keyframes card-cycle-1 {
   0%, 30% { z-index: 30; transform: translateY(0) scale(1); opacity: 1; }
   33% { z-index: 10; transform: translateY(40px) scale(0.9); opacity: 0; }
@@ -54,50 +54,52 @@ body {
 .animate-card-2 { animation: card-cycle-2 12s infinite ease-in-out; }
 .animate-card-3 { animation: card-cycle-3 12s infinite ease-in-out; }
 
-/* --- FEATURE ANIMATIONS --- */
+/* --- FEATURE CARD ANIMATIONS --- */
 
-/* 1. Deep Research (Scanning Text) */
+/* 1. Evidence Analysis (Scanning Text Highlight) */
 @keyframes scan-text {
-  0% { width: 0%; opacity: 0.5; }
+  0% { width: 0%; opacity: 0; }
+  20% { width: 30%; opacity: 0.5; }
   50% { width: 100%; opacity: 1; }
-  100% { width: 100%; opacity: 0.5; }
+  80% { width: 100%; opacity: 0; }
+  100% { width: 0%; opacity: 0; }
 }
 .animate-scan-text {
-  animation: scan-text 2s infinite ease-in-out;
+  animation: scan-text 3s infinite linear;
 }
 
-/* 2. Cross-Doc (Pulsing Line) */
+/* 2. Cross-Doc (Pulsing Bridge) */
 @keyframes ping-line {
-  0% { transform: scaleX(0); opacity: 0.5; }
-  50% { transform: scaleX(1); opacity: 1; }
-  100% { transform: scaleX(1); opacity: 0; }
+  0% { width: 0%; opacity: 0.5; left: 0; }
+  50% { width: 100%; opacity: 1; left: 0; }
+  51% { width: 100%; opacity: 0; left: auto; right: 0; }
+  100% { width: 0%; opacity: 0; right: 0; }
 }
 .animate-ping-line {
-  animation: ping-line 1.5s infinite ease-out;
+  animation: ping-line 2s infinite ease-in-out;
 }
 
 /* 3. Autonomous Library (Sorting Stack) */
 @keyframes stack-sort {
-  0% { transform: translateY(0) rotate(0deg); }
-  25% { transform: translateY(-5px) rotate(-5deg); }
-  50% { transform: translateY(0) rotate(0deg); }
-  75% { transform: translateY(-2px) rotate(2deg); }
-  100% { transform: translateY(0) rotate(0deg); }
+  0% { transform: translateY(0) scale(1); opacity: 1; }
+  25% { transform: translateY(-8px) scale(0.95); opacity: 0.8; }
+  50% { transform: translateY(0) scale(1); opacity: 1; }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
 }
 .animate-stack {
-  animation: stack-sort 3s infinite ease-in-out;
+  animation: stack-sort 4s infinite ease-in-out;
 }
 
 /* 4. Ambient (Waveform) */
 @keyframes waveform {
-  0%, 100% { height: 20%; }
-  50% { height: 100%; }
+  0%, 100% { height: 20%; opacity: 0.5; }
+  50% { height: 100%; opacity: 1; }
 }
 .animate-waveform {
-  animation: waveform 1s ease-in-out infinite;
+  animation: waveform 1.2s ease-in-out infinite;
 }
 
-/* Upload Bar */
+/* Upload Loading Bar */
 @keyframes progress {
   0% { transform: scaleX(0); }
   50% { transform: scaleX(0.5); }

@@ -33,8 +33,8 @@ export default function LandingPage() {
           <div>
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gray-100 border border-gray-200 text-gray-600 text-xs font-bold uppercase tracking-wider mb-8">
               <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
               </span>
               SOTA Intelligence Engine v2.0
             </div>
@@ -136,13 +136,14 @@ export default function LandingPage() {
         
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             
-            {/* 1. Deep Research (Teal) */}
-            <div className="bg-emerald-50 rounded-[2rem] p-8 border border-emerald-100 hover:shadow-xl hover:shadow-emerald-100 transition duration-300 group">
-                <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-emerald-600 mb-6 shadow-sm group-hover:scale-110 transition relative overflow-hidden">
+            {/* 1. Evidence-Based Analysis (Teal) */}
+            <div className="bg-emerald-50 rounded-[2rem] p-8 border border-emerald-100 hover:shadow-xl hover:shadow-emerald-100 transition duration-300 group overflow-hidden">
+                <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-emerald-600 mb-6 shadow-sm group-hover:scale-110 transition relative">
                     <ScanSearch size={24} className="relative z-10"/>
-                    <div className="absolute inset-0 bg-emerald-100/50 h-full w-full animate-scan-text"></div>
+                    {/* Scanning Animation Layer */}
+                    <div className="absolute top-0 left-0 h-full bg-emerald-200/30 animate-scan-text blur-sm"></div>
                 </div>
-                <h3 className="text-xl font-bold text-emerald-900 mb-2">Deep Research</h3>
+                <h3 className="text-xl font-bold text-emerald-900 mb-2">Evidence-Based Analysis</h3>
                 <p className="text-sm text-emerald-700/80 leading-relaxed">
                     Zero Hallucinations. Every insight we generate is backed by a verifiable citation directly from your PDFs.
                 </p>
@@ -151,8 +152,9 @@ export default function LandingPage() {
             {/* 2. Cross-Doc Logic (Orange) */}
             <div className="bg-amber-50 rounded-[2rem] p-8 border border-amber-100 hover:shadow-xl hover:shadow-amber-100 transition duration-300 group">
                 <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-amber-600 mb-6 shadow-sm group-hover:scale-110 transition relative">
-                    <GitMerge size={24} />
-                    <div className="absolute -bottom-1 left-1/2 w-8 h-0.5 bg-amber-400 animate-ping-line"></div>
+                    <GitMerge size={24} className="relative z-10"/>
+                    {/* Ping Animation Layer */}
+                    <div className="absolute bottom-0 h-0.5 bg-amber-400 animate-ping-line"></div>
                 </div>
                 <h3 className="text-xl font-bold text-amber-900 mb-2">Cross-Doc Logic</h3>
                 <p className="text-sm text-amber-700/80 leading-relaxed">
