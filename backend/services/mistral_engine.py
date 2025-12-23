@@ -30,8 +30,79 @@ class MistralEngine:
         text = text.replace("\n", " ")
         return self.openai.embeddings.create(input=[text], model="text-embedding-3-small").data[0].embedding
 
-    # --- MAIN TASK (UNCHANGED) ---
+    # --- NEW: GET FOLDER OVERVIEW (THE "MANIFEST") ---
+    def get_folder_manifest(self, folder_name: str) -> str:
+        """
+        Fetches a list of all files in the folder and their summaries.
+        This gives the AI 'Global Awareness' of what is in the folder.
+        """
+        try:
+            # Fetch all documents in this folder
+            res = self.supabase.table("documents")\
+                .select("title, summary, created_at")\
+                .eq("folder", folder_name)\
+                .execute()
+            
+            if not res.data:
+                return "This folder is empty."
+
+            manifest = f"### 📂 FOLDER CONTENT MANIFEST ({len(res.data)} files):\n"
+            for doc in res.data:
+                # Truncate summary to keep context light
+                short_summary = (doc.get('summary') or "No summary available.")[:200].replace("\n", " ")
+                manifest += f"- 📄 **{doc['title']}**: {short_summary}...\n"
+            
+            return manifest
+        except Exception as e:
+            return f"Error fetching folder manifest: {e}"
+
+    # --- UPDATED SEARCH WITH TITLE LOOKUP ---
+    def search(self, query: str, folder_name: str = None, limit: int = 5) -> List[dict]:
+        query_vector = self.get_embedding(query)
+        params = {
+            "query_text": query, 
+            "query_embedding": query_vector, 
+            "match_threshold": 0.01,  
+            "match_count": limit, 
+            "filter_folder": folder_name or "General"
+        }
+        try:
+            # 1. Run Vector Search
+            response = self.supabase.rpc("match_documents_hybrid", params).execute()
+            results = []
+            
+            if not response.data:
+                return []
+
+            # 2. Extract Document IDs to fetch Titles (Fixes "Unknown File")
+            doc_ids = list(set([row['document_id'] for row in response.data]))
+            
+            # 3. Batch Fetch Titles
+            title_map = {}
+            if doc_ids:
+                docs_res = self.supabase.table("documents").select("id, title").in_("id", doc_ids).execute()
+                for d in docs_res.data:
+                    title_map[d['id']] = d['title']
+
+            # 4. Inject Titles into Content
+            for row in response.data:
+                doc_id = row['document_id']
+                filename = title_map.get(doc_id, "Unknown File")
+                
+                # Context Injection
+                injected_content = f"[[SOURCE: {filename} | Page {row.get('page_number', '?')}]]\n{row['content']}"
+                row['content'] = injected_content
+                results.append(row)
+                
+            return results
+        except Exception as e:
+            print(f"Search Error: {e}")
+            return []
+
+    # --- EXISTING METHODS (UNCHANGED) ---
     async def process_pdf_background(self, doc_id: str, file_bytes: bytes, filename: str, folder: str):
+        # (Keep your existing process_pdf_background code EXACTLY as is)
+        # It is working fine, no need to touch it.
         try:
             print(f"[{doc_id}] Starting Mistral Native OCR (Latest) for {filename}...")
             self.supabase.storage.from_("document-pages").upload(file=file_bytes, path=f"{doc_id}/source.pdf", file_options={"content-type": "application/pdf"})
@@ -66,7 +137,6 @@ class MistralEngine:
                             else: annotation_data = raw_ann
                         
                         if annotation_data:
-                            # Robust field access
                             if isinstance(annotation_data, dict):
                                 desc = annotation_data.get('image_description', 'N/A')
                                 data_pts = annotation_data.get('data_extraction', 'N/A')
@@ -101,7 +171,6 @@ class MistralEngine:
             print(f"[{doc_id}] FAILED: {e}")
             self.supabase.table("documents").update({"status": "failed"}).eq("id", doc_id).execute()
 
-    # --- HELPERS ---
     def _chunk_markdown(self, text: str) -> List[str]:
         chunks = []
         current_chunk = ""
@@ -121,31 +190,6 @@ class MistralEngine:
             res = self.supabase.rpc("match_page_sections", params).execute()
             return [row['content'] for row in res.data if row.get('content')]
         except: return []
-
-    # --- UPDATED FOLDER SEARCH ---
-    def search(self, query: str, folder_name: str = None, limit: int = 5) -> List[dict]:
-        query_vector = self.get_embedding(query)
-        params = {
-            "query_text": query, 
-            "query_embedding": query_vector, 
-            "match_threshold": 0.01,  # <--- CHANGED FROM 0.5 TO 0.01
-            "match_count": limit, 
-            "filter_folder": folder_name or "General"
-        }
-        try:
-            response = self.supabase.rpc("match_documents_hybrid", params).execute()
-            
-            results = []
-            for row in response.data:
-                filename = row.get('title', 'Unknown File')
-                injected_content = f"[[SOURCE DOCUMENT: {filename}]]\n\n{row['content']}"
-                row['content'] = injected_content
-                results.append(row)
-                
-            return results
-        except Exception as e:
-            print(f"Search Error: {e}")
-            return []
 
     def get_documents(self):
         try:

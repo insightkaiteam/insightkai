@@ -27,7 +27,7 @@ class ChatRequest(BaseModel):
     message: str
     document_id: Optional[str] = None 
     folder_name: Optional[str] = None
-    mode: Optional[str] = "simple" # 'simple' (Fast) or 'deep' (Compare multiple docs)
+    mode: Optional[str] = "simple" 
 
 class FolderRequest(BaseModel):
     name: str
@@ -113,27 +113,29 @@ def get_document_status(doc_id: str):
 @app.post("/chat")
 async def chat(request: ChatRequest):
     relevant_chunks = []
+    system_manifest = None
 
-    # CASE A: Chat with Folder (The "Intelligence" Engine)
+    # CASE A: Chat with Folder
     if request.folder_name:
-        # 1. Decide Depth based on Mode
-        limit = 5 # Default Simple
-        if request.mode == "deep":
-            limit = 25 # Deep Chat (Reads 5x more content for comparison)
-            print(f"Deep Chat Activated: Fetching {limit} chunks...")
+        # 1. Fetch Global Awareness (The Manifest)
+        # This solves "What files are here?"
+        system_manifest = ocr_engine.get_folder_manifest(request.folder_name)
 
-        # 2. Search with Context Injection
+        # 2. Decide Depth
+        limit = 5 
+        if request.mode == "deep":
+            limit = 25 
+
+        # 3. Vector Search (Find specific details)
         results = ocr_engine.search(request.message, folder_name=request.folder_name, limit=limit)
-        
-        # 3. Use the injected content (which now has [[Source: filename]])
         relevant_chunks = [r['content'] for r in results]
 
-    # CASE B: Chat with Single Document (Unaffected)
+    # CASE B: Chat with Single Document
     elif request.document_id:
-        print(f"Searching Single Doc: {request.document_id}")
         relevant_chunks = ocr_engine.search_single_doc(request.message, request.document_id)
 
-    answer = ai_service.get_answer(relevant_chunks, request.message)
+    # 4. Generate Answer with Manifest + Chunks
+    answer = ai_service.get_answer(relevant_chunks, request.message, system_message_override=system_manifest)
     return {"answer": answer}
 
 @app.get("/documents/{doc_id}/download")
