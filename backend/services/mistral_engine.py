@@ -30,39 +30,42 @@ class MistralEngine:
         text = text.replace("\n", " ")
         return self.openai.embeddings.create(input=[text], model="text-embedding-3-small").data[0].embedding
 
-# --- UPDATED: STRUCTURED SUMMARY FOR GROUPING ---
+    # --- NEW: 3-PART STRUCTURED SUMMARY ---
     def _generate_summary(self, full_text: str) -> str:
         """
-        Uses GPT-4o-mini to classify and summarize the document.
-        Format: [CATEGORY]: Description
+        Generates a 3-part structured summary: [TAG], [DESC], and [DETAILED].
+        This powers the 'Fast Search' intelligence.
         """
         try:
-            preview_text = full_text[:3000]
+            # We give it more context (8k chars) to ensure it catches details like 'Duke Energy'
+            preview_text = full_text[:8000]
             
-            # We explicitly tell the AI to classify first.
             system_prompt = (
-                "You are a document classifier. Your job is to: "
-                "1. Classify the document into a high-level category (e.g., INVOICE, RESEARCH, FINANCIAL, LEGAL, RECEIPT, OTHER, etc. etc.). "
-                "2. Provide a specific 1-sentence description. "
-                "3. Return the result strictly in this format: '[CATEGORY]: Description'. "
-                "Example: '[INVOICE]: August 2023 Power Bill for $150.'"
+                "You are a sophisticated document analyzer. Analyze the text and return a summary in EXACTLY this format:\n\n"
+                "[TAG]: <Classify into one: INVOICE, RESEARCH, FINANCIAL, LEGAL, RECEIPT, OTHER>\n"
+                "[DESC]: <A single, concise sentence describing the file (e.g. 'August 2023 Power Bill for $150')>\n"
+                "[DETAILED]: <A dense, 5-10 line summary containing specific entities (company names, authors), dates, key outcomes, core themes, and numerical data. This will be used for search retrieval, so be specific.>"
             )
 
             response = self.openai.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"Analyze this text:\n\n{preview_text}"}
+                    {"role": "user", "content": f"Analyze this document content:\n\n{preview_text}"}
                 ],
-                max_tokens=100
+                max_tokens=300 # Increased to allow for the detailed section
             )
             return response.choices[0].message.content.strip()
         except Exception as e:
             print(f"Summary Generation Error: {e}")
-            return "[UNKNOWN]: No summary available."
+            return "[TAG]: OTHER\n[DESC]: Processed document.\n[DETAILED]: No summary available."
 
-    # --- UPDATED: GET FOLDER OVERVIEW ---
+    # --- UPDATED: GET FOLDER MANIFEST ---
     def get_folder_manifest(self, folder_name: str) -> str:
+        """
+        Injects the FULL structured summary into the AI's brain.
+        This allows 'Fast Search' to find 'Duke Energy' even if the user didn't open the file.
+        """
         try:
             res = self.supabase.table("documents").select("title, summary, created_at").eq("folder", folder_name).execute()
             
@@ -70,24 +73,25 @@ class MistralEngine:
                 return "This folder is empty."
 
             manifest = f"### 📂 FOLDER CONTENT MANIFEST ({len(res.data)} files):\n"
-            manifest += "The user has access to the following files. Use this list to answer questions like 'What is in this folder?'.\n\n"
+            manifest += "Use this list to answer questions like 'Which bill is from X?' or 'List all research papers'.\n"
+            manifest += "Each entry has a Tag, a Description, and Detailed Metadata.\n\n"
             
             for doc in res.data:
                 raw_summary = doc.get('summary') or ""
-                # Split: The summary field now contains [REAL SUMMARY] ... [LOG]
-                # We only want the REAL SUMMARY part for the chat context.
+                # We extract the structured part (before the verification log separator)
                 clean_summary = raw_summary.split("---_SEPARATOR_---")[0].replace("**Content Summary:**", "").strip()
                 
                 if not clean_summary:
-                    clean_summary = "Processed document."
+                    clean_summary = "[TAG]: FILE\n[DESC]: Unknown content."
 
-                manifest += f"- 📄 **{doc['title']}**: {clean_summary}\n"
+                # We explicitly label the filename so the AI links the data to the source
+                manifest += f"📄 **FILENAME: {doc['title']}**\n{clean_summary}\n\n---\n"
             
             return manifest
         except Exception as e:
             return f"Error fetching folder manifest: {e}"
 
-    # --- MAIN TASK ---
+    # --- MAIN TASK (UNCHANGED) ---
     async def process_pdf_background(self, doc_id: str, file_bytes: bytes, filename: str, folder: str):
         try:
             print(f"[{doc_id}] Starting Mistral Native OCR (Latest) for {filename}...")
@@ -101,7 +105,6 @@ class MistralEngine:
                 bbox_annotation_format=response_format_from_pydantic_model(VisualContext)
             )
 
-            # We will accumulate text to generate a real summary later
             full_document_text = ""
             manifest_log = f"**🔍 Extraction Verification Log: {filename}**\n\n"
             
@@ -142,8 +145,8 @@ class MistralEngine:
                 enriched_content = f"**[Page {page_num}]**\n{markdown}\n"
                 if visual_section: enriched_content += "\n### 📊 Visual Data Extracted:\n" + visual_section
 
-                # Append to full text for summary generation
-                if len(full_document_text) < 10000: # Limit size for summary context
+                # Accumulate text for the Summary Generator
+                if len(full_document_text) < 15000: # Increased limit to ensure detailed summary covers more ground
                     full_document_text += enriched_content + "\n"
 
                 chunks = self._chunk_markdown(enriched_content)
@@ -155,21 +158,19 @@ class MistralEngine:
                         "content": chunk, "embedding": vector, "title": filename, "image_url": ""
                     }).execute()
 
-            # --- GENERATE REAL SUMMARY ---
+            # --- GENERATE & SAVE 3-PART SUMMARY ---
             content_summary = self._generate_summary(full_document_text)
             
-            # Combine Summary (for AI) and Log (for User)
-            # We use a separator so we can split them later
             final_summary_field = f"**Content Summary:** {content_summary}\n\n---_SEPARATOR_---\n\n{manifest_log}\n✅ **Extraction Complete.**"
 
             self.supabase.table("documents").update({"status": "ready", "summary": final_summary_field}).eq("id", doc_id).execute()
-            print(f"[{doc_id}] Success. Summary: {content_summary}")
+            print(f"[{doc_id}] Success. Summary Generated.")
 
         except Exception as e:
             print(f"[{doc_id}] FAILED: {e}")
             self.supabase.table("documents").update({"status": "failed"}).eq("id", doc_id).execute()
 
-    # --- HELPERS (Keep existing) ---
+    # --- HELPERS (Unchanged) ---
     def _chunk_markdown(self, text: str) -> List[str]:
         chunks = []
         current_chunk = ""
@@ -202,7 +203,7 @@ class MistralEngine:
         try:
             response = self.supabase.rpc("match_documents_hybrid", params).execute()
             
-            # Extract IDs to fetch Titles
+            # ID to Title Map
             doc_ids = list(set([row['document_id'] for row in response.data])) if response.data else []
             title_map = {}
             if doc_ids:
@@ -214,7 +215,7 @@ class MistralEngine:
             for row in response.data:
                 doc_id = row['document_id']
                 filename = title_map.get(doc_id, "Unknown File")
-                injected_content = f"[[SOURCE: {filename} | Page {row.get('page_number', '?')}]]\n{row['content']}"
+                injected_content = f"[[SOURCE DOCUMENT: {filename}]]\n\n{row['content']}"
                 row['content'] = injected_content
                 results.append(row)
                 
@@ -223,7 +224,6 @@ class MistralEngine:
             print(f"Search Error: {e}")
             return []
 
-    # ... (Keep get_documents, delete_document, debug methods) ...
     def get_documents(self):
         try:
             res = self.supabase.table("documents").select("*").order("created_at", desc=True).execute()
