@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { Folder, FileText, Trash2, Plus, ArrowLeft, MessageSquare, X, Send, Loader2, FileClock, BrainCircuit, Tag } from 'lucide-react';
+import { Folder, FileText, Trash2, Plus, ArrowLeft, MessageSquare, X, Send, Loader2, FileClock, BrainCircuit, Search, UploadCloud } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
 // ⚠️ REPLACE WITH YOUR RENDER URL
@@ -33,34 +33,29 @@ export default function Dashboard() {
   // --- HELPER: Parse the AI Summary ---
   const parseSummary = (rawSummary: string) => {
     if (!rawSummary) return { tag: null, desc: null };
-    
-    // We expect format: [TAG]: ... \n [DESC]: ...
     const tagMatch = rawSummary.match(/\[TAG\]:\s*(.*?)(?=\n|\[|$)/i);
     const descMatch = rawSummary.match(/\[DESC\]:\s*(.*?)(?=\n|\[|$)/i);
-    
-    // Fallback: If no structured tag found, don't show garbage
     if (!tagMatch && !descMatch) return { tag: null, desc: null };
-
     return {
       tag: tagMatch ? tagMatch[1].trim().toUpperCase() : "FILE",
       desc: descMatch ? descMatch[1].trim() : "No description available."
     };
   };
 
-  // --- COLOR HELPER FOR TAGS ---
+  // --- COLOR HELPER FOR TAGS (Subtle Pastels) ---
   const getTagColor = (tag: string) => {
     const colors: {[key: string]: string} = {
-      'INVOICE': 'bg-red-100 text-red-700 border-red-200',
-      'RESEARCH': 'bg-purple-100 text-purple-700 border-purple-200',
-      'FINANCIAL': 'bg-green-100 text-green-700 border-green-200',
-      'LEGAL': 'bg-blue-100 text-blue-700 border-blue-200',
-      'RECEIPT': 'bg-yellow-100 text-yellow-800 border-yellow-200',
-      'OTHER': 'bg-gray-100 text-gray-600 border-gray-200'
+      'INVOICE': 'bg-rose-50 text-rose-600 border-rose-100',
+      'RESEARCH': 'bg-violet-50 text-violet-600 border-violet-100',
+      'FINANCIAL': 'bg-emerald-50 text-emerald-600 border-emerald-100',
+      'LEGAL': 'bg-blue-50 text-blue-600 border-blue-100',
+      'RECEIPT': 'bg-amber-50 text-amber-600 border-amber-100',
+      'OTHER': 'bg-slate-50 text-slate-500 border-slate-100'
     };
     return colors[tag] || colors['OTHER'];
   };
 
-  // 1. Initial Load
+  // Initial Load & Polling
   useEffect(() => { 
     if (localStorage.getItem('auth_token') === SITE_PASSWORD) {
         setIsAuthenticated(true);
@@ -68,26 +63,23 @@ export default function Dashboard() {
     }
   }, []);
 
-  // 2. POLLING LOGIC
   useEffect(() => {
     const processingDocs = docs.filter(d => d.status === 'processing');
     if (processingDocs.length > 0) {
-        const interval = setInterval(() => {
-            console.log("Polling for updates...");
-            refreshData();
-        }, 3000);
+        const interval = setInterval(refreshData, 3000);
         return () => clearInterval(interval);
     }
   }, [docs]);
 
   const refreshData = async () => {
     try {
-        const resFolders = await fetch(`${BACKEND_URL}/folders`);
+        const [resFolders, resDocs] = await Promise.all([
+            fetch(`${BACKEND_URL}/folders`),
+            fetch(`${BACKEND_URL}/documents`)
+        ]);
         const dataFolders = await resFolders.json();
-        setFolders(dataFolders.folders || ["General"]);
-
-        const resDocs = await fetch(`${BACKEND_URL}/documents`);
         const dataDocs = await resDocs.json();
+        setFolders(dataFolders.folders || ["General"]);
         setDocs(dataDocs.documents || []);
     } catch (e) { console.error("Error fetching data", e); }
   };
@@ -116,11 +108,10 @@ export default function Dashboard() {
 
   const handleDeleteFolder = async (folderName: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm(`Are you sure you want to delete folder "${folderName}"? Documents inside will be moved to 'General'.`)) return;
+    if (!confirm(`Are you sure you want to delete folder "${folderName}"?`)) return;
     try {
         const res = await fetch(`${BACKEND_URL}/folders/${folderName}`, { method: 'DELETE' });
         if (res.ok) refreshData();
-        else alert("Failed to delete folder");
     } catch (e) { alert("Error deleting folder"); }
   };
 
@@ -132,20 +123,15 @@ export default function Dashboard() {
     formData.append('folder', currentFolder || "General");
 
     try {
-      const res = await fetch(`${BACKEND_URL}/upload`, { method: 'POST', body: formData });
-      if (!res.ok) {
-        const err = await res.json();
-        alert(`Upload Failed: ${err.detail}`);
-      } else {
-        await refreshData();
-      }
+      await fetch(`${BACKEND_URL}/upload`, { method: 'POST', body: formData });
+      await refreshData();
     } catch (error) { alert("Upload failed."); } 
     finally { setIsUploading(false); }
   };
 
   const handleDelete = async (docId: string, e: React.MouseEvent) => {
     e.preventDefault();
-    if(!confirm("Are you sure you want to delete this file?")) return;
+    if(!confirm("Delete this file?")) return;
     try {
         await fetch(`${BACKEND_URL}/documents/${docId}`, { method: 'DELETE' });
         refreshData();
@@ -154,7 +140,6 @@ export default function Dashboard() {
 
   const sendFolderMessage = async () => {
     if (!chatInput.trim()) return;
-    
     const userMsg = { role: 'user', content: chatInput };
     setChatMessages(prev => [...prev, userMsg]);
     const msgToSend = chatInput;
@@ -165,56 +150,59 @@ export default function Dashboard() {
       const res = await fetch(`${BACKEND_URL}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-            message: msgToSend, 
-            folder_name: currentFolder,
-            mode: chatMode 
-        }),
+        body: JSON.stringify({ message: msgToSend, folder_name: currentFolder, mode: chatMode }),
       });
       const data = await res.json();
       setChatMessages(prev => [...prev, { role: 'ai', content: data.answer }]);
     } catch (e) {
       setChatMessages(prev => [...prev, { role: 'ai', content: "Error: Could not reach backend." }]);
-    } finally {
-      setIsChatLoading(false);
-    }
+    } finally { setIsChatLoading(false); }
   };
 
   if (!isAuthenticated) {
     return (
-        <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 p-4">
-            <div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-md">
-                <h2 className="text-2xl font-bold mb-4 text-center">InsightKai Locked</h2>
-                <input type="password" className="w-full border p-3 rounded-lg mb-4" placeholder="Enter Password"
+        <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 p-4">
+            <div className="bg-white p-10 rounded-3xl shadow-xl shadow-gray-200/50 w-full max-w-sm border border-gray-100 text-center">
+                <div className="mb-6 bg-black text-white w-12 h-12 rounded-xl flex items-center justify-center mx-auto shadow-lg">
+                    <BrainCircuit size={24} />
+                </div>
+                <h2 className="text-2xl font-bold mb-2 text-gray-900 tracking-tight">Welcome Back</h2>
+                <p className="text-gray-500 mb-6 text-sm">Enter your access key to continue</p>
+                <input type="password" className="w-full bg-gray-50 border border-gray-200 p-3 rounded-xl mb-4 focus:ring-2 focus:ring-black/5 focus:outline-none transition-all" placeholder="Password"
                     value={passwordInput} onChange={e => setPasswordInput(e.target.value)} />
-                <button onClick={handleLogin} className="w-full bg-black text-white py-3 rounded-lg font-bold">Unlock</button>
+                <button onClick={handleLogin} className="w-full bg-black text-white py-3 rounded-xl font-medium hover:bg-gray-800 transition-all shadow-lg shadow-gray-200">Unlock</button>
             </div>
         </div>
     );
   }
 
   return (
-    <div className="flex h-screen bg-gray-50 overflow-hidden">
+    <div className="flex h-screen bg-[#fafafa] overflow-hidden font-sans text-gray-900">
       
-      <div className={`flex-1 p-8 overflow-y-auto transition-all duration-300 ${showChat ? 'mr-96' : ''}`}>
-        <div className="max-w-6xl mx-auto">
+      <div className={`flex-1 p-8 overflow-y-auto transition-all duration-500 ease-[cubic-bezier(0.25,0.8,0.25,1)] ${showChat ? 'mr-[400px]' : ''}`}>
+        <div className="max-w-7xl mx-auto">
           
           {/* HEADER */}
-          <div className="flex justify-between items-center mb-8">
+          <div className="flex justify-between items-center mb-10">
               <div className="flex items-center gap-4">
                   {currentFolder && (
-                      <button onClick={() => setCurrentFolder(null)} className="p-2 hover:bg-gray-200 rounded-full transition">
-                          <ArrowLeft size={24} />
+                      <button onClick={() => setCurrentFolder(null)} className="p-2 bg-white border border-gray-200 text-gray-500 hover:text-black rounded-full transition-all shadow-sm hover:shadow-md">
+                          <ArrowLeft size={20} />
                       </button>
                   )}
-                  <h1 className="text-3xl font-bold text-gray-900">
-                      {currentFolder ? currentFolder : "Your Library"}
-                  </h1>
+                  <div>
+                    <h1 className="text-3xl font-bold tracking-tight text-gray-900">
+                        {currentFolder ? currentFolder : "Library"}
+                    </h1>
+                    <p className="text-gray-400 text-sm mt-1">
+                        {currentFolder ? "Manage and chat with files in this folder" : "Select a folder to get started"}
+                    </p>
+                  </div>
               </div>
               
               <div className="flex gap-3">
                   {!currentFolder && (
-                      <button onClick={() => setShowNewFolderInput(true)} className="flex items-center gap-2 bg-white border border-gray-300 px-4 py-2 rounded-lg hover:bg-gray-100">
+                      <button onClick={() => setShowNewFolderInput(true)} className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-5 py-2.5 rounded-full hover:bg-gray-50 hover:shadow-md transition-all font-medium text-sm">
                           <Plus size={18} /> New Folder
                       </button>
                   )}
@@ -223,13 +211,23 @@ export default function Dashboard() {
                     <>
                       <button 
                         onClick={() => setShowChat(!showChat)}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${showChat ? 'bg-blue-600 text-white' : 'bg-white border border-gray-300 hover:bg-gray-100'}`}
+                        className={`flex items-center gap-2 px-5 py-2.5 rounded-full transition-all font-medium text-sm shadow-sm ${showChat ? 'bg-black text-white shadow-lg' : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'}`}
                       >
                           <MessageSquare size={18} /> {showChat ? "Close Chat" : "Chat with Folder"}
                       </button>
 
-                      <label className="flex items-center gap-2 bg-black text-white px-4 py-2 rounded-lg cursor-pointer hover:bg-gray-800 transition">
-                          <Plus size={18} /> {isUploading ? "Uploading..." : "Upload PDF"}
+                      <label className="group relative flex items-center gap-2 bg-black text-white px-5 py-2.5 rounded-full cursor-pointer hover:bg-gray-800 transition-all shadow-lg hover:shadow-xl font-medium text-sm overflow-hidden">
+                          {isUploading ? (
+                              <div className="flex items-center gap-2">
+                                  <Loader2 size={18} className="animate-spin" /> Uploading...
+                                  {/* Loading Bar Animation */}
+                                  <div className="absolute bottom-0 left-0 h-1 bg-white/20 w-full">
+                                    <div className="h-full bg-white/50 animate-progress w-full origin-left"></div>
+                                  </div>
+                              </div>
+                          ) : (
+                              <><UploadCloud size={18} /> Upload PDF</>
+                          )}
                           <input type="file" className="hidden" accept=".pdf" onChange={handleUpload} disabled={isUploading}/>
                       </label>
                     </>
@@ -238,25 +236,29 @@ export default function Dashboard() {
           </div>
 
           {showNewFolderInput && (
-              <div className="mb-8 flex gap-2">
-                  <input className="border p-2 rounded-lg w-64" placeholder="Folder Name..." value={newFolderName} onChange={e => setNewFolderName(e.target.value)} />
-                  <button onClick={handleCreateFolder} className="bg-blue-600 text-white px-4 py-2 rounded-lg">Create</button>
-                  <button onClick={() => setShowNewFolderInput(false)} className="text-gray-500 px-4">Cancel</button>
+              <div className="mb-8 flex gap-3 animate-in fade-in slide-in-from-top-4 duration-300">
+                  <input className="border border-gray-200 p-3 rounded-xl w-64 shadow-sm focus:outline-none focus:ring-2 focus:ring-black/5" placeholder="Folder Name..." value={newFolderName} onChange={e => setNewFolderName(e.target.value)} autoFocus />
+                  <button onClick={handleCreateFolder} className="bg-black text-white px-6 py-3 rounded-xl font-medium shadow-lg hover:shadow-xl transition-all">Create</button>
+                  <button onClick={() => setShowNewFolderInput(false)} className="text-gray-500 px-4 hover:text-black transition-colors">Cancel</button>
               </div>
           )}
 
           {/* FOLDER GRID */}
           {!currentFolder && (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
                   {folders.map(folder => (
                       <div key={folder} onClick={() => setCurrentFolder(folder)} 
-                           className="group bg-white p-6 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition cursor-pointer flex flex-col items-center gap-3 relative">
-                          <Folder size={48} className="text-blue-500 fill-blue-50" />
-                          <h3 className="font-semibold text-lg">{folder}</h3>
-                          <p className="text-sm text-gray-400">{docs.filter(d => d.folder === folder).length} files</p>
+                           className="group bg-white p-6 rounded-3xl border border-gray-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 cursor-pointer flex flex-col items-center gap-4 relative">
+                          <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center text-blue-500 group-hover:scale-110 transition-transform duration-300">
+                            <Folder size={32} fill="currentColor" className="text-blue-500/20" />
+                          </div>
+                          <div className="text-center">
+                            <h3 className="font-bold text-gray-900">{folder}</h3>
+                            <p className="text-xs text-gray-400 mt-1 font-medium">{docs.filter(d => d.folder === folder).length} files</p>
+                          </div>
                           {folder !== "General" && (
-                              <button onClick={(e) => handleDeleteFolder(folder, e)} className="absolute top-2 right-2 p-2 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition">
-                                  <Trash2 size={18} />
+                              <button onClick={(e) => handleDeleteFolder(folder, e)} className="absolute top-4 right-4 p-2 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all">
+                                  <Trash2 size={16} />
                               </button>
                           )}
                       </div>
@@ -266,60 +268,53 @@ export default function Dashboard() {
 
           {/* FILE LIST */}
           {currentFolder && (
-              <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                  <div className="grid grid-cols-1 divide-y">
+              <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+                  <div className="grid grid-cols-1 divide-y divide-gray-50">
                       {docs.filter(doc => doc.folder === currentFolder).map((doc) => {
-                          // PARSE THE SUMMARY TO GET TAGS
                           const { tag, desc } = parseSummary(doc.summary);
-                          
                           return (
-                            <div key={doc.id} className="p-4 flex justify-between items-start hover:bg-gray-50 transition">
-                                <div className="flex items-start gap-4">
-                                    <div className={`p-2 rounded-lg mt-1 ${doc.status === 'processing' ? 'bg-yellow-50' : 'bg-red-50'}`}>
-                                        {doc.status === 'processing' ? <Loader2 className="text-yellow-600 animate-spin" size={24} /> : <FileText className="text-red-500" size={24} />}
+                            <div key={doc.id} className="group p-6 flex justify-between items-start hover:bg-gray-50/80 transition-colors duration-200">
+                                <div className="flex items-start gap-5">
+                                    <div className={`p-3 rounded-2xl mt-1 shadow-sm ${doc.status === 'processing' ? 'bg-amber-50 text-amber-600' : 'bg-white border border-gray-100 text-gray-700'}`}>
+                                        {doc.status === 'processing' ? <Loader2 className="animate-spin" size={24} /> : <FileText size={24} />}
                                     </div>
                                     
                                     <div>
                                         <div className="flex items-center gap-3">
-                                            <h3 className="font-semibold text-gray-900 text-lg">{doc.title}</h3>
-                                            
-                                            {/* --- THE TAG BADGE --- */}
-                                            {tag && (
-                                                <span className={`px-2 py-0.5 rounded text-xs font-bold border ${getTagColor(tag)}`}>
-                                                    {tag}
-                                                </span>
-                                            )}
+                                            <h3 className="font-bold text-gray-900 text-lg tracking-tight group-hover:text-blue-600 transition-colors">{doc.title}</h3>
+                                            {tag && <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border tracking-wide ${getTagColor(tag)}`}>{tag}</span>}
                                         </div>
 
-                                        {/* --- THE 1-SENTENCE DESCRIPTION --- */}
-                                        {desc && (
-                                            <p className="text-sm text-gray-600 mt-1 max-w-2xl">
-                                                {desc}
-                                            </p>
-                                        )}
+                                        {desc && <p className="text-sm text-gray-500 mt-1.5 max-w-2xl leading-relaxed">{desc}</p>}
 
-                                        <div className="flex items-center gap-2 text-xs text-gray-400 mt-2">
-                                            {doc.status === 'processing' && <span className="text-yellow-600 font-bold">PROCESSING...</span>}
-                                            {doc.status === 'failed' && <span className="text-red-600 font-bold">FAILED</span>}
-                                            <FileClock size={12}/> <span>{doc.upload_date}</span>
+                                        <div className="flex items-center gap-3 text-xs text-gray-400 mt-3 font-medium">
+                                            {doc.status === 'processing' && <span className="flex items-center gap-1 text-amber-600"><Loader2 size={10} className="animate-spin"/> Processing</span>}
+                                            {doc.status === 'failed' && <span className="text-red-500">Failed</span>}
+                                            <span className="flex items-center gap-1 bg-gray-100 px-2 py-1 rounded-md"><FileClock size={12}/> {doc.upload_date}</span>
                                         </div>
                                     </div>
                                 </div>
-                                <div className="flex gap-3 mt-1">
+                                <div className="flex gap-3 mt-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                                     {doc.status !== 'processing' && (
                                         <Link href={`/chat/${doc.id}`}>
-                                            <button className="bg-white border border-gray-300 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50">Open & Chat</button>
+                                            <button className="bg-black text-white px-5 py-2 rounded-xl text-sm font-medium hover:bg-gray-800 shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-0.5">Open</button>
                                         </Link>
                                     )}
-                                    <button onClick={(e) => handleDelete(doc.id, e)} className="p-2 text-gray-400 hover:text-red-600 transition">
-                                        <Trash2 size={20} />
+                                    <button onClick={(e) => handleDelete(doc.id, e)} className="p-2 bg-white border border-gray-200 text-gray-400 hover:text-red-600 hover:border-red-100 rounded-xl transition-all">
+                                        <Trash2 size={18} />
                                     </button>
                                 </div>
                             </div>
                           );
                       })}
                       {docs.filter(doc => doc.folder === currentFolder).length === 0 && (
-                          <div className="p-10 text-center text-gray-400">This folder is empty. Upload a PDF to start.</div>
+                          <div className="p-16 text-center">
+                              <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-300">
+                                  <UploadCloud size={32} />
+                              </div>
+                              <h3 className="text-gray-900 font-bold text-lg">Empty Folder</h3>
+                              <p className="text-gray-400 text-sm mt-1">Upload a PDF to get started.</p>
+                          </div>
                       )}
                   </div>
               </div>
@@ -328,37 +323,65 @@ export default function Dashboard() {
       </div>
 
       {/* RIGHT SIDEBAR: FOLDER CHAT */}
-      <div className={`fixed top-0 right-0 h-full w-96 bg-white shadow-2xl border-l border-gray-200 transform transition-transform duration-300 flex flex-col ${showChat ? 'translate-x-0' : 'translate-x-full'}`}>
-        <div className="p-4 border-b flex justify-between items-center bg-gray-50">
+      <div className={`fixed top-0 right-0 h-full w-[400px] bg-white/80 backdrop-blur-xl border-l border-gray-200 transform transition-transform duration-500 cubic-bezier(0.25, 0.8, 0.25, 1) flex flex-col shadow-2xl z-50 ${showChat ? 'translate-x-0' : 'translate-x-full'}`}>
+        <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-white/50">
             <div>
-                <h2 className="font-bold text-lg">Chat with Folder</h2>
-                <p className="text-xs text-gray-400">{currentFolder}</p>
+                <h2 className="font-bold text-xl text-gray-900 tracking-tight">Folder Chat</h2>
+                <p className="text-xs text-gray-400 font-medium mt-0.5">{currentFolder}</p>
             </div>
-            <button onClick={() => setShowChat(false)} className="p-2 text-gray-500 hover:bg-gray-200 rounded-full"><X size={20} /></button>
+            <button onClick={() => setShowChat(false)} className="p-2 text-gray-400 hover:bg-gray-100 rounded-full transition-colors"><X size={20} /></button>
         </div>
 
-        <div className="p-4 bg-gray-50 border-b border-gray-200">
-            <div className="flex bg-gray-200 p-1 rounded-lg">
-                <button onClick={() => setChatMode('simple')} className={`flex-1 py-1 text-xs font-semibold rounded-md transition ${chatMode === 'simple' ? 'bg-white shadow text-black' : 'text-gray-500'}`}>Fast Search</button>
-                <button onClick={() => setChatMode('deep')} className={`flex-1 py-1 text-xs font-semibold rounded-md transition flex items-center justify-center gap-1 ${chatMode === 'deep' ? 'bg-purple-600 text-white shadow' : 'text-gray-500'}`}><BrainCircuit size={12} /> Deep Compare</button>
+        {/* CHAT MODE TOGGLE */}
+        <div className="px-6 py-4 bg-white/30 border-b border-gray-100">
+            <div className="flex bg-gray-100/80 p-1 rounded-xl">
+                <button onClick={() => setChatMode('simple')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all duration-200 ${chatMode === 'simple' ? 'bg-white shadow-sm text-black' : 'text-gray-500 hover:text-gray-700'}`}>Fast Search</button>
+                <button onClick={() => setChatMode('deep')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all duration-200 flex items-center justify-center gap-1.5 ${chatMode === 'deep' ? 'bg-black text-white shadow-md' : 'text-gray-500 hover:text-gray-700'}`}><BrainCircuit size={14} /> Deep Compare</button>
             </div>
-            <p className="text-xs text-gray-400 mt-2 text-center">{chatMode === 'simple' ? "Best for finding specific files or facts." : "Reads 5x more data. Good for summaries."}</p>
+            <p className="text-[10px] text-gray-400 mt-3 text-center font-medium uppercase tracking-wider">
+                {chatMode === 'simple' ? "Finds specific files & facts" : "Analyzes & compares multiple docs"}
+            </p>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
-            {chatMessages.length === 0 && <p className="text-gray-400 text-center mt-10 text-sm">Ask questions across all files in this folder.</p>}
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            {chatMessages.length === 0 && (
+                <div className="text-center mt-10 opacity-50">
+                    <div className="w-12 h-12 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                        <Search size={20} className="text-gray-400" />
+                    </div>
+                    <p className="text-gray-500 text-sm">Ask about any file in this folder.</p>
+                </div>
+            )}
             {chatMessages.map((m, i) => (
-                <div key={i} className={`p-3 rounded-lg text-sm ${m.role === 'user' ? 'bg-blue-600 text-white self-end ml-10' : 'bg-white border text-gray-800 mr-10'}`}>
-                    {m.role === 'ai' ? <ReactMarkdown>{m.content}</ReactMarkdown> : m.content}
+                <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`p-4 max-w-[85%] rounded-2xl text-sm leading-relaxed shadow-sm ${
+                        m.role === 'user' ? 'bg-blue-600 text-white rounded-br-sm' : 'bg-white border border-gray-100 text-gray-700 rounded-bl-sm'
+                    }`}>
+                        <ReactMarkdown className="prose prose-sm prose-invert">{m.content}</ReactMarkdown>
+                    </div>
                 </div>
             ))}
-            {isChatLoading && <div className="text-gray-400 text-xs animate-pulse">Thinking...</div>}
+            {isChatLoading && (
+                <div className="flex justify-start">
+                    <div className="bg-gray-50 px-4 py-3 rounded-2xl rounded-bl-sm flex gap-2 items-center text-xs text-gray-400 font-medium">
+                        <Loader2 size={12} className="animate-spin" /> Thinking...
+                    </div>
+                </div>
+            )}
         </div>
 
-        <div className="p-4 border-t bg-white">
-            <div className="flex gap-2">
-                <input className="flex-1 border p-2 rounded-lg text-sm" placeholder="Ask something..." value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendFolderMessage()} />
-                <button onClick={sendFolderMessage} className="bg-black text-white p-2 rounded-lg"><Send size={18} /></button>
+        <div className="p-5 bg-white/50 border-t border-gray-100 backdrop-blur-sm">
+            <div className="flex gap-2 relative">
+                <input 
+                    className="flex-1 bg-gray-50 border border-gray-200 p-3.5 pl-4 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-gray-300 transition-all shadow-inner" 
+                    placeholder="Ask a question..." 
+                    value={chatInput} 
+                    onChange={e => setChatInput(e.target.value)} 
+                    onKeyDown={e => e.key === 'Enter' && sendFolderMessage()} 
+                />
+                <button onClick={sendFolderMessage} className="absolute right-2 top-2 bg-black text-white p-2 rounded-xl hover:bg-gray-800 transition-colors shadow-md">
+                    <Send size={16} />
+                </button>
             </div>
         </div>
       </div>
