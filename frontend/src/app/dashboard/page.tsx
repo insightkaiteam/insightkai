@@ -37,13 +37,10 @@ export default function Dashboard() {
     }
   }, []);
 
-  // 2. POLLING LOGIC: Auto-refresh if any doc is "processing"
+  // 2. POLLING LOGIC
   useEffect(() => {
-    // Check if we have any docs in 'processing' state
     const processingDocs = docs.filter(d => d.status === 'processing');
-    
     if (processingDocs.length > 0) {
-        // If yes, wait 3 seconds and refresh
         const interval = setInterval(() => {
             console.log("Polling for updates...");
             refreshData();
@@ -86,6 +83,23 @@ export default function Dashboard() {
     } catch(e) { alert("Failed to create folder"); }
   };
 
+  // --- NEW: DELETE FOLDER HANDLER ---
+  const handleDeleteFolder = async (folderName: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent entering the folder when clicking delete
+    if (!confirm(`Are you sure you want to delete folder "${folderName}"? Documents inside will be moved to 'General'.`)) return;
+    
+    try {
+        const res = await fetch(`${BACKEND_URL}/folders/${folderName}`, {
+            method: 'DELETE'
+        });
+        if (res.ok) {
+            refreshData();
+        } else {
+            alert("Failed to delete folder");
+        }
+    } catch (e) { alert("Error deleting folder"); }
+  };
+
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
     setIsUploading(true);
@@ -99,7 +113,6 @@ export default function Dashboard() {
         const err = await res.json();
         alert(`Upload Failed: ${err.detail}`);
       } else {
-        // Immediate refresh to show the "Processing" state
         await refreshData();
       }
     } catch (error) { alert("Upload failed."); } 
@@ -115,7 +128,6 @@ export default function Dashboard() {
     } catch(e) { alert("Delete failed"); }
   };
 
-  // --- FOLDER CHAT LOGIC ---
   const sendFolderMessage = async () => {
     if (!chatInput.trim()) return;
     
@@ -131,7 +143,7 @@ export default function Dashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
             message: msgToSend, 
-            folder_name: currentFolder // <--- Send Folder Name!
+            folder_name: currentFolder 
         }),
       });
       const data = await res.json();
@@ -219,12 +231,23 @@ export default function Dashboard() {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                   {folders.map(folder => (
                       <div key={folder} onClick={() => setCurrentFolder(folder)} 
-                           className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition cursor-pointer flex flex-col items-center gap-3">
+                           className="group bg-white p-6 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition cursor-pointer flex flex-col items-center gap-3 relative">
                           <Folder size={48} className="text-blue-500 fill-blue-50" />
                           <h3 className="font-semibold text-lg">{folder}</h3>
                           <p className="text-sm text-gray-400">
                               {docs.filter(d => d.folder === folder).length} files
                           </p>
+                          
+                          {/* DELETE ICON (Only show if not General) */}
+                          {folder !== "General" && (
+                              <button 
+                                onClick={(e) => handleDeleteFolder(folder, e)}
+                                className="absolute top-2 right-2 p-2 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition"
+                                title="Delete folder"
+                              >
+                                  <Trash2 size={18} />
+                              </button>
+                          )}
                       </div>
                   ))}
               </div>
@@ -237,7 +260,6 @@ export default function Dashboard() {
                       {docs.filter(doc => doc.folder === currentFolder).map((doc) => (
                           <div key={doc.id} className="p-4 flex justify-between items-center hover:bg-gray-50 transition">
                               <div className="flex items-center gap-4">
-                                  {/* ICON LOGIC: Show Spinner if Processing */}
                                   <div className={`p-2 rounded-lg ${doc.status === 'processing' ? 'bg-yellow-50' : 'bg-red-50'}`}>
                                       {doc.status === 'processing' ? (
                                         <Loader2 className="text-yellow-600 animate-spin" size={24} />
@@ -249,7 +271,6 @@ export default function Dashboard() {
                                   <div>
                                       <h3 className="font-medium text-gray-900">{doc.title}</h3>
                                       <div className="flex items-center gap-2 text-sm text-gray-500">
-                                        {/* Status Badge */}
                                         {doc.status === 'processing' && (
                                             <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full font-bold">
                                                 PROCESSING...
@@ -265,7 +286,6 @@ export default function Dashboard() {
                                   </div>
                               </div>
                               <div className="flex gap-3">
-                                  {/* Disable Chat Button if processing */}
                                   {doc.status === 'processing' ? (
                                      <button disabled className="bg-gray-100 text-gray-400 px-4 py-2 rounded-lg text-sm font-medium cursor-not-allowed">
                                         Wait...

@@ -10,7 +10,6 @@ from services.pdf_engine import PDFEngine
 from services.openai_service import OpenAIService
 from services.mistral_engine import MistralEngine
 
-#here
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
@@ -23,12 +22,12 @@ app.add_middleware(
 pdf_engine = PDFEngine()
 ai_service = OpenAIService()
 ocr_engine = MistralEngine()
+
 class ChatRequest(BaseModel):
     message: str
-    document_id: Optional[str] = None # Now optional
-    folder_name: Optional[str] = None # New field
+    document_id: Optional[str] = None 
+    folder_name: Optional[str] = None 
 
-# --- FIX 1: ADD THIS MISSING CLASS ---
 class FolderRequest(BaseModel):
     name: str
 
@@ -38,10 +37,7 @@ def read_root():
 
 @app.get("/documents")
 def get_documents():
-    # Use ocr_engine so we get the 'status' and 'summary' fields
     return {"documents": ocr_engine.get_documents()}
-
-# --- NEW ENDPOINTS ---
 
 @app.get("/folders")
 def get_folders():
@@ -52,9 +48,17 @@ def create_folder(req: FolderRequest):
     pdf_engine.create_folder(req.name)
     return {"status": "success", "folders": pdf_engine.get_folders()}
 
+# --- NEW: DELETE FOLDER ENDPOINT ---
+@app.delete("/folders/{folder_name}")
+def delete_folder(folder_name: str):
+    try:
+        pdf_engine.delete_folder(folder_name)
+        return {"status": "success", "folders": pdf_engine.get_folders()}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 @app.delete("/documents/{doc_id}")
 def delete_document(doc_id: str):
-    # Use the OCR engine to delete
     ocr_engine.delete_document(doc_id)
     return {"status": "success"}
 
@@ -68,21 +72,17 @@ def debug_document(doc_id: str):
 
 @app.post("/upload")
 async def upload_document(
-    background_tasks: BackgroundTasks, # <--- Magic handled here
+    background_tasks: BackgroundTasks, 
     file: UploadFile = File(...),
     folder: str = Form("General")
 ):
     if not file.filename.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="File must be a PDF")
     
-    # 1. Read file bytes immediately (Before request closes)
     file_bytes = await file.read()
-    
-    # 2. Create an ID and Initial DB Entry
     doc_id = str(uuid.uuid4())
     
     try:
-        # Insert "Processing" record into NEW documents table
         ocr_engine.supabase.table("documents").insert({
             "id": doc_id,
             "title": file.filename,
@@ -90,7 +90,6 @@ async def upload_document(
             "status": "processing"
         }).execute()
         
-        # 3. Offload the heavy lifting to Background Task
         background_tasks.add_task(
             ocr_engine.process_pdf_background, 
             doc_id, 
@@ -99,7 +98,6 @@ async def upload_document(
             folder
         )
         
-        # 4. Return IMMEDIATELY
         return {"status": "processing", "doc_id": doc_id}
 
     except Exception as e:
@@ -107,12 +105,10 @@ async def upload_document(
 
 @app.get("/documents/{doc_id}/status")
 def get_document_status(doc_id: str):
-    # Fetch status from DB
     res = ocr_engine.supabase.table("documents").select("status, summary").eq("id", doc_id).execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="Document not found")
     return res.data[0]
-
 
 @app.post("/chat")
 async def chat(request: ChatRequest):
@@ -120,19 +116,14 @@ async def chat(request: ChatRequest):
 
     # CASE A: Chat with Folder
     if request.folder_name:
-        # Implementation for folder search (Hybrid)
         results = ocr_engine.search(request.message, folder_name=request.folder_name)
         relevant_chunks = [r['content'] for r in results]
 
     # CASE B: Chat with Single Document
     elif request.document_id:
-        print(f"Searching Text in Doc: {request.document_id}")
-        # Use the NEW text-based search
         relevant_chunks = ocr_engine.search_single_doc(request.message, request.document_id)
 
-    # 3. Get Answer (Now sending TEXT, not images)
     answer = ai_service.get_answer(relevant_chunks, request.message)
-        
     return {"answer": answer}
 
 @app.get("/documents/{doc_id}/download")

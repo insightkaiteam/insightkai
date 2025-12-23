@@ -21,23 +21,35 @@ class PDFEngine:
         # Initialize OpenAI for Embeddings
         self.openai = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
-# REPLACE the old get_folders method with this:
     def get_folders(self) -> List[str]:
         # Fetch actual folders from the new table
         response = self.supabase.table("folders").select("name").execute()
         # Return a list of names like ["General", "Finance", "Receipts"]
         return sorted([row['name'] for row in response.data])
 
-
-
-    # REPLACE the old create_folder method with this:
     def create_folder(self, folder_name: str):
-        # Now we actually save it to the DB!
         try:
             self.supabase.table("folders").insert({"name": folder_name}).execute()
         except Exception as e:
             print(f"Folder might already exist: {e}")
+
+    # --- NEW: DELETE FOLDER ---
+    def delete_folder(self, folder_name: str):
+        if folder_name == "General":
+            raise ValueError("Cannot delete the General folder")
+        
+        # 1. Move all documents in this folder to 'General' to prevent data loss
+        # We need to update both the main 'documents' table and the 'document_pages' chunks
+        try:
+            self.supabase.table("documents").update({"folder": "General"}).eq("folder", folder_name).execute()
+            self.supabase.table("document_pages").update({"folder": "General"}).eq("folder", folder_name).execute()
             
+            # 2. Delete the folder itself
+            self.supabase.table("folders").delete().eq("name", folder_name).execute()
+        except Exception as e:
+            print(f"Error deleting folder: {e}")
+            raise e
+
     def get_embedding(self, text: str) -> List[float]:
         # Generate vector for text search (Cost: extremely cheap)
         text = text.replace("\n", " ")
@@ -48,13 +60,12 @@ class PDFEngine:
             pdf = pdfium.PdfDocument(io.BytesIO(file_content))
             n_pages = len(pdf)
             
-            if n_pages > 50: # Limit increased slightly since DB can handle it
+            if n_pages > 50: 
                 raise ValueError(f"Page limit exceeded. Max 50 pages allowed.")
 
             doc_id = str(uuid.uuid4())
 
-# --- NEW: Save the ORIGINAL PDF file for the previewer ---
-            # We save it as 'source.pdf' inside the document's folder
+            # Save the ORIGINAL PDF file for the previewer
             self.supabase.storage.from_("document-pages").upload(
                 file=file_content,
                 path=f"{doc_id}/source.pdf",
@@ -70,7 +81,6 @@ class PDFEngine:
                 text_page = page.get_textpage()
                 extracted_text = text_page.get_text_bounded()
                 
-                # Fallback if page is empty (Scanned PDF)
                 if len(extracted_text.strip()) < 10:
                     extracted_text = f"Image based page {i+1} of document {filename}. Contains visual data."
 
@@ -94,8 +104,6 @@ class PDFEngine:
                     file_options={"content-type": "image/jpeg"}
                 )
 
-                # Get Public URL
-                # NOTE: Ensure your bucket is set to Public!
                 public_url = self.supabase.storage.from_("document-pages").get_public_url(file_path)
 
                 # E. Save Metadata to DB Table
@@ -115,9 +123,6 @@ class PDFEngine:
             print(f"Error processing PDF: {e}")
             raise e
 
-
-# ... inside PDFEngine class ...
-
     def get_relevant_folder_pages(self, query: str, folder_name: str) -> List[dict]:
         query_vector = self.get_embedding(query)
         params = {
@@ -126,44 +131,31 @@ class PDFEngine:
             "match_count": 5,
             "filter_folder_name": folder_name
         }
-        # This RPC (match_folder_pages) returns 'content' and 'page_number'
         response = self.supabase.rpc("match_folder_pages", params).execute()
         return response.data
 
-    # --- NEW: SEARCH LOGIC ---
     def get_relevant_pages(self, query: str, doc_id: str) -> List[dict]:
         query_vector = self.get_embedding(query)
-        
-        # We use the Hybrid function but we need to trick it or update it. 
-        # Actually, let's use the 'match_pages' but ensure it returns CONTENT.
-        # Run the SQL below if you haven't yet, otherwise this logic works:
-        
         params = {
             "query_embedding": query_vector,
             "match_threshold": 0.25,
             "match_count": 5,
             "filter_doc_id": doc_id
         }
-        
         response = self.supabase.rpc("match_pages", params).execute()
         return response.data
 
     def delete_document(self, doc_id: str):
-        # 1. Delete rows
         self.supabase.table("document_pages").delete().eq("document_id", doc_id).execute()
-        # 2. Delete files (Supabase storage doesn't support folder delete easily via API, 
-        # usually you list files then delete. Skip for MVP to avoid complexity).
         pass
 
     def get_pdf_bytes(self, doc_id: str) -> Optional[bytes]:
             try:
-                # Download the original PDF from Supabase Storage
                 response = self.supabase.storage.from_("document-pages").download(f"{doc_id}/source.pdf")
                 return response
             except Exception as e:
                 print(f"Error downloading PDF: {e}")
                 return None
-
 
     def get_all_documents(self) -> List[dict]:
         try:
@@ -175,17 +167,16 @@ class PDFEngine:
             
             documents = []
             for row in response.data:
-                # Format the date nicely
                 date_str = row['created_at']
                 if date_str:
-                    date_str = date_str.split("T")[0] # Just keep YYYY-MM-DD
+                    date_str = date_str.split("T")[0] 
                 
                 documents.append({
                     "id": row['document_id'],
-                    "title": row.get('title') or "Untitled PDF", # Handle old files
+                    "title": row.get('title') or "Untitled PDF", 
                     "folder": row['folder'],
                     "upload_date": date_str,
-                    "page_count": "N/A" # Optimization: Skip counting for now
+                    "page_count": "N/A" 
                 })
             return documents
         except Exception as e:
