@@ -4,12 +4,13 @@ import uuid
 import json
 from typing import List
 from mistralai import Mistral
+# NEW IMPORT: Helper for strict schema formatting
+from mistralai.extra import response_format_from_pydantic_model
 from openai import OpenAI
 from supabase import create_client, Client
 from pydantic import BaseModel, Field
 
 # --- SCHEMA DEFINITION ---
-# This tells Mistral's Native OCR exactly what we want from each image.
 class VisualContext(BaseModel):
     image_description: str = Field(..., description="Detailed description of the image visual content.")
     data_extraction: str = Field(..., description="If this is a chart/table, transcribe the key numbers, axis labels, and trends. If a diagram, describe the flow.")
@@ -59,24 +60,19 @@ class MistralEngine:
             signed_url = self.client.files.get_signed_url(file_id=uploaded_file.id, expiry=1)
             
             # C. Run Native OCR with BBox Annotation
-            # We use the JSON Schema approach as per Mistral docs
+            # FIX: Use the SDK helper function to format the schema correctly
             ocr_response = self.client.ocr.process(
                 document={
                     "type": "document_url",
                     "document_url": signed_url.url,
                 },
-                model="mistral-ocr-2512", # Force V3
+                model="mistral-ocr-2512",
                 include_image_base64=True, 
-                bbox_annotation_format={
-                    "type": "json_schema",
-                    "json_schema": VisualContext.model_json_schema()
-                }
+                bbox_annotation_format=response_format_from_pydantic_model(VisualContext)
             )
 
             # --- MANIFEST INITIALIZATION ---
-            # This string will become the "Receipt" you see in the chat.
             manifest_log = f"**🔍 Extraction Verification Log: {filename}**\n\n"
-            
             full_text_for_embedding = ""
 
             # D. Iterate Pages
@@ -91,14 +87,12 @@ class MistralEngine:
                 if page.images:
                     for j, img in enumerate(page.images):
                         image_count_on_page += 1
-                        # Create a unique ID like [Figure 2-1] (Page 2, Image 1)
                         figure_id = f"Figure {page_num}-{image_count_on_page}"
                         
                         # Extract Native Annotation
-                        # Mistral SDK v1+ returns structured data in 'annotation' if schema was passed
                         annotation_data = None
                         try:
-                            # It might be a dict or a string depending on exact API response format
+                            # Mistral might return a dict or string depending on API version
                             raw_ann = getattr(img, 'annotation', None)
                             if raw_ann:
                                 if isinstance(raw_ann, str):
@@ -109,37 +103,33 @@ class MistralEngine:
                             annotation_data = None
 
                         if annotation_data:
-                            # Parse fields from our Pydantic schema
-                            # Note: Accessing dict keys safely
-                            desc = annotation_data.get('image_description', 'N/A')
-                            data_pts = annotation_data.get('data_extraction', 'N/A')
-                            analysis = annotation_data.get('comparative_analysis', 'N/A')
+                            # Access fields safely (handle both dict and object access just in case)
+                            if isinstance(annotation_data, dict):
+                                desc = annotation_data.get('image_description', 'N/A')
+                                data_pts = annotation_data.get('data_extraction', 'N/A')
+                                analysis = annotation_data.get('comparative_analysis', 'N/A')
+                            else:
+                                # Fallback if Pydantic object
+                                desc = getattr(annotation_data, 'image_description', 'N/A')
+                                data_pts = getattr(annotation_data, 'data_extraction', 'N/A')
+                                analysis = getattr(annotation_data, 'comparative_analysis', 'N/A')
 
-                            # 1. Add to Text Chunk (for the AI to read)
                             visual_section += (
                                 f"\n> **[{figure_id} Analysis]**\n"
                                 f"> - **Visual:** {desc}\n"
                                 f"> - **Data:** {data_pts}\n"
                                 f"> - **Insight:** {analysis}\n"
                             )
-
-                            # 2. Add to Manifest (for YOU to see)
-                            manifest_log += f"- **Page {page_num}**: Found {figure_id}. Extracted data points: *\"{data_pts[:50]}...\"*\n"
+                            manifest_log += f"- **Page {page_num}**: Found {figure_id}. Extracted data points: *\"{str(data_pts)[:50]}...\"*\n"
                         else:
                             manifest_log += f"- **Page {page_num}**: Found {figure_id} but annotation was empty.\n"
-                else:
-                    # Log empty pages just so we know
-                    # manifest_log += f"- **Page {page_num}**: Text only.\n"
-                    pass
-
+                
                 # --- MERGE & SAVE ---
-                # We strictly prepend the Page Number header
                 enriched_content = f"**[Page {page_num}]**\n{markdown}\n"
                 
                 if visual_section:
                     enriched_content += "\n### 📊 Visual Data Extracted:\n" + visual_section
 
-                # Chunking
                 chunks = self._chunk_markdown(enriched_content)
                 for chunk in chunks:
                     if not chunk.strip(): continue
@@ -155,13 +145,9 @@ class MistralEngine:
                         "image_url": ""
                     }).execute()
 
-                if len(full_text_for_embedding) < 4000:
-                    full_text_for_embedding += enriched_content + "\n"
-
             # E. Finish Manifest & Save
             manifest_log += "\n✅ **Extraction Complete.** You can now ask questions like *'Compare Figure 2-1 with Figure 4-3'.*"
             
-            # Save the Manifest into the 'summary' column
             self.supabase.table("documents").update({
                 "status": "ready",
                 "summary": manifest_log
@@ -173,7 +159,7 @@ class MistralEngine:
             print(f"[{doc_id}] FAILED: {e}")
             self.supabase.table("documents").update({"status": "failed"}).eq("id", doc_id).execute()
 
-    # --- HELPERS (Standard) ---
+    # --- HELPERS ---
     def _chunk_markdown(self, text: str) -> List[str]:
         chunks = []
         current_chunk = ""
@@ -203,7 +189,6 @@ class MistralEngine:
             return [row['content'] for row in res.data if row.get('content')]
         except: return []
 
-    # (Keep other existing methods: search, get_documents, delete_document, debug_document etc.)
     def get_documents(self):
         try:
             res = self.supabase.table("documents").select("*").order("created_at", desc=True).execute()
