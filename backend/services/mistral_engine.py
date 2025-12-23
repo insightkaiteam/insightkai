@@ -2,9 +2,9 @@ import os
 import io
 import uuid
 import json
-from typing import List
+from typing import List, Any
 from mistralai import Mistral
-# NEW IMPORT: Helper for strict schema formatting
+# Import the helper for strict schema formatting
 from mistralai.extra import response_format_from_pydantic_model
 from openai import OpenAI
 from supabase import create_client, Client
@@ -39,7 +39,7 @@ class MistralEngine:
     # --- MAIN TASK ---
     async def process_pdf_background(self, doc_id: str, file_bytes: bytes, filename: str, folder: str):
         try:
-            print(f"[{doc_id}] Starting Mistral Native OCR 3 for {filename}...")
+            print(f"[{doc_id}] Starting Mistral Native OCR (Latest) for {filename}...")
 
             # A. Upload Source PDF
             self.supabase.storage.from_("document-pages").upload(
@@ -59,14 +59,14 @@ class MistralEngine:
             
             signed_url = self.client.files.get_signed_url(file_id=uploaded_file.id, expiry=1)
             
-            # C. Run Native OCR with BBox Annotation
-            # FIX: Use the SDK helper function to format the schema correctly
+            # C. Run Native OCR
+            # CHANGE: Switched to 'mistral-ocr-latest' to ensure feature compatibility
             ocr_response = self.client.ocr.process(
                 document={
                     "type": "document_url",
                     "document_url": signed_url.url,
                 },
-                model="mistral-ocr-2512",
+                model="mistral-ocr-latest", 
                 include_image_base64=True, 
                 bbox_annotation_format=response_format_from_pydantic_model(VisualContext)
             )
@@ -89,27 +89,44 @@ class MistralEngine:
                         image_count_on_page += 1
                         figure_id = f"Figure {page_num}-{image_count_on_page}"
                         
-                        # Extract Native Annotation
-                        annotation_data = None
+                        # --- DEBUG: PRINT IMAGE OBJECT KEYS ---
+                        # This will show up in your Render logs if it fails again
                         try:
-                            # Mistral might return a dict or string depending on API version
-                            raw_ann = getattr(img, 'annotation', None)
-                            if raw_ann:
-                                if isinstance(raw_ann, str):
-                                    annotation_data = json.loads(raw_ann)
-                                else:
-                                    annotation_data = raw_ann
-                        except:
-                            annotation_data = None
+                            print(f"[DEBUG {figure_id}] Image Keys: {img.__dict__.keys()}")
+                        except: pass
 
+                        # Extract Native Annotation (Robust Check)
+                        annotation_data = None
+                        
+                        # Priority 1: Check 'annotation' attribute (Standard)
+                        raw_ann = getattr(img, 'annotation', None)
+                        
+                        # Priority 2: Check if fields are merged directly (Rare edge case)
+                        if not raw_ann and hasattr(img, 'image_description'):
+                             raw_ann = {
+                                 "image_description": getattr(img, 'image_description'),
+                                 "data_extraction": getattr(img, 'data_extraction', 'N/A'),
+                                 "comparative_analysis": getattr(img, 'comparative_analysis', 'N/A')
+                             }
+
+                        if raw_ann:
+                            if isinstance(raw_ann, str):
+                                try:
+                                    annotation_data = json.loads(raw_ann)
+                                except:
+                                    # Handle case where string is just a description
+                                    annotation_data = {"image_description": raw_ann}
+                            else:
+                                annotation_data = raw_ann
+                        
                         if annotation_data:
-                            # Access fields safely (handle both dict and object access just in case)
+                            # Access fields safely
                             if isinstance(annotation_data, dict):
                                 desc = annotation_data.get('image_description', 'N/A')
                                 data_pts = annotation_data.get('data_extraction', 'N/A')
                                 analysis = annotation_data.get('comparative_analysis', 'N/A')
                             else:
-                                # Fallback if Pydantic object
+                                # Fallback if it's an object
                                 desc = getattr(annotation_data, 'image_description', 'N/A')
                                 data_pts = getattr(annotation_data, 'data_extraction', 'N/A')
                                 analysis = getattr(annotation_data, 'comparative_analysis', 'N/A')
@@ -120,10 +137,12 @@ class MistralEngine:
                                 f"> - **Data:** {data_pts}\n"
                                 f"> - **Insight:** {analysis}\n"
                             )
-                            manifest_log += f"- **Page {page_num}**: Found {figure_id}. Extracted data points: *\"{str(data_pts)[:50]}...\"*\n"
+                            manifest_log += f"- **Page {page_num}**: Found {figure_id}. Data: *\"{str(data_pts)[:50]}...\"*\n"
                         else:
-                            manifest_log += f"- **Page {page_num}**: Found {figure_id} but annotation was empty.\n"
-                
+                            # Log failure clearly
+                            manifest_log += f"- **Page {page_num}**: Found {figure_id} BUT annotation was empty. (Check Logs)\n"
+                            print(f"[ERROR {figure_id}] Annotation missing. Raw Image Obj: {str(img)}")
+
                 # --- MERGE & SAVE ---
                 enriched_content = f"**[Page {page_num}]**\n{markdown}\n"
                 
@@ -146,7 +165,7 @@ class MistralEngine:
                     }).execute()
 
             # E. Finish Manifest & Save
-            manifest_log += "\n✅ **Extraction Complete.** You can now ask questions like *'Compare Figure 2-1 with Figure 4-3'.*"
+            manifest_log += "\n✅ **Extraction Complete.**"
             
             self.supabase.table("documents").update({
                 "status": "ready",
