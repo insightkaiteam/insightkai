@@ -25,10 +25,7 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
-/* --- ANIMATIONS --- */
-
-/* 1. Card Shuffle Animation (Hero) */
-/* 3 Cards total. Each takes turn being front (opacity 1, scale 1) */
+/* --- HERO CARD ANIMATIONS --- */
 @keyframes card-cycle-1 {
   0%, 30% { z-index: 30; transform: translateY(0) scale(1); opacity: 1; }
   33% { z-index: 10; transform: translateY(40px) scale(0.9); opacity: 0; }
@@ -57,7 +54,50 @@ body {
 .animate-card-2 { animation: card-cycle-2 12s infinite ease-in-out; }
 .animate-card-3 { animation: card-cycle-3 12s infinite ease-in-out; }
 
-/* 2. Upload Bar */
+/* --- FEATURE ANIMATIONS --- */
+
+/* 1. Deep Research (Scanning Text) */
+@keyframes scan-text {
+  0% { width: 0%; opacity: 0.5; }
+  50% { width: 100%; opacity: 1; }
+  100% { width: 100%; opacity: 0.5; }
+}
+.animate-scan-text {
+  animation: scan-text 2s infinite ease-in-out;
+}
+
+/* 2. Cross-Doc (Pulsing Line) */
+@keyframes ping-line {
+  0% { transform: scaleX(0); opacity: 0.5; }
+  50% { transform: scaleX(1); opacity: 1; }
+  100% { transform: scaleX(1); opacity: 0; }
+}
+.animate-ping-line {
+  animation: ping-line 1.5s infinite ease-out;
+}
+
+/* 3. Autonomous Library (Sorting Stack) */
+@keyframes stack-sort {
+  0% { transform: translateY(0) rotate(0deg); }
+  25% { transform: translateY(-5px) rotate(-5deg); }
+  50% { transform: translateY(0) rotate(0deg); }
+  75% { transform: translateY(-2px) rotate(2deg); }
+  100% { transform: translateY(0) rotate(0deg); }
+}
+.animate-stack {
+  animation: stack-sort 3s infinite ease-in-out;
+}
+
+/* 4. Ambient (Waveform) */
+@keyframes waveform {
+  0%, 100% { height: 20%; }
+  50% { height: 100%; }
+}
+.animate-waveform {
+  animation: waveform 1s ease-in-out infinite;
+}
+
+/* Upload Bar */
 @keyframes progress {
   0% { transform: scaleX(0); }
   50% { transform: scaleX(0.5); }
@@ -65,15 +105,6 @@ body {
 }
 .animate-progress {
   animation: progress 1.5s infinite cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-/* 3. Waveform (Audio) */
-@keyframes waveform {
-  0%, 100% { height: 20%; }
-  50% { height: 100%; }
-}
-.animate-waveform {
-  animation: waveform 1s ease-in-out infinite;
 }
 
 /* Scrollbar Polish */
