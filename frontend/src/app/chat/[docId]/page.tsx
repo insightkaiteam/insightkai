@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
-import { Mic, Send, ArrowLeft, StopCircle, Loader2 } from 'lucide-react';
+import { Mic, Send, ArrowLeft, StopCircle, Loader2, FileText } from 'lucide-react';
 import Link from 'next/link';
 
 // ⚠️ REPLACE THIS WITH YOUR RENDER URL
@@ -21,10 +21,7 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
   const chunksRef = useRef<Blob[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Scroll to bottom
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
   useEffect(() => {
     const fetchManifest = async () => {
@@ -33,9 +30,8 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
         if (res.ok) {
             const data = await res.json();
             if (data.summary) {
-                // Clean up summary for display (remove logs)
                 const cleanSummary = data.summary.split("---_SEPARATOR_---")[0].replace("**Content Summary:**", "").trim();
-                setMessages([{ role: 'ai', content: `**Ready to chat.**\n\n${cleanSummary}` }]);
+                setMessages([{ role: 'ai', content: `**Ready.**\n\n${cleanSummary}` }]);
             }
         }
       } catch (e) { console.error("Failed to fetch manifest", e); }
@@ -46,12 +42,10 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
   const sendMessage = async (textOverride?: string) => {
     const messageToSend = textOverride || input;
     if (!messageToSend.trim()) return;
-
     const userMsg = { role: 'user', content: messageToSend };
     setMessages(prev => [...prev, userMsg]);
     setInput('');
     setIsLoading(true);
-
     try {
       const res = await fetch(`${BACKEND_URL}/chat`, {
         method: 'POST',
@@ -60,9 +54,8 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
       });
       const data = await res.json();
       setMessages(prev => [...prev, { role: 'ai', content: data.answer }]);
-    } catch (e) {
-      setMessages(prev => [...prev, { role: 'ai', content: "Error: Backend not reachable." }]);
-    } finally { setIsLoading(false); }
+    } catch (e) { setMessages(prev => [...prev, { role: 'ai', content: "Error." }]); } 
+    finally { setIsLoading(false); }
   };
 
   const startRecording = async () => {
@@ -82,12 +75,7 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
     } catch (error) { alert("Microphone access denied."); }
   };
 
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-    }
-  };
+  const stopRecording = () => { if (mediaRecorderRef.current && isRecording) { mediaRecorderRef.current.stop(); setIsRecording(false); } };
 
   const handleAudioUpload = async (audioBlob: Blob) => {
     setIsLoading(true);
@@ -97,75 +85,69 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
       const res = await fetch(`${BACKEND_URL}/transcribe`, { method: 'POST', body: formData });
       const data = await res.json();
       if (data.text) sendMessage(data.text); 
-    } catch (error) { console.error("Transcription failed", error); } 
+    } catch (error) { console.error("Error", error); } 
     finally { setIsLoading(false); }
   };
 
   return (
-    <div className="flex h-screen bg-[#fafafa] font-sans">
+    <div className="flex h-screen bg-[#F3F4F6] font-sans overflow-hidden">
       
       {/* LEFT: PDF VIEWER */}
-      <div className="w-1/2 bg-gray-900 border-r border-gray-800 relative flex flex-col">
-        <div className="h-14 bg-gray-900 border-b border-gray-800 flex items-center px-4">
-            <Link href="/dashboard" className="text-gray-400 hover:text-white transition-colors flex items-center gap-2 text-sm font-medium">
-                <ArrowLeft size={16} /> Back to Library
+      <div className="w-1/2 bg-gray-900 border-r border-gray-800 flex flex-col relative">
+        <div className="h-16 bg-gray-900 border-b border-gray-800 flex items-center px-6">
+            <Link href="/dashboard" className="text-gray-400 hover:text-white transition flex items-center gap-2 text-sm font-bold tracking-wide">
+                <ArrowLeft size={16} /> LIBRARY
             </Link>
         </div>
-        <iframe src={`${BACKEND_URL}/documents/${docId}/download`} className="flex-1 w-full" title="PDF Viewer" />
+        <iframe src={`${BACKEND_URL}/documents/${docId}/download`} className="flex-1 w-full border-none" title="PDF Viewer" />
       </div>
 
       {/* RIGHT: CHAT */}
       <div className="w-1/2 flex flex-col bg-white relative">
-        <div className="flex-1 overflow-y-auto p-6 space-y-6 pb-32">
+        <div className="flex-1 overflow-y-auto p-8 space-y-8 pb-40">
           {messages.map((m, i) => (
             <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`p-4 max-w-[85%] rounded-2xl text-sm leading-relaxed shadow-sm ${
+                {m.role === 'ai' && <div className="w-8 h-8 rounded-full bg-black text-white flex items-center justify-center font-serif italic font-bold mr-3 mt-1 shadow-md">κ</div>}
+                <div className={`p-5 max-w-[85%] rounded-3xl text-sm leading-relaxed shadow-sm ${
                     m.role === 'user' ? 'bg-blue-600 text-white rounded-br-sm' : 'bg-gray-50 border border-gray-100 text-gray-800 rounded-bl-sm'
                 }`}>
-                    <div className="prose prose-sm prose-p:my-1 prose-headings:my-2 max-w-none text-inherit">
-                        {m.role === 'ai' ? 
-                        <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{m.content}</ReactMarkdown> 
-                        : m.content}
+                    <div className={`prose prose-sm ${m.role === 'user' ? 'prose-invert' : ''}`}>
+                        <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{m.content}</ReactMarkdown>
                     </div>
                 </div>
             </div>
           ))}
           {isLoading && (
-             <div className="flex justify-start">
-                <div className="bg-gray-50 px-4 py-3 rounded-2xl rounded-bl-sm flex gap-2 items-center text-xs text-gray-400 font-medium">
-                    <Loader2 size={12} className="animate-spin" /> Thinking...
-                </div>
+             <div className="flex justify-start items-center gap-2 ml-11">
+                <Loader2 size={16} className="animate-spin text-gray-400" /> <span className="text-xs text-gray-400 font-medium">Processing...</span>
             </div>
           )}
           <div ref={messagesEndRef} />
         </div>
         
-        {/* INPUT AREA */}
-        <div className="absolute bottom-0 w-full p-6 bg-gradient-to-t from-white via-white to-transparent">
-          <div className="bg-white border border-gray-200 shadow-xl rounded-2xl p-2 flex gap-2 items-end transition-all focus-within:ring-2 focus-within:ring-black/5 focus-within:border-gray-300">
+        {/* FLOATY INPUT BAR */}
+        <div className="absolute bottom-8 left-0 w-full px-8 flex justify-center">
+          <div className={`bg-white border border-gray-200 shadow-2xl rounded-[2rem] p-2 flex gap-2 items-center transition-all duration-300 w-full max-w-3xl ${isRecording ? 'ring-4 ring-red-50 border-red-100' : 'focus-within:ring-4 focus-within:ring-blue-50 focus-within:border-blue-200'}`}>
             <button
                 onMouseDown={startRecording} onMouseUp={stopRecording} onMouseLeave={stopRecording}
-                className={`p-3 rounded-xl transition-all ${isRecording ? 'bg-red-50 text-red-600 animate-pulse' : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600'}`}
+                className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${isRecording ? 'bg-red-500 text-white scale-110 shadow-lg shadow-red-200' : 'bg-gray-50 text-gray-500 hover:bg-gray-100 hover:text-black'}`}
             >
-                {isRecording ? <StopCircle size={20} /> : <Mic size={20} />}
+                {isRecording ? <StopCircle size={20} className="animate-pulse" /> : <Mic size={20} />}
             </button>
 
             <textarea 
-                className="flex-1 max-h-32 bg-transparent border-none focus:ring-0 p-3 text-sm resize-none" 
+                className="flex-1 bg-transparent border-none focus:ring-0 p-3 text-sm resize-none max-h-32 placeholder:text-gray-400" 
                 rows={1}
                 value={input} 
                 onChange={e=>setInput(e.target.value)} 
                 onKeyDown={e=>{ if(e.key==='Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }}}
-                placeholder="Ask a question about this document..."
+                placeholder={isRecording ? "Listening..." : "Ask a question..."}
                 disabled={isRecording || isLoading}
             />
             
-            <button onClick={() => sendMessage()} className="p-3 bg-black text-white rounded-xl hover:bg-gray-800 transition-colors shadow-md">
+            <button onClick={() => sendMessage()} className="w-12 h-12 bg-black text-white rounded-full flex items-center justify-center hover:scale-105 active:scale-95 transition shadow-lg">
                 <Send size={18} />
             </button>
-          </div>
-          <div className="text-center mt-2">
-            <p className="text-[10px] text-gray-300">InsightKai can make mistakes. Verify important info.</p>
           </div>
         </div>
       </div>
