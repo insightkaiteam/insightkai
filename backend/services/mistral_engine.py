@@ -1,46 +1,53 @@
 import os
 import io
 import uuid
-import base64
+import json
 from typing import List
 from mistralai import Mistral
 from openai import OpenAI
 from supabase import create_client, Client
+from pydantic import BaseModel, Field
+
+# --- SCHEMA DEFINITION ---
+# This tells Mistral's Native OCR exactly what we want from each image.
+class VisualContext(BaseModel):
+    image_description: str = Field(..., description="Detailed description of the image visual content.")
+    data_extraction: str = Field(..., description="If this is a chart/table, transcribe the key numbers, axis labels, and trends. If a diagram, describe the flow.")
+    comparative_analysis: str = Field(..., description="What is the key takeaway or insight from this figure?")
 
 class MistralEngine:
     def __init__(self):
-        # 1. Initialize Supabase
+        # 1. Supabase
         url: str = os.environ.get("SUPABASE_URL")
         key: str = os.environ.get("SUPABASE_KEY")
         self.supabase: Client = create_client(url, key)
         
-        # 2. Initialize OpenAI (Embeddings & Chat)
+        # 2. OpenAI (Embeddings)
         self.openai = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
-        # 3. Initialize Mistral (OCR & Vision)
+        # 3. Mistral (Native OCR 3 + Annotation)
         api_key = os.environ.get("MISTRAL_API_KEY")
         if not api_key:
             raise ValueError("MISTRAL_API_KEY is missing!")
-        
         self.client = Mistral(api_key=api_key)
 
     def get_embedding(self, text: str) -> List[float]:
         text = text.replace("\n", " ")
         return self.openai.embeddings.create(input=[text], model="text-embedding-3-small").data[0].embedding
 
-    # --- MAIN PROCESSING TASK ---
+    # --- MAIN TASK ---
     async def process_pdf_background(self, doc_id: str, file_bytes: bytes, filename: str, folder: str):
         try:
-            print(f"[{doc_id}] Starting Mistral OCR 3.0 (v25.12) for {filename}...")
+            print(f"[{doc_id}] Starting Mistral Native OCR 3 for {filename}...")
 
-            # A. Upload Source PDF to Supabase
+            # A. Upload Source PDF
             self.supabase.storage.from_("document-pages").upload(
                 file=file_bytes,
                 path=f"{doc_id}/source.pdf",
                 file_options={"content-type": "application/pdf"}
             )
 
-            # B. Upload File to Mistral
+            # B. Upload to Mistral
             uploaded_file = self.client.files.upload(
                 file={
                     "file_name": filename,
@@ -51,159 +58,144 @@ class MistralEngine:
             
             signed_url = self.client.files.get_signed_url(file_id=uploaded_file.id, expiry=1)
             
-            # C. Run OCR (Force using the specific V3 model)
+            # C. Run Native OCR with BBox Annotation
+            # We use the JSON Schema approach as per Mistral docs
             ocr_response = self.client.ocr.process(
                 document={
                     "type": "document_url",
                     "document_url": signed_url.url,
                 },
-                model="mistral-ocr-2512", # <--- Explicit V3 Model
-                include_image_base64=True
+                model="mistral-ocr-2512", # Force V3
+                include_image_base64=True, 
+                bbox_annotation_format={
+                    "type": "json_schema",
+                    "json_schema": VisualContext.model_json_schema()
+                }
             )
 
-            full_summary_text = ""
+            # --- MANIFEST INITIALIZATION ---
+            # This string will become the "Receipt" you see in the chat.
+            manifest_log = f"**🔍 Extraction Verification Log: {filename}**\n\n"
             
-            # D. Iterate through Pages
+            full_text_for_embedding = ""
+
+            # D. Iterate Pages
             for i, page in enumerate(ocr_response.pages):
                 page_num = i + 1
                 markdown = page.markdown
                 
-                # --- ROBUST VISUAL EXTRACTION ---
-                # Instead of trying to find/replace tags, we simply collect ALL visual data
-                # and append it as a "Visual Appendix" to the page text.
-                visual_descriptions = []
+                # --- PROCESS IMAGES WITH PAGE AWARENESS ---
+                visual_section = ""
+                image_count_on_page = 0
                 
-                for img in page.images:
-                    base64_data = img.image_base64
-                    if base64_data:
-                        # Describe the image
-                        desc = self._describe_with_pixtral(base64_data)
-                        visual_descriptions.append(f"> **[Figure/Chart Analysis]:** {desc}")
+                if page.images:
+                    for j, img in enumerate(page.images):
+                        image_count_on_page += 1
+                        # Create a unique ID like [Figure 2-1] (Page 2, Image 1)
+                        figure_id = f"Figure {page_num}-{image_count_on_page}"
+                        
+                        # Extract Native Annotation
+                        # Mistral SDK v1+ returns structured data in 'annotation' if schema was passed
+                        annotation_data = None
+                        try:
+                            # It might be a dict or a string depending on exact API response format
+                            raw_ann = getattr(img, 'annotation', None)
+                            if raw_ann:
+                                if isinstance(raw_ann, str):
+                                    annotation_data = json.loads(raw_ann)
+                                else:
+                                    annotation_data = raw_ann
+                        except:
+                            annotation_data = None
 
-                # Combine Text + Visuals
-                enriched_content = f"**[Page {page_num}]**\n{markdown}\n\n"
+                        if annotation_data:
+                            # Parse fields from our Pydantic schema
+                            # Note: Accessing dict keys safely
+                            desc = annotation_data.get('image_description', 'N/A')
+                            data_pts = annotation_data.get('data_extraction', 'N/A')
+                            analysis = annotation_data.get('comparative_analysis', 'N/A')
+
+                            # 1. Add to Text Chunk (for the AI to read)
+                            visual_section += (
+                                f"\n> **[{figure_id} Analysis]**\n"
+                                f"> - **Visual:** {desc}\n"
+                                f"> - **Data:** {data_pts}\n"
+                                f"> - **Insight:** {analysis}\n"
+                            )
+
+                            # 2. Add to Manifest (for YOU to see)
+                            manifest_log += f"- **Page {page_num}**: Found {figure_id}. Extracted data points: *\"{data_pts[:50]}...\"*\n"
+                        else:
+                            manifest_log += f"- **Page {page_num}**: Found {figure_id} but annotation was empty.\n"
+                else:
+                    # Log empty pages just so we know
+                    # manifest_log += f"- **Page {page_num}**: Text only.\n"
+                    pass
+
+                # --- MERGE & SAVE ---
+                # We strictly prepend the Page Number header
+                enriched_content = f"**[Page {page_num}]**\n{markdown}\n"
                 
-                if visual_descriptions:
-                    enriched_content += "### Visual Data Extracted from Page:\n" + "\n\n".join(visual_descriptions)
+                if visual_section:
+                    enriched_content += "\n### 📊 Visual Data Extracted:\n" + visual_section
 
-                # Append to full summary accumulator
-                if len(full_summary_text) < 5000:
-                    full_summary_text += enriched_content + "\n"
-
-                # Chunk & Save
-                # We save larger chunks now to ensure description stays with context
+                # Chunking
                 chunks = self._chunk_markdown(enriched_content)
-
-                for chunk_text in chunks:
-                    if not chunk_text.strip(): continue
-                    
-                    vector = self.get_embedding(chunk_text)
+                for chunk in chunks:
+                    if not chunk.strip(): continue
+                    vector = self.get_embedding(chunk)
                     
                     self.supabase.table("document_pages").insert({
                         "document_id": doc_id,
                         "page_number": page_num,
                         "folder": folder,
-                        "content": chunk_text,
+                        "content": chunk,
                         "embedding": vector,
                         "title": filename,
-                        "image_url": "" 
+                        "image_url": ""
                     }).execute()
 
-            # E. Generate Summary
-            summary = self._generate_summary(full_summary_text)
+                if len(full_text_for_embedding) < 4000:
+                    full_text_for_embedding += enriched_content + "\n"
+
+            # E. Finish Manifest & Save
+            manifest_log += "\n✅ **Extraction Complete.** You can now ask questions like *'Compare Figure 2-1 with Figure 4-3'.*"
+            
+            # Save the Manifest into the 'summary' column
             self.supabase.table("documents").update({
                 "status": "ready",
-                "summary": summary
+                "summary": manifest_log
             }).eq("id", doc_id).execute()
             
-            print(f"[{doc_id}] Success.")
+            print(f"[{doc_id}] Success. Manifest saved.")
 
         except Exception as e:
             print(f"[{doc_id}] FAILED: {e}")
             self.supabase.table("documents").update({"status": "failed"}).eq("id", doc_id).execute()
 
-    def _describe_with_pixtral(self, base64_img: str) -> str:
-        """
-        Aggressive prompt to force detailed data extraction.
-        """
-        try:
-            res = self.client.chat.complete(
-                model="pixtral-12b-2409",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": "Analyze this image in extreme detail. 1. If it is a chart, extract the axis labels, key trends, and specific data points (numbers). 2. If it is a diagram, explain the flow. 3. If it is a document screenshot, transcribe the key header details. Do not summarize; be specific."},
-                            {"type": "image_url", "image_url": f"data:image/jpeg;base64,{base64_img}"}
-                        ]
-                    }
-                ],
-                temperature=0.1 # Lower temp for more factual extraction
-            )
-            return res.choices[0].message.content
-        except Exception as e:
-            print(f"Vision Error: {e}")
-            return "Image analysis unavailable."
-
+    # --- HELPERS (Standard) ---
     def _chunk_markdown(self, text: str) -> List[str]:
-        """
-        Improved chunker: Splits by headers but ensures chunks aren't too small.
-        """
         chunks = []
         current_chunk = ""
         lines = text.split('\n')
-        
         for line in lines:
-            # Split on H1/H2 but ONLY if current chunk is substantial (>500 chars)
-            # This prevents splitting a header from its immediate paragraph
-            if line.strip().startswith("#") and len(current_chunk) > 500:
+            if line.strip().startswith("#") and len(current_chunk) > 600:
                 chunks.append(current_chunk.strip())
                 current_chunk = line + "\n"
             else:
                 current_chunk += line + "\n"
-            
-            # Hard limit to prevent token overflow
             if len(current_chunk) > 3500:
                 chunks.append(current_chunk.strip())
                 current_chunk = ""
-        
-        if current_chunk: 
-            chunks.append(current_chunk.strip())
-            
+        if current_chunk: chunks.append(current_chunk.strip())
         return chunks
-
-    # --- UTILS ---
-    def _generate_summary(self, text: str) -> str:
-        try:
-            res = self.openai.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": f"Summarize this document in 3 concise sentences:\n\n{text[:4000]}"}]
-            )
-            return res.choices[0].message.content
-        except: return "Summary unavailable."
-
-    def search(self, query: str, folder_name: str = None) -> List[dict]:
-        query_vector = self.get_embedding(query)
-        params = {
-            "query_text": query,
-            "query_embedding": query_vector,
-            "match_threshold": 0.5,
-            "match_count": 5,
-            "filter_folder": folder_name or "General"
-        }
-        try:
-            response = self.supabase.rpc("match_documents_hybrid", params).execute()
-            return response.data
-        except: return []
 
     def search_single_doc(self, query: str, doc_id: str) -> List[str]:
         query_vector = self.get_embedding(query)
-        # Low threshold (0.01) ensures we capture the "Visual Data" sections 
-        # which might use different vocabulary than the user's query.
         params = {
             "query_embedding": query_vector,
-            "match_threshold": 0.01, 
-            "match_count": 10, # Increased count to get more context
+            "match_threshold": 0.01,
+            "match_count": 10,
             "filter_doc_id": doc_id
         }
         try:
@@ -211,10 +203,7 @@ class MistralEngine:
             return [row['content'] for row in res.data if row.get('content')]
         except: return []
 
-    def delete_document(self, doc_id: str):
-        self.supabase.table("document_pages").delete().eq("document_id", doc_id).execute()
-        self.supabase.table("documents").delete().eq("id", doc_id).execute()
-
+    # (Keep other existing methods: search, get_documents, delete_document, debug_document etc.)
     def get_documents(self):
         try:
             res = self.supabase.table("documents").select("*").order("created_at", desc=True).execute()
@@ -228,10 +217,29 @@ class MistralEngine:
             } for r in res.data]
         except: return []
 
+    def delete_document(self, doc_id: str):
+        self.supabase.table("document_pages").delete().eq("document_id", doc_id).execute()
+        self.supabase.table("documents").delete().eq("id", doc_id).execute()
+
+    def search(self, query: str, folder_name: str = None) -> List[dict]:
+        query_vector = self.get_embedding(query)
+        params = {"query_text": query, "query_embedding": query_vector, "match_threshold": 0.5, "match_count": 5, "filter_folder": folder_name or "General"}
+        try:
+            response = self.supabase.rpc("match_documents_hybrid", params).execute()
+            return response.data
+        except: return []
+
     def debug_document(self, doc_id: str):
         try:
             doc = self.supabase.table("documents").select("*").eq("id", doc_id).execute().data[0]
-            # Fetch 3 random chunks to see if visuals are there
             pages = self.supabase.table("document_pages").select("page_number, content").eq("document_id", doc_id).limit(3).execute()
             return {"status": doc['status'], "preview": [p['content'][:300] for p in pages.data]}
+        except Exception as e: return {"error": str(e)}
+
+    def debug_search(self, doc_id: str, query: str):
+        try:
+            query_vector = self.get_embedding(query)
+            params = {"query_embedding": query_vector, "match_threshold": 0.01, "match_count": 3, "filter_doc_id": doc_id}
+            res = self.supabase.rpc("match_page_sections", params).execute()
+            return {"query": query, "chunks_found": len(res.data), "preview": res.data[0]['content'][:200] if res.data else "None"}
         except Exception as e: return {"error": str(e)}
