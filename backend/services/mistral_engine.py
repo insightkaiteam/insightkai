@@ -122,25 +122,22 @@ class MistralEngine:
             return [row['content'] for row in res.data if row.get('content')]
         except: return []
 
-    # --- UPDATED FOLDER SEARCH WITH CONTEXT INJECTION ---
+    # --- UPDATED FOLDER SEARCH ---
     def search(self, query: str, folder_name: str = None, limit: int = 5) -> List[dict]:
         query_vector = self.get_embedding(query)
         params = {
             "query_text": query, 
             "query_embedding": query_vector, 
-            "match_threshold": 0.5, 
-            "match_count": limit, # Dynamic limit (5 for simple, 20 for deep)
+            "match_threshold": 0.01,  # <--- CHANGED FROM 0.5 TO 0.01
+            "match_count": limit, 
             "filter_folder": folder_name or "General"
         }
         try:
             response = self.supabase.rpc("match_documents_hybrid", params).execute()
             
-            # --- CONTEXT INJECTION MAGIC ---
-            # We wrap the content so the LLM knows WHERE it came from.
             results = []
             for row in response.data:
                 filename = row.get('title', 'Unknown File')
-                # Inject a clear header that GPT-4o-mini will pay attention to
                 injected_content = f"[[SOURCE DOCUMENT: {filename}]]\n\n{row['content']}"
                 row['content'] = injected_content
                 results.append(row)
