@@ -25,58 +25,56 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
-/* --- FEATURE ANIMATIONS --- */
+/* --- PROFESSIONAL FEATURE ANIMATIONS --- */
 
-/* 1. Evidence: Text Highlight & Badge Pop */
+/* 1. Evidence: Subtle Scan & Badge */
 @keyframes highlight-scan {
   0% { background-size: 0% 100%; }
   100% { background-size: 100% 100%; }
 }
 .animate-highlight {
-  background-image: linear-gradient(to right, #d1fae5, #d1fae5); /* emerald-100 */
+  background-image: linear-gradient(to right, rgba(16, 185, 129, 0.2), rgba(16, 185, 129, 0.2));
   background-repeat: no-repeat;
   background-size: 0% 100%;
   animation: highlight-scan 2s ease-out infinite alternate;
 }
 
-@keyframes badge-pop {
-  0%, 40% { transform: scale(0); opacity: 0; }
-  50% { transform: scale(1.1); opacity: 1; }
-  60% { transform: scale(1); opacity: 1; }
-  90% { transform: scale(1); opacity: 1; }
-  100% { transform: scale(0); opacity: 0; }
+@keyframes badge-float {
+  0% { transform: translateY(0); opacity: 0; }
+  20% { transform: translateY(-5px); opacity: 1; }
+  80% { transform: translateY(-5px); opacity: 1; }
+  100% { transform: translateY(0); opacity: 0; }
 }
 .animate-badge {
-  animation: badge-pop 2s ease-out infinite alternate;
+  animation: badge-float 3s ease-in-out infinite;
 }
 
-/* 2. Cross-Doc: Pulsing Bridge */
-@keyframes bridge-flow {
-  0% { width: 0%; opacity: 0; left: 0; }
-  50% { width: 100%; opacity: 1; left: 0; }
-  51% { width: 100%; opacity: 0; left: auto; right: 0; }
-  100% { width: 0%; opacity: 0; right: 0; }
+/* 2. Semantic Vault: Smooth Stack */
+@keyframes stack-snap {
+  0% { transform: translate(0, 0) scale(1); opacity: 0.5; }
+  50% { transform: translate(4px, -4px) scale(0.95); opacity: 0.8; }
+  100% { transform: translate(0, 0) scale(1); opacity: 0.5; }
 }
-.animate-bridge {
-  animation: bridge-flow 2s infinite ease-in-out;
+.animate-stack-1 { animation: stack-snap 3s infinite ease-in-out; }
+.animate-stack-2 { animation: stack-snap 3s infinite ease-in-out 0.5s; }
+
+/* 3. Shared Intelligence: Network Pulse */
+@keyframes network-pulse {
+  0% { transform: scale(1); opacity: 0.3; }
+  50% { transform: scale(1.5); opacity: 0; }
+  100% { transform: scale(1); opacity: 0; }
+}
+.animate-network {
+  animation: network-pulse 2s infinite ease-out;
 }
 
-/* 3. Library: Stack Sort */
-@keyframes slide-to-folder {
-  0% { transform: translate(0, 0) rotate(0deg); opacity: 1; }
-  50% { transform: translate(10px, -10px) rotate(5deg); opacity: 0.5; }
-  100% { transform: translate(0, 0) rotate(0deg); opacity: 1; }
-}
-.animate-sort-1 { animation: slide-to-folder 3s infinite ease-in-out; }
-.animate-sort-2 { animation: slide-to-folder 3s infinite ease-in-out 0.2s; }
-
-/* 4. Audio: Waveform */
-@keyframes wave-dance {
-  0%, 100% { height: 20%; }
-  50% { height: 100%; }
+/* 4. Ambient: Professional Waveform */
+@keyframes wave-calm {
+  0%, 100% { height: 8px; }
+  50% { height: 16px; }
 }
 .animate-wave {
-  animation: wave-dance 1.2s ease-in-out infinite;
+  animation: wave-calm 1.5s ease-in-out infinite;
 }
 
 /* Upload Bar */

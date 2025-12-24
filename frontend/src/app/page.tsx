@@ -1,6 +1,10 @@
 "use client";
 import Link from 'next/link';
-import { ArrowRight, Mic, Search, Share2, ShieldCheck, BrainCircuit, FileText, CheckCircle2, Layers, Sparkles, Files, ScanSearch, GitMerge, MoveRight, Coins } from 'lucide-react';
+import { 
+  ArrowRight, Mic, Search, Share2, ShieldCheck, BrainCircuit, 
+  FileText, CheckCircle2, Layers, Sparkles, Files, ScanSearch, 
+  GitMerge, MoveRight, Coins, Users, Database, BookOpen 
+} from 'lucide-react';
 
 export default function LandingPage() {
   return (
@@ -9,9 +13,9 @@ export default function LandingPage() {
       {/* 1. NAVIGATION */}
       <nav className="fixed top-0 w-full z-50 bg-white/80 backdrop-blur-xl border-b border-gray-100">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-0.5 group cursor-pointer">
+          <div className="flex items-center gap-0 group cursor-pointer">
             <span className="text-xl font-medium tracking-tight">insight</span>
-            <span className="w-6 h-6 bg-black rounded flex items-center justify-center text-white font-serif italic font-bold text-sm group-hover:rotate-12 transition-transform">κ</span>
+            <span className="w-5 h-5 bg-black rounded flex items-center justify-center text-white font-serif italic font-bold text-xs mx-0.5 group-hover:rotate-12 transition-transform">κ</span>
             <span className="text-xl font-mono font-bold tracking-tighter">AI</span>
           </div>
           <div className="flex items-center gap-6">
@@ -25,40 +29,33 @@ export default function LandingPage() {
         </div>
       </nav>
 
-      {/* 2. HERO SECTION (ROI FOCUSED) */}
+      {/* 2. HERO SECTION (PROFESSIONAL QUADRANT) */}
       <section className="pt-32 pb-20 px-6 max-w-7xl mx-auto">
         <div className="grid lg:grid-cols-2 gap-16 items-center">
           
-          {/* LEFT: ROI MESSAGING */}
+          {/* LEFT: STRATEGIC MESSAGING */}
           <div>
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gray-900 text-white text-xs font-bold uppercase tracking-wider mb-8 shadow-md">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gray-100 border border-gray-200 text-gray-600 text-xs font-bold uppercase tracking-wider mb-8">
               <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
               </span>
-              PDF Intelligence Engine v2.0
+              Intelligence Engine v2.0
             </div>
             
-            <h1 className="text-5xl md:text-7xl font-bold tracking-tighter leading-[1.1] mb-6">
+            <h1 className="text-5xl md:text-6xl font-bold tracking-tighter leading-[1.1] mb-6 text-gray-900">
               Advanced Document <br/>
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-gray-900 via-gray-600 to-gray-900">Intelligence is here.</span>
+              Intelligence.
             </h1>
             
-            <p className="text-xl text-gray-600 mb-8 max-w-xl leading-relaxed">
-              Manual PDF perusal is a multi-thousand dollar drain on your time. Reason across your entire library with human-level accuracy. Get deep, fact-driven answers with verified references. 
-              <span className="block mt-4 font-semibold text-gray-900">Reclaim hundreds of hours and save thousands in billable labor.</span>
+            <p className="text-xl text-gray-500 mb-8 max-w-lg leading-relaxed">
+              Manual perusal is a liability. Leverage state-of-the-art vision and reasoning to extract facts, manage libraries, and share intelligence with human-level accuracy.
             </p>
 
-            <div className="flex flex-col gap-3 mb-10 p-4 bg-white rounded-xl border border-gray-100 shadow-sm w-fit">
-                <div className="flex items-center gap-2 text-sm font-bold text-gray-800">
-                    <CheckCircle2 size={16} className="text-green-600" /> 100% Verifiable Citations
-                </div>
-                <div className="flex items-center gap-2 text-sm font-bold text-gray-800">
-                    <CheckCircle2 size={16} className="text-green-600" /> Zero Hallucinations
-                </div>
-                <div className="flex items-center gap-2 text-sm font-bold text-gray-800">
-                    <CheckCircle2 size={16} className="text-green-600" /> Zero Manual Sifting
-                </div>
+            {/* Proof Banner */}
+            <div className="flex items-center gap-3 p-4 bg-emerald-50/50 border border-emerald-100 rounded-xl w-fit mb-10 text-emerald-900 text-sm font-medium">
+                <ShieldCheck size={18} className="text-emerald-600" />
+                <span>100% Verifiable Citations across your PDF library.</span>
             </div>
 
             <div className="flex gap-4">
@@ -70,69 +67,100 @@ export default function LandingPage() {
             </div>
           </div>
 
-          {/* RIGHT: FEATURE PILLARS (LIVING GRID) */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+          {/* RIGHT: DYNAMIC FEATURE QUADRANT */}
+          <div className="relative">
+            {/* Dark Backdrop for Contrast */}
+            <div className="absolute inset-0 bg-gray-900 rounded-[2.5rem] rotate-1 opacity-5"></div>
             
-            {/* PILLAR 1: Evidence Analysis */}
-            <div className="bg-white p-6 rounded-3xl shadow-lg border border-gray-100 relative overflow-hidden group">
-                <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center mb-4"><ScanSearch size={20}/></div>
-                <h3 className="font-bold text-gray-900 mb-1">Evidence Analysis</h3>
-                <p className="text-xs text-gray-500 mb-4">Deep answers with proof.</p>
-                {/* Animation */}
-                <div className="bg-gray-50 p-3 rounded-lg border border-gray-100 text-[10px] text-gray-600 relative">
-                   <div className="mb-1 w-full h-2 bg-gray-200 rounded opacity-20"></div>
-                   <div className="mb-1 w-3/4 h-2 bg-gray-200 rounded opacity-20"></div>
-                   <span className="relative z-10 animate-highlight px-0.5 rounded-sm">Revenue up 15% YoY</span>
-                   <div className="absolute -top-2 right-2 bg-emerald-600 text-white text-[8px] px-1.5 py-0.5 rounded-full animate-badge shadow-md">REF: p.12</div>
-                </div>
-            </div>
-
-            {/* PILLAR 2: Cross-Doc Logic */}
-            <div className="bg-white p-6 rounded-3xl shadow-lg border border-gray-100 group">
-                <div className="w-10 h-10 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center mb-4"><GitMerge size={20}/></div>
-                <h3 className="font-bold text-gray-900 mb-1">Cross-Doc Logic</h3>
-                <p className="text-xs text-gray-500 mb-4">Synthesize 100+ files.</p>
-                {/* Animation */}
-                <div className="flex justify-between items-center mt-4 px-2">
-                    <div className="w-8 h-10 bg-gray-100 rounded border border-gray-200 flex items-center justify-center"><FileText size={12} className="text-gray-400"/></div>
-                    <div className="flex-1 h-0.5 bg-amber-100 mx-2 relative">
-                        <div className="absolute top-0 left-0 h-full bg-amber-500 animate-bridge"></div>
+            <div className="relative grid grid-cols-2 gap-3 p-3 bg-white/50 backdrop-blur-sm rounded-[2.5rem] border border-white/20 shadow-2xl">
+                
+                {/* Q1: EVIDENCE-BASED Q&A */}
+                <div className="group bg-white p-6 rounded-[2rem] border border-gray-100 hover:border-emerald-200 hover:shadow-lg transition-all duration-300 relative overflow-hidden h-64 flex flex-col justify-between">
+                    <div>
+                        <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition"><ScanSearch size={20}/></div>
+                        <h3 className="font-bold text-gray-900 text-lg leading-tight">Evidence-Based Q&A</h3>
                     </div>
-                    <div className="w-8 h-10 bg-gray-100 rounded border border-gray-200 flex items-center justify-center"><FileText size={12} className="text-gray-400"/></div>
+                    <div>
+                        <p className="text-xs text-gray-500 leading-relaxed mb-3">Deep answers with deep-link citations. No hallucinations, only proof.</p>
+                        {/* Animation */}
+                        <div className="bg-gray-50 p-2 rounded border border-gray-100 text-[10px] text-gray-400 relative font-mono">
+                            <span className="relative z-10 text-gray-800 animate-highlight">Net Income: $4.2M</span>
+                            <div className="absolute -top-3 right-0 bg-emerald-600 text-white text-[8px] px-1.5 py-0.5 rounded animate-badge">REF: p.14</div>
+                        </div>
+                    </div>
                 </div>
+
+                {/* Q2: SEMANTIC VAULT */}
+                <div className="group bg-white p-6 rounded-[2rem] border border-gray-100 hover:border-blue-200 hover:shadow-lg transition-all duration-300 relative overflow-hidden h-64 flex flex-col justify-between">
+                    <div>
+                        <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition"><Database size={20}/></div>
+                        <h3 className="font-bold text-gray-900 text-lg leading-tight">Semantic Vault</h3>
+                    </div>
+                    <div>
+                        <p className="text-xs text-gray-500 leading-relaxed mb-3">Organize 1,000+ PDFs instantly. Auto-tagging and clustering at scale.</p>
+                        {/* Animation */}
+                        <div className="flex justify-center items-end h-8 gap-1">
+                            <div className="w-6 h-8 bg-blue-100 border border-blue-200 rounded animate-stack-1"></div>
+                            <div className="w-6 h-8 bg-blue-50 border border-blue-100 rounded -ml-4 mb-1 animate-stack-2"></div>
+                            <span className="text-[9px] bg-gray-900 text-white px-1.5 rounded self-center ml-2">Sorted</span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Q3: SHARED INTELLIGENCE */}
+                <div className="group bg-white p-6 rounded-[2rem] border border-gray-100 hover:border-amber-200 hover:shadow-lg transition-all duration-300 relative overflow-hidden h-64 flex flex-col justify-between">
+                    <div>
+                        <div className="w-10 h-10 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition"><BrainCircuit size={20}/></div>
+                        <h3 className="font-bold text-gray-900 text-lg leading-tight">Shared Intelligence</h3>
+                    </div>
+                    <div>
+                        <p className="text-xs text-gray-500 leading-relaxed mb-3">Process once, deploy everywhere. Centralize manuals and policy.</p>
+                        {/* Animation */}
+                        <div className="flex justify-center items-center gap-3 mt-1">
+                            <div className="relative">
+                                <div className="absolute inset-0 bg-amber-400 rounded-full animate-network"></div>
+                                <BookOpen size={16} className="text-amber-600 relative z-10"/>
+                            </div>
+                            <div className="h-px w-8 bg-amber-200"></div>
+                            <div className="flex gap-1">
+                                <Users size={12} className="text-gray-400"/>
+                                <Users size={12} className="text-gray-400"/>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Q4: AMBIENT INTERACTION */}
+                <div className="group bg-gray-900 p-6 rounded-[2rem] border border-gray-800 hover:shadow-xl transition-all duration-300 relative overflow-hidden h-64 flex flex-col justify-between">
+                    <div>
+                        <div className="w-10 h-10 bg-gray-800 text-white rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition"><Mic size={20}/></div>
+                        <h3 className="font-bold text-white text-lg leading-tight">Ambient Interaction</h3>
+                    </div>
+                    <div>
+                        <p className="text-xs text-gray-400 leading-relaxed mb-3">Research hands-free. State-of-the-art audio for the morning walk.</p>
+                        {/* Animation */}
+                        <div className="flex gap-1 items-center h-6 opacity-80">
+                            {[...Array(8)].map((_,i) => (
+                                <div key={i} className="w-1 bg-white rounded-full animate-wave" style={{animationDelay: `${i*0.1}s`}}></div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+
             </div>
 
-            {/* PILLAR 3: Autonomous Library */}
-            <div className="bg-white p-6 rounded-3xl shadow-lg border border-gray-100 group">
-                <div className="w-10 h-10 bg-rose-50 text-rose-600 rounded-xl flex items-center justify-center mb-4"><Layers size={20}/></div>
-                <h3 className="font-bold text-gray-900 mb-1">Autonomous Library</h3>
-                <p className="text-xs text-gray-500 mb-4">Stop drowning in files.</p>
-                {/* Animation */}
-                <div className="relative h-12 w-full flex justify-center items-end">
-                    <div className="w-8 h-10 bg-rose-50 border border-rose-100 rounded absolute shadow-sm animate-sort-1" style={{left: '30%'}}></div>
-                    <div className="w-8 h-10 bg-rose-100 border border-rose-200 rounded absolute shadow-sm animate-sort-2" style={{left: '45%', zIndex: 10}}></div>
-                    <div className="absolute bottom-0 right-4 bg-gray-900 text-white text-[8px] px-2 py-1 rounded-full">SORTED</div>
-                </div>
+            {/* Pricing Anchor */}
+            <div className="mt-6 text-center">
+                <span className="inline-flex items-center gap-2 bg-white px-4 py-2 rounded-full border border-gray-200 shadow-sm text-sm font-medium text-gray-600 hover:text-black hover:border-gray-300 transition cursor-pointer">
+                    <Coins size={14} /> Individuals: Starts at <strong>$3.99/mo</strong>
+                </span>
             </div>
-
-            {/* PILLAR 4: Ambient Intelligence */}
-            <div className="bg-white p-6 rounded-3xl shadow-lg border border-gray-100 group">
-                <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center mb-4"><Mic size={20}/></div>
-                <h3 className="font-bold text-gray-900 mb-1">Ambient Intelligence</h3>
-                <p className="text-xs text-gray-500 mb-4">Research on the go.</p>
-                {/* Animation */}
-                <div className="flex gap-1 items-end h-8 justify-center">
-                    {[...Array(6)].map((_,i) => (
-                        <div key={i} className="w-1.5 bg-indigo-500 rounded-full animate-wave" style={{animationDelay: `${i*0.1}s`}}></div>
-                    ))}
-                </div>
-            </div>
-
           </div>
+
         </div>
       </section>
 
-      {/* 3. WORKFLOW GALLERY (KILLER APPS) */}
+      {/* 3. WORKFLOW GALLERY (EXISTING) */}
       <section className="py-24 px-6 bg-white border-y border-gray-100">
         <div className="max-w-7xl mx-auto">
             <div className="text-center mb-16 max-w-2xl mx-auto">
