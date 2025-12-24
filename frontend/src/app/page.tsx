@@ -18,10 +18,10 @@ export default function LandingPage() {
             <span className="w-5 h-5 bg-black rounded flex items-center justify-center text-white font-serif italic font-bold text-xs mx-0.5 group-hover:rotate-12 transition-transform">κ</span>
             <span className="text-xl font-mono font-bold tracking-tighter">AI</span>
           </div>
-          <div className="flex items-center gap-6">
-            <Link href="#" className="text-sm font-medium text-gray-500 hover:text-black transition">Enterprise</Link>
+          <div className="flex items-center gap-6 text-sm font-bold">
+            <Link href="#" className="text-gray-500 hover:text-black transition">Enterprise</Link>
             <Link href="/dashboard">
-              <button className="bg-black text-white px-5 py-2 rounded-full text-sm font-bold hover:bg-gray-800 transition shadow-lg hover:shadow-xl hover:-translate-y-0.5 transform duration-200">
+              <button className="bg-black text-white px-5 py-2 rounded-full hover:bg-gray-800 transition shadow-lg hover:shadow-xl hover:-translate-y-0.5 transform duration-200">
                 Launch Console
               </button>
             </Link>
@@ -29,7 +29,7 @@ export default function LandingPage() {
         </div>
       </nav>
 
-      {/* 2. HERO SECTION (PROFESSIONAL QUADRANT) */}
+      {/* 2. HERO SECTION */}
       <section className="pt-32 pb-20 px-6 max-w-7xl mx-auto">
         <div className="grid lg:grid-cols-2 gap-16 items-center">
           
@@ -40,209 +40,179 @@ export default function LandingPage() {
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
               </span>
-              Intelligence Engine v2.0
+              SOTA Intelligence Engine v2.0
             </div>
             
-            <h1 className="text-5xl md:text-6xl font-bold tracking-tighter leading-[1.1] mb-6 text-gray-900">
+            <h1 className="text-5xl md:text-6xl font-extrabold tracking-tighter leading-[1.1] mb-6 text-gray-900">
               Advanced Document <br/>
               Intelligence.
             </h1>
             
-            <p className="text-xl text-gray-500 mb-8 max-w-lg leading-relaxed">
-              Manual perusal is a liability. Leverage state-of-the-art vision and reasoning to extract facts, manage libraries, and share intelligence with human-level accuracy.
+            <p className="text-xl text-gray-500 mb-8 max-w-lg leading-relaxed font-medium">
+              Manual PDF perusal is a multi-thousand dollar liability. Leverage human-level reasoning to extract facts, automate libraries, and scale intelligence.
             </p>
 
-            {/* Proof Banner */}
-            <div className="flex items-center gap-3 p-4 bg-emerald-50/50 border border-emerald-100 rounded-xl w-fit mb-10 text-emerald-900 text-sm font-medium">
+            <div className="flex items-center gap-3 p-4 bg-emerald-50 border border-emerald-100 rounded-2xl w-fit mb-10 text-emerald-900 text-sm font-bold">
                 <ShieldCheck size={18} className="text-emerald-600" />
                 <span>100% Verifiable Citations across your PDF library.</span>
             </div>
 
             <div className="flex gap-4">
               <Link href="/dashboard">
-                <button className="px-8 py-4 bg-black text-white rounded-2xl font-bold text-lg hover:bg-gray-900 transition flex items-center gap-2 shadow-xl shadow-gray-200 transform hover:-translate-y-1">
-                  Start Researching <ArrowRight size={18}/>
+                <button className="px-10 py-5 bg-black text-white rounded-[1.5rem] font-bold text-lg hover:bg-gray-900 transition flex items-center gap-2 shadow-2xl shadow-gray-300 transform hover:-translate-y-1">
+                  Start Researching <ArrowRight size={20}/>
                 </button>
               </Link>
             </div>
           </div>
 
           {/* RIGHT: DYNAMIC FEATURE QUADRANT */}
-          <div className="relative">
-            {/* Dark Backdrop for Contrast */}
-            <div className="absolute inset-0 bg-gray-900 rounded-[2.5rem] rotate-1 opacity-5"></div>
-            
-            <div className="relative grid grid-cols-2 gap-3 p-3 bg-white/50 backdrop-blur-sm rounded-[2.5rem] border border-white/20 shadow-2xl">
-                
-                {/* Q1: EVIDENCE-BASED Q&A */}
-                <div className="group bg-white p-6 rounded-[2rem] border border-gray-100 hover:border-emerald-200 hover:shadow-lg transition-all duration-300 relative overflow-hidden h-64 flex flex-col justify-between">
+          <div className="relative grid grid-cols-2 gap-4">
+                {/* Q1: VERIFIABLE DIALOGUE */}
+                <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-gray-100 flex flex-col justify-between h-64 hover:shadow-2xl transition duration-500 group">
                     <div>
-                        <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition"><ScanSearch size={20}/></div>
-                        <h3 className="font-bold text-gray-900 text-lg leading-tight">Evidence-Based Q&A</h3>
+                        <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center mb-4"><ScanSearch size={20}/></div>
+                        <h3 className="font-bold text-gray-900 text-lg">Verifiable Dialogue</h3>
+                        <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest mt-1">Fact Over Fiction</p>
                     </div>
+                    <div className="relative h-12 bg-gray-50 rounded-lg border border-gray-100 p-2 overflow-hidden">
+                        <div className="w-full h-1.5 bg-gray-200 rounded opacity-20 mb-1"></div>
+                        <div className="w-3/4 h-1.5 bg-emerald-200 rounded animate-highlight"></div>
+                        <div className="absolute top-2 right-2 bg-emerald-600 text-white text-[7px] px-1.5 py-0.5 rounded-full animate-proof-snap shadow-md font-bold">PROOF: p.14</div>
+                    </div>
+                </div>
+
+                {/* Q2: SELF-SORTING HUB */}
+                <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-gray-100 flex flex-col justify-between h-64 hover:shadow-2xl transition duration-500 group">
                     <div>
-                        <p className="text-xs text-gray-500 leading-relaxed mb-3">Deep answers with deep-link citations. No hallucinations, only proof.</p>
-                        {/* Animation */}
-                        <div className="bg-gray-50 p-2 rounded border border-gray-100 text-[10px] text-gray-400 relative font-mono">
-                            <span className="relative z-10 text-gray-800 animate-highlight">Net Income: $4.2M</span>
-                            <div className="absolute -top-3 right-0 bg-emerald-600 text-white text-[8px] px-1.5 py-0.5 rounded animate-badge">REF: p.14</div>
+                        <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center mb-4"><Database size={20}/></div>
+                        <h3 className="font-bold text-gray-900 text-lg">Self-Sorting Hub</h3>
+                        <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest mt-1">Autonomous Order</p>
+                    </div>
+                    <div className="flex justify-center gap-1">
+                        <div className="w-4 h-6 bg-blue-100 rounded animate-magnet"></div>
+                        <div className="w-4 h-6 bg-blue-50 rounded animate-magnet" style={{animationDelay:'0.5s'}}></div>
+                        <div className="w-4 h-6 bg-blue-100 rounded animate-magnet" style={{animationDelay:'1s'}}></div>
+                    </div>
+                </div>
+
+                {/* Q3: INSTITUTIONAL INTELLIGENCE */}
+                <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-gray-100 flex flex-col justify-between h-64 hover:shadow-2xl transition duration-500 group">
+                    <div>
+                        <div className="w-10 h-10 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center mb-4"><BrainCircuit size={20}/></div>
+                        <h3 className="font-bold text-gray-900 text-lg">Institutional Intelligence</h3>
+                        <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest mt-1">Build Your Shared Brain</p>
+                    </div>
+                    <div className="flex justify-center items-center gap-2">
+                        <BookOpen size={16} className="text-amber-500 animate-pulse"/>
+                        <MoveRight size={12} className="text-gray-300"/>
+                        <div className="flex gap-0.5">
+                            <div className="w-2 h-2 rounded-full bg-gray-200"></div>
+                            <div className="w-2 h-2 rounded-full bg-gray-200"></div>
                         </div>
                     </div>
                 </div>
 
-                {/* Q2: SEMANTIC VAULT */}
-                <div className="group bg-white p-6 rounded-[2rem] border border-gray-100 hover:border-blue-200 hover:shadow-lg transition-all duration-300 relative overflow-hidden h-64 flex flex-col justify-between">
+                {/* Q4: HUMAN VOICE DIALOGUE */}
+                <div className="bg-gray-900 p-6 rounded-[2.5rem] shadow-xl border border-gray-800 flex flex-col justify-between h-64 hover:shadow-2xl transition duration-500 group">
                     <div>
-                        <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition"><Database size={20}/></div>
-                        <h3 className="font-bold text-gray-900 text-lg leading-tight">Semantic Vault</h3>
+                        <div className="w-10 h-10 bg-white/10 text-white rounded-xl flex items-center justify-center mb-4"><Mic size={20}/></div>
+                        <h3 className="font-bold text-white text-lg leading-tight">Human-Level Voice</h3>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">Talk To Your Data</p>
                     </div>
-                    <div>
-                        <p className="text-xs text-gray-500 leading-relaxed mb-3">Organize 1,000+ PDFs instantly. Auto-tagging and clustering at scale.</p>
-                        {/* Animation */}
-                        <div className="flex justify-center items-end h-8 gap-1">
-                            <div className="w-6 h-8 bg-blue-100 border border-blue-200 rounded animate-stack-1"></div>
-                            <div className="w-6 h-8 bg-blue-50 border border-blue-100 rounded -ml-4 mb-1 animate-stack-2"></div>
-                            <span className="text-[9px] bg-gray-900 text-white px-1.5 rounded self-center ml-2">Sorted</span>
-                        </div>
+                    <div className="flex gap-1 items-center justify-center h-8">
+                        {[...Array(6)].map((_,i) => (
+                            <div key={i} className="w-1 bg-white rounded-full animate-wave-liquid" style={{animationDelay: `${i*0.15}s`}}></div>
+                        ))}
                     </div>
                 </div>
-
-                {/* Q3: SHARED INTELLIGENCE */}
-                <div className="group bg-white p-6 rounded-[2rem] border border-gray-100 hover:border-amber-200 hover:shadow-lg transition-all duration-300 relative overflow-hidden h-64 flex flex-col justify-between">
-                    <div>
-                        <div className="w-10 h-10 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition"><BrainCircuit size={20}/></div>
-                        <h3 className="font-bold text-gray-900 text-lg leading-tight">Shared Intelligence</h3>
-                    </div>
-                    <div>
-                        <p className="text-xs text-gray-500 leading-relaxed mb-3">Process once, deploy everywhere. Centralize manuals and policy.</p>
-                        {/* Animation */}
-                        <div className="flex justify-center items-center gap-3 mt-1">
-                            <div className="relative">
-                                <div className="absolute inset-0 bg-amber-400 rounded-full animate-network"></div>
-                                <BookOpen size={16} className="text-amber-600 relative z-10"/>
-                            </div>
-                            <div className="h-px w-8 bg-amber-200"></div>
-                            <div className="flex gap-1">
-                                <Users size={12} className="text-gray-400"/>
-                                <Users size={12} className="text-gray-400"/>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Q4: AMBIENT INTERACTION */}
-                <div className="group bg-gray-900 p-6 rounded-[2rem] border border-gray-800 hover:shadow-xl transition-all duration-300 relative overflow-hidden h-64 flex flex-col justify-between">
-                    <div>
-                        <div className="w-10 h-10 bg-gray-800 text-white rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition"><Mic size={20}/></div>
-                        <h3 className="font-bold text-white text-lg leading-tight">Ambient Interaction</h3>
-                    </div>
-                    <div>
-                        <p className="text-xs text-gray-400 leading-relaxed mb-3">Research hands-free. State-of-the-art audio for the morning walk.</p>
-                        {/* Animation */}
-                        <div className="flex gap-1 items-center h-6 opacity-80">
-                            {[...Array(8)].map((_,i) => (
-                                <div key={i} className="w-1 bg-white rounded-full animate-wave" style={{animationDelay: `${i*0.1}s`}}></div>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-
-            </div>
-
-            {/* Pricing Anchor */}
-            <div className="mt-6 text-center">
-                <span className="inline-flex items-center gap-2 bg-white px-4 py-2 rounded-full border border-gray-200 shadow-sm text-sm font-medium text-gray-600 hover:text-black hover:border-gray-300 transition cursor-pointer">
-                    <Coins size={14} /> Individuals: Starts at <strong>$3.99/mo</strong>
-                </span>
-            </div>
           </div>
-
+        </div>
+        
+        {/* Individuals Anchor */}
+        <div className="max-w-7xl mx-auto px-6 mt-12 flex justify-center md:justify-start">
+            <div className="flex items-center gap-2 px-4 py-2 bg-white rounded-full border border-gray-200 shadow-sm text-sm font-bold text-gray-600">
+                <Coins size={14} className="text-amber-500"/> Individuals: Starts at <strong>$3.99/mo</strong>
+            </div>
         </div>
       </section>
 
-      {/* 3. WORKFLOW GALLERY (EXISTING) */}
+      {/* 3. WORKFLOW GALLERY (REFINED CARDS) */}
       <section className="py-24 px-6 bg-white border-y border-gray-100">
         <div className="max-w-7xl mx-auto">
             <div className="text-center mb-16 max-w-2xl mx-auto">
-                <h2 className="text-3xl font-bold mb-4">Built for High-Stakes Workflows.</h2>
-                <p className="text-gray-500">Don't just store PDFs. Transform them into a competitive advantage.</p>
+                <h2 className="text-4xl font-bold mb-4 tracking-tight">No one understands documents like we do.</h2>
+                <p className="text-gray-500 font-bold text-lg">Built by researchers, financial analysts, and programmers.</p>
             </div>
 
             <div className="grid md:grid-cols-2 gap-8">
                 
-                {/* WORKFLOW 1: Morning Walk */}
-                <div className="bg-gray-50 rounded-[2.5rem] p-8 md:p-12 hover:bg-indigo-50/50 transition duration-500 border border-gray-100 group">
+                {/* CARD 1: PDF CHAT WITH VERIFIED EVIDENCE */}
+                <div className="bg-gray-50 rounded-[2.5rem] p-10 hover:bg-emerald-50/50 transition duration-500 border border-gray-100 group">
                     <div className="flex justify-between items-start mb-8">
-                        <div className="bg-white p-4 rounded-2xl shadow-sm"><Mic size={32} className="text-indigo-600"/></div>
-                        <span className="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full text-xs font-bold uppercase">Multimodal</span>
+                        <div className="bg-white p-4 rounded-2xl shadow-sm group-hover:scale-110 transition duration-300 text-emerald-600"><ScanSearch size={32}/></div>
+                        <span className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">Verification</span>
                     </div>
-                    <h3 className="text-2xl font-bold mb-3">The "Morning Walk" Researcher</h3>
-                    <p className="text-gray-600 mb-6 leading-relaxed">
-                        Upload 10 complex reports. During your commute, ask: <em>"What are the core contradictions in the methodology?"</em> insightκAI reads back a cited summary, saving you 2 hours of desk time.
+                    <h3 className="text-2xl font-bold mb-4 tracking-tight text-gray-900">PDF Chat with Verified Evidence</h3>
+                    <p className="text-gray-600 text-sm font-medium mb-6 leading-relaxed">
+                        Trust every answer. Skip the guesswork with responses that link directly to the exact page and paragraph in your PDF for total proof.
                     </p>
-                    <div className="h-16 bg-white rounded-xl border border-gray-200 flex items-center px-4 gap-2 opacity-80 group-hover:opacity-100 transition">
-                        <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></div>
-                        <div className="flex-1 h-1 bg-gray-100 rounded-full overflow-hidden">
-                            <div className="h-full bg-indigo-500 w-2/3"></div>
-                        </div>
-                        <span className="text-xs font-mono text-gray-500">04:12</span>
-                    </div>
+                    <ul className="space-y-3 text-sm text-gray-500 font-bold">
+                        <li className="flex items-center gap-3"><ArrowRight size={16} className="text-emerald-500"/> Finance: Audit-ready metric extraction.</li>
+                        <li className="flex items-center gap-3"><ArrowRight size={16} className="text-emerald-500"/> Legal: Precise clause validation.</li>
+                        <li className="flex items-center gap-3"><ArrowRight size={16} className="text-emerald-500"/> Academic: Find cited proof across papers.</li>
+                    </ul>
                 </div>
 
-                {/* WORKFLOW 2: Resume Matchmaker */}
-                <div className="bg-gray-50 rounded-[2.5rem] p-8 md:p-12 hover:bg-amber-50/50 transition duration-500 border border-gray-100 group">
+                {/* CARD 2: ORGANIZED LIBRARY */}
+                <div className="bg-gray-50 rounded-[2.5rem] p-10 hover:bg-blue-50/50 transition duration-500 border border-gray-100 group">
                     <div className="flex justify-between items-start mb-8">
-                        <div className="bg-white p-4 rounded-2xl shadow-sm"><GitMerge size={32} className="text-amber-600"/></div>
-                        <span className="bg-amber-100 text-amber-700 px-3 py-1 rounded-full text-xs font-bold uppercase">Enterprise</span>
+                        <div className="bg-white p-4 rounded-2xl shadow-sm group-hover:scale-110 transition duration-300 text-blue-600"><Database size={32}/></div>
+                        <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">Retrieval</span>
                     </div>
-                    <h3 className="text-2xl font-bold mb-3">The Resume Matchmaker</h3>
-                    <p className="text-gray-600 mb-6 leading-relaxed">
-                        Instantly rank 150 resumes against a Job Description. Ask: <em>"Find the top 5 candidates with Rust experience."</em> We cite the exact projects in their PDFs. No manual screening.
+                    <h3 className="text-2xl font-bold mb-4 tracking-tight text-gray-900">Organized and Searchable Document Library</h3>
+                    <p className="text-gray-600 text-sm font-medium mb-6 leading-relaxed">
+                        Stop drowning in PDFs. We automatically sort, tag, and organize your files so you can search across your entire library to find exactly what you need in seconds.
                     </p>
-                    <div className="space-y-2">
-                         <div className="flex items-center gap-3 p-3 bg-white rounded-xl border border-gray-200 shadow-sm">
-                            <div className="w-6 h-6 bg-amber-100 text-amber-700 rounded-full flex items-center justify-center text-xs font-bold">1</div>
-                            <div className="flex-1 text-sm font-bold text-gray-800">Jane Doe - Senior Rust Eng</div>
-                            <CheckCircle2 size={16} className="text-green-500"/>
-                         </div>
-                         <div className="flex items-center gap-3 p-3 bg-white/60 rounded-xl border border-gray-200 border-dashed">
-                            <div className="w-6 h-6 bg-gray-100 text-gray-500 rounded-full flex items-center justify-center text-xs font-bold">2</div>
-                            <div className="flex-1 text-sm text-gray-500">John Smith - Backend Dev</div>
-                            <span className="text-xs text-gray-400">92% Match</span>
-                         </div>
-                    </div>
+                    <ul className="space-y-3 text-sm text-gray-500 font-bold">
+                        <li className="flex items-center gap-3"><ArrowRight size={16} className="text-blue-500"/> Analysts: Search across multiple documents.</li>
+                        <li className="flex items-center gap-3"><ArrowRight size={16} className="text-blue-500"/> HR: Rank 500+ resumes by skill set.</li>
+                        <li className="flex items-center gap-3"><ArrowRight size={16} className="text-blue-500"/> Ops: Instant retrieval of old bills.</li>
+                    </ul>
                 </div>
 
-                {/* WORKFLOW 3: Analyst's Vault */}
-                <div className="bg-gray-50 rounded-[2.5rem] p-8 md:p-12 hover:bg-emerald-50/50 transition duration-500 border border-gray-100 group">
+                {/* CARD 3: ENTERPRISE KNOWLEDGE */}
+                <div className="bg-gray-50 rounded-[2.5rem] p-10 hover:bg-amber-50/50 transition duration-500 border border-gray-100 group">
                     <div className="flex justify-between items-start mb-8">
-                        <div className="bg-white p-4 rounded-2xl shadow-sm"><ScanSearch size={32} className="text-emerald-600"/></div>
-                        <span className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-xs font-bold uppercase">Finance / Legal</span>
+                        <div className="bg-white p-4 rounded-2xl shadow-sm group-hover:scale-110 transition duration-300 text-amber-600"><BrainCircuit size={32}/></div>
+                        <span className="bg-amber-100 text-amber-700 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">Enterprise</span>
                     </div>
-                    <h3 className="text-2xl font-bold mb-3">The Analyst's Vault</h3>
-                    <p className="text-gray-600 mb-6 leading-relaxed">
-                        Stop guessing. Ask: <em>"Calculate total EBITDA across these 12 quarterly PDF statements."</em> Get a calculated answer where every figure is a clickable link to the source page.
+                    <h3 className="text-2xl font-bold mb-4 tracking-tight text-gray-900">Enterprise Knowledge Engine</h3>
+                    <p className="text-gray-600 text-sm font-medium mb-6 leading-relaxed">
+                        Build a shared brain for your team. Upload your manuals and policies once to give your entire company a single, reliable source of truth.
                     </p>
-                    <div className="p-4 bg-white rounded-xl border border-gray-200 text-sm text-gray-700 shadow-sm">
-                        Total EBITDA: <span className="font-bold">$4.2M</span> <span className="text-emerald-600 font-bold cursor-pointer hover:underline">[ref: Q3_Report.pdf, p.14]</span>
-                    </div>
+                    <ul className="space-y-3 text-sm text-gray-500 font-bold">
+                        <li className="flex items-center gap-3"><ArrowRight size={16} className="text-amber-500"/> Policies: Instant standardized HR answers.</li>
+                        <li className="flex items-center gap-3"><ArrowRight size={16} className="text-amber-500"/> Training: Queryable coaching resources.</li>
+                        <li className="flex items-center gap-3"><ArrowRight size={16} className="text-amber-500"/> Manuals: A central home for every SOP.</li>
+                    </ul>
                 </div>
 
-                {/* WORKFLOW 4: Zero Clutter */}
-                <div className="bg-gray-50 rounded-[2.5rem] p-8 md:p-12 hover:bg-rose-50/50 transition duration-500 border border-gray-100 group">
+                {/* CARD 4: HUMAN-LEVEL VOICE */}
+                <div className="bg-gray-50 rounded-[2.5rem] p-10 hover:bg-indigo-50/50 transition duration-500 border border-gray-100 group">
                     <div className="flex justify-between items-start mb-8">
-                        <div className="bg-white p-4 rounded-2xl shadow-sm"><Layers size={32} className="text-rose-600"/></div>
-                        <span className="bg-rose-100 text-rose-700 px-3 py-1 rounded-full text-xs font-bold uppercase">Operations</span>
+                        <div className="bg-white p-4 rounded-2xl shadow-sm group-hover:scale-110 transition duration-300 text-indigo-600"><Mic size={32}/></div>
+                        <span className="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">Mobility</span>
                     </div>
-                    <h3 className="text-2xl font-bold mb-3">Zero-Clutter Library</h3>
-                    <p className="text-gray-600 mb-6 leading-relaxed">
-                        Upload 100+ random files (invoices, contracts, receipts). Our engine reads, identifies, and auto-tags them: <span className="font-mono text-xs bg-gray-200 px-1 rounded">@INVOICE</span>, <span className="font-mono text-xs bg-gray-200 px-1 rounded">@LEGAL</span>. A structured intelligence hub, instantly.
+                    <h3 className="text-2xl font-bold mb-4 tracking-tight text-gray-900">Human-Level Voice Input</h3>
+                    <p className="text-gray-600 text-sm font-medium mb-6 leading-relaxed">
+                        Talk to your data. Use state-of-the-art audio input to naturally query your library and get deep research results entirely hands-free.
                     </p>
-                    <div className="flex gap-2">
-                        <span className="bg-white border border-rose-200 text-rose-700 px-3 py-1 rounded-lg text-xs font-bold shadow-sm">tax_2023.pdf</span>
-                        <span className="bg-white border border-blue-200 text-blue-700 px-3 py-1 rounded-lg text-xs font-bold shadow-sm">contract_v2.pdf</span>
-                        <span className="bg-white border border-green-200 text-green-700 px-3 py-1 rounded-lg text-xs font-bold shadow-sm">receipt.pdf</span>
-                    </div>
+                    <ul className="space-y-3 text-sm text-gray-500 font-bold">
+                        <li className="flex items-center gap-3"><ArrowRight size={16} className="text-indigo-500"/> Commute: Analyze PDFs while walking.</li>
+                        <li className="flex items-center gap-3"><ArrowRight size={16} className="text-indigo-500"/> Mobility: Cited summaries on the move.</li>
+                        <li className="flex items-center gap-3"><ArrowRight size={16} className="text-indigo-500"/> Efficiency: Keyboard-free interviews.</li>
+                    </ul>
                 </div>
 
             </div>
@@ -257,21 +227,21 @@ export default function LandingPage() {
             {/* INDIVIDUALS */}
             <Link href="/dashboard" className="group h-full">
                 <div className="h-full p-10 rounded-[2.5rem] border-2 border-gray-100 hover:border-black hover:shadow-2xl transition duration-300 bg-white relative overflow-hidden flex flex-col">
-                    <div className="absolute top-0 right-0 bg-gray-900 text-white px-4 py-2 rounded-bl-2xl text-xs font-bold">MOST POPULAR</div>
+                    <div className="absolute top-0 right-0 bg-gray-900 text-white px-4 py-2 rounded-bl-2xl text-xs font-bold uppercase tracking-widest">Selected</div>
                     
-                    <div className="mb-6 bg-gray-50 w-16 h-16 rounded-2xl flex items-center justify-center group-hover:bg-black group-hover:text-white transition duration-300">
+                    <div className="mb-6 bg-gray-50 w-16 h-16 rounded-2xl flex items-center justify-center group-hover:bg-black group-hover:text-white transition duration-300 shadow-sm border border-gray-100">
                         <FileText size={32} />
                     </div>
                     
-                    <h3 className="text-3xl font-bold mb-2">Individuals</h3>
-                    <p className="text-gray-500 mb-6 text-sm">The cost of a coffee to reclaim 20+ hours a week.</p>
+                    <h3 className="text-3xl font-bold mb-2 text-gray-900 tracking-tight">Individuals</h3>
+                    <p className="text-gray-500 mb-6 text-sm">Professional research for students and power users.</p>
                     
-                    <div className="text-5xl font-bold mb-8 tracking-tight">$3.99<span className="text-lg text-gray-400 font-medium tracking-normal">/mo</span></div>
+                    <div className="text-5xl font-bold mb-8 tracking-tighter text-gray-900">$3.99<span className="text-lg text-gray-400 font-medium tracking-normal">/mo</span></div>
 
-                    <ul className="space-y-4 text-gray-600 mb-8 text-sm font-medium flex-1">
-                        <li className="flex items-center gap-3"><CheckCircle2 size={18} className="text-black"/> <strong>1,000 pages</strong> / month</li>
+                    <ul className="space-y-4 text-gray-600 mb-8 text-sm font-bold flex-1">
+                        <li className="flex items-center gap-3"><CheckCircle2 size={18} className="text-black"/> 1,000 pages / month</li>
                         <li className="flex items-center gap-3"><CheckCircle2 size={18} className="text-black"/> Deep Research & Citations</li>
-                        <li className="flex items-center gap-3"><CheckCircle2 size={18} className="text-black"/> Audio Input</li>
+                        <li className="flex items-center gap-3"><CheckCircle2 size={18} className="text-black"/> Natural Audio Interaction</li>
                     </ul>
                     <span className="inline-block w-full text-center bg-gray-50 border border-gray-200 py-4 rounded-xl font-bold text-gray-900 group-hover:bg-black group-hover:text-white transition">Get Started &rarr;</span>
                 </div>
@@ -281,18 +251,18 @@ export default function LandingPage() {
             <Link href="/dashboard" className="group h-full">
                 <div className="h-full p-10 rounded-[2.5rem] bg-black text-white hover:scale-[1.02] transition duration-300 shadow-2xl relative flex flex-col">
                     
-                    <div className="mb-6 bg-white/10 w-16 h-16 rounded-2xl flex items-center justify-center backdrop-blur-sm">
+                    <div className="mb-6 bg-white/10 w-16 h-16 rounded-2xl flex items-center justify-center backdrop-blur-sm border border-white/20">
                         <BrainCircuit size={32} className="text-white"/>
                     </div>
 
-                    <h3 className="text-3xl font-bold mb-2">Enterprise</h3>
-                    <p className="text-gray-400 mb-6 text-sm">Shared intelligence for high-performance teams.</p>
+                    <h3 className="text-3xl font-bold mb-2 tracking-tight">Enterprise</h3>
+                    <p className="text-gray-400 mb-6 text-sm font-medium">Shared intelligence for global high-performance teams.</p>
                     
-                    <div className="text-5xl font-bold mb-8 tracking-tight">Custom</div>
+                    <div className="text-5xl font-bold mb-8 tracking-tighter">Custom</div>
 
-                    <ul className="space-y-4 text-gray-300 mb-8 text-sm font-medium flex-1">
-                        <li className="flex items-center gap-3"><CheckCircle2 size={18} className="text-white"/> Unlimited Resume & JD Matching</li>
-                        <li className="flex items-center gap-3"><CheckCircle2 size={18} className="text-white"/> Bulk Invoice Processing (10k+)</li>
+                    <ul className="space-y-4 text-gray-300 mb-8 text-sm font-bold flex-1">
+                        <li className="flex items-center gap-3"><CheckCircle2 size={18} className="text-white"/> Shared Institutional Knowledge</li>
+                        <li className="flex items-center gap-3"><CheckCircle2 size={18} className="text-white"/> Bulk Invoice & Resume Matching</li>
                         <li className="flex items-center gap-3"><CheckCircle2 size={18} className="text-white"/> API Access & SSO</li>
                     </ul>
                     <span className="inline-block w-full text-center bg-white/10 border border-white/20 py-4 rounded-xl font-bold text-white group-hover:bg-white group-hover:text-black transition">Launch Console &rarr;</span>
