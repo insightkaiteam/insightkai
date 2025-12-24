@@ -49,7 +49,7 @@ export default function LandingPage() {
             </h1>
             
             <p className="text-xl text-gray-500 mb-8 max-w-lg leading-relaxed font-medium">
-              Manual PDF perusal is a multi-thousand dollar liability. Leverage human-level reasoning to extract facts, automate libraries, and scale intelligence.
+              Manual PDF research drains productivity. Get evidence-backed insights, organize/search your document library, and reclaim thousands of hours and dollars.
             </p>
 
             <div className="flex items-center gap-3 p-4 bg-emerald-50 border border-emerald-100 rounded-2xl w-fit mb-10 text-emerald-900 text-sm font-bold">
@@ -73,7 +73,7 @@ export default function LandingPage() {
                     <div>
                         <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center mb-4"><ScanSearch size={20}/></div>
                         <h3 className="font-bold text-gray-900 text-lg">Verifiable Dialogue</h3>
-                        <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest mt-1">Fact Over Fiction</p>
+                        <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest mt-1">Evidence Over  Hallucation</p>
                     </div>
                     <div className="relative h-12 bg-gray-50 rounded-lg border border-gray-100 p-2 overflow-hidden">
                         <div className="w-full h-1.5 bg-gray-200 rounded opacity-20 mb-1"></div>
@@ -86,8 +86,8 @@ export default function LandingPage() {
                 <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-gray-100 flex flex-col justify-between h-64 hover:shadow-2xl transition duration-500 group">
                     <div>
                         <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center mb-4"><Database size={20}/></div>
-                        <h3 className="font-bold text-gray-900 text-lg">Self-Sorting Hub</h3>
-                        <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest mt-1">Autonomous Order</p>
+                        <h3 className="font-bold text-gray-900 text-lg">Self-Sorting Library</h3>
+                        <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest mt-1">Tagged, Sorted, Searchable Library</p>
                     </div>
                     <div className="flex justify-center gap-1">
                         <div className="w-4 h-6 bg-blue-100 rounded animate-magnet"></div>
@@ -101,7 +101,7 @@ export default function LandingPage() {
                     <div>
                         <div className="w-10 h-10 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center mb-4"><BrainCircuit size={20}/></div>
                         <h3 className="font-bold text-gray-900 text-lg">Institutional Intelligence</h3>
-                        <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest mt-1">Build Your Shared Brain</p>
+                        <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest mt-1">Build Your Enterprise Brain</p>
                     </div>
                     <div className="flex justify-center items-center gap-2">
                         <BookOpen size={16} className="text-amber-500 animate-pulse"/>
@@ -118,7 +118,7 @@ export default function LandingPage() {
                     <div>
                         <div className="w-10 h-10 bg-white/10 text-white rounded-xl flex items-center justify-center mb-4"><Mic size={20}/></div>
                         <h3 className="font-bold text-white text-lg leading-tight">Human-Level Voice</h3>
-                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">Talk To Your Data</p>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">Talk To Your Documents</p>
                     </div>
                     <div className="flex gap-1 items-center justify-center h-8">
                         {[...Array(6)].map((_,i) => (
