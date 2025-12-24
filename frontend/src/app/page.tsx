@@ -1,6 +1,6 @@
 "use client";
 import Link from 'next/link';
-import { ArrowRight, Mic, Search, Share2, ShieldCheck, BrainCircuit, FileText, CheckCircle2, Layers, Sparkles, Files, ScanSearch, GitMerge } from 'lucide-react';
+import { ArrowRight, Mic, Search, Share2, ShieldCheck, BrainCircuit, FileText, CheckCircle2, Layers, Sparkles, Files, ScanSearch, GitMerge, MoveRight, Coins } from 'lucide-react';
 
 export default function LandingPage() {
   return (
@@ -25,101 +25,106 @@ export default function LandingPage() {
         </div>
       </nav>
 
-      {/* 2. HERO SECTION */}
-      <section className="pt-36 pb-24 px-6 max-w-7xl mx-auto">
+      {/* 2. HERO SECTION (ROI FOCUSED) */}
+      <section className="pt-32 pb-20 px-6 max-w-7xl mx-auto">
         <div className="grid lg:grid-cols-2 gap-16 items-center">
           
-          {/* LEFT: COPY */}
+          {/* LEFT: ROI MESSAGING */}
           <div>
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gray-100 border border-gray-200 text-gray-600 text-xs font-bold uppercase tracking-wider mb-8">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gray-900 text-white text-xs font-bold uppercase tracking-wider mb-8 shadow-md">
               <span className="relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
               </span>
-              SOTA Intelligence Engine v2.0
+              PDF Intelligence Engine v2.0
             </div>
             
             <h1 className="text-5xl md:text-7xl font-bold tracking-tighter leading-[1.1] mb-6">
               Advanced Document <br/>
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-gray-900 via-gray-500 to-gray-900">Intelligence is here.</span>
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-gray-900 via-gray-600 to-gray-900">Intelligence is here.</span>
             </h1>
             
-            <p className="text-xl text-gray-500 mb-8 max-w-lg leading-relaxed">
-              Leverage state-of-the-art vision and audio-processing to extract precise insights, manage complex <span className="font-semibold text-gray-900">PDF libraries</span>, and reason across hundreds of files with human-level accuracy.
+            <p className="text-xl text-gray-600 mb-8 max-w-xl leading-relaxed">
+              Manual PDF perusal is a multi-thousand dollar drain on your time. Reason across your entire library with human-level accuracy. Get deep, fact-driven answers with verified references. 
+              <span className="block mt-4 font-semibold text-gray-900">Reclaim hundreds of hours and save thousands in billable labor.</span>
             </p>
 
-            <div className="flex flex-col gap-3 mb-10">
-                <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
-                    <CheckCircle2 size={18} className="text-black" /> Verifiable citations for every insight
+            <div className="flex flex-col gap-3 mb-10 p-4 bg-white rounded-xl border border-gray-100 shadow-sm w-fit">
+                <div className="flex items-center gap-2 text-sm font-bold text-gray-800">
+                    <CheckCircle2 size={16} className="text-green-600" /> 100% Verifiable Citations
                 </div>
-                <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
-                    <CheckCircle2 size={18} className="text-black" /> Multimodal input (Text & Audio)
+                <div className="flex items-center gap-2 text-sm font-bold text-gray-800">
+                    <CheckCircle2 size={16} className="text-green-600" /> Zero Hallucinations
+                </div>
+                <div className="flex items-center gap-2 text-sm font-bold text-gray-800">
+                    <CheckCircle2 size={16} className="text-green-600" /> Zero Manual Sifting
                 </div>
             </div>
 
             <div className="flex gap-4">
               <Link href="/dashboard">
-                <button className="px-8 py-4 bg-black text-white rounded-2xl font-bold text-lg hover:bg-gray-900 transition flex items-center gap-2 shadow-xl shadow-gray-300 transform hover:-translate-y-1">
+                <button className="px-8 py-4 bg-black text-white rounded-2xl font-bold text-lg hover:bg-gray-900 transition flex items-center gap-2 shadow-xl shadow-gray-200 transform hover:-translate-y-1">
                   Start Researching <ArrowRight size={18}/>
                 </button>
               </Link>
-              <button className="px-8 py-4 bg-white border border-gray-200 text-gray-700 rounded-2xl font-bold text-lg hover:bg-gray-50 transition">
-                View Architecture
-              </button>
             </div>
           </div>
 
-          {/* RIGHT: INTERACTIVE CARD STACK ANIMATION */}
-          <div className="relative h-[500px] w-full flex items-center justify-center perspective-1000">
+          {/* RIGHT: FEATURE PILLARS (LIVING GRID) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             
-            {/* CARD 1: Reading Invoice (Bottom -> Top) */}
-            <div className="absolute w-[380px] bg-white rounded-3xl p-6 shadow-2xl border border-gray-100 animate-card-1 origin-bottom">
-                <div className="flex items-center gap-3 mb-4 border-b border-gray-100 pb-3">
-                    <div className="w-10 h-10 bg-red-50 rounded-xl flex items-center justify-center text-red-600"><FileText size={20}/></div>
-                    <div>
-                        <h3 className="font-bold text-gray-900">Processing File...</h3>
-                        <p className="text-xs text-gray-400 font-mono">invoice_aug_2025.pdf</p>
-                    </div>
-                </div>
-                <div className="space-y-3">
-                    <div className="h-2 bg-gray-100 rounded w-full animate-pulse"></div>
-                    <div className="h-2 bg-gray-100 rounded w-5/6 animate-pulse"></div>
-                    <div className="p-3 bg-red-50 rounded-xl border border-red-100 text-sm text-red-800 font-medium">
-                        "Total Amount Due: $4,250.00"
-                    </div>
+            {/* PILLAR 1: Evidence Analysis */}
+            <div className="bg-white p-6 rounded-3xl shadow-lg border border-gray-100 relative overflow-hidden group">
+                <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center mb-4"><ScanSearch size={20}/></div>
+                <h3 className="font-bold text-gray-900 mb-1">Evidence Analysis</h3>
+                <p className="text-xs text-gray-500 mb-4">Deep answers with proof.</p>
+                {/* Animation */}
+                <div className="bg-gray-50 p-3 rounded-lg border border-gray-100 text-[10px] text-gray-600 relative">
+                   <div className="mb-1 w-full h-2 bg-gray-200 rounded opacity-20"></div>
+                   <div className="mb-1 w-3/4 h-2 bg-gray-200 rounded opacity-20"></div>
+                   <span className="relative z-10 animate-highlight px-0.5 rounded-sm">Revenue up 15% YoY</span>
+                   <div className="absolute -top-2 right-2 bg-emerald-600 text-white text-[8px] px-1.5 py-0.5 rounded-full animate-badge shadow-md">REF: p.12</div>
                 </div>
             </div>
 
-            {/* CARD 2: Organizing Library */}
-            <div className="absolute w-[380px] bg-white rounded-3xl p-6 shadow-2xl border border-gray-100 animate-card-2 origin-bottom">
-                <div className="flex items-center gap-3 mb-4 border-b border-gray-100 pb-3">
-                    <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center text-blue-600"><Layers size={20}/></div>
-                    <div>
-                        <h3 className="font-bold text-gray-900">Organizing Library</h3>
-                        <p className="text-xs text-gray-400 font-mono">Auto-tagging 142 files...</p>
+            {/* PILLAR 2: Cross-Doc Logic */}
+            <div className="bg-white p-6 rounded-3xl shadow-lg border border-gray-100 group">
+                <div className="w-10 h-10 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center mb-4"><GitMerge size={20}/></div>
+                <h3 className="font-bold text-gray-900 mb-1">Cross-Doc Logic</h3>
+                <p className="text-xs text-gray-500 mb-4">Synthesize 100+ files.</p>
+                {/* Animation */}
+                <div className="flex justify-between items-center mt-4 px-2">
+                    <div className="w-8 h-10 bg-gray-100 rounded border border-gray-200 flex items-center justify-center"><FileText size={12} className="text-gray-400"/></div>
+                    <div className="flex-1 h-0.5 bg-amber-100 mx-2 relative">
+                        <div className="absolute top-0 left-0 h-full bg-amber-500 animate-bridge"></div>
                     </div>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                    <div className="bg-gray-50 p-2 rounded-lg flex items-center gap-2 border border-gray-100">
-                        <div className="w-2 h-2 rounded-full bg-red-500"></div> <span className="text-xs font-bold text-gray-600">[INVOICE]</span>
-                    </div>
-                    <div className="bg-gray-50 p-2 rounded-lg flex items-center gap-2 border border-gray-100">
-                        <div className="w-2 h-2 rounded-full bg-green-500"></div> <span className="text-xs font-bold text-gray-600">[FINANCE]</span>
-                    </div>
+                    <div className="w-8 h-10 bg-gray-100 rounded border border-gray-200 flex items-center justify-center"><FileText size={12} className="text-gray-400"/></div>
                 </div>
             </div>
 
-            {/* CARD 3: Connecting Dots */}
-            <div className="absolute w-[380px] bg-white rounded-3xl p-6 shadow-2xl border border-gray-100 animate-card-3 origin-bottom">
-                <div className="flex items-center gap-3 mb-4 border-b border-gray-100 pb-3">
-                    <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center text-amber-600"><GitMerge size={20}/></div>
-                    <div>
-                        <h3 className="font-bold text-gray-900">Deep Reasoning</h3>
-                        <p className="text-xs text-gray-400 font-mono">Linking Report_A.pdf ↔ Report_B.pdf</p>
-                    </div>
+            {/* PILLAR 3: Autonomous Library */}
+            <div className="bg-white p-6 rounded-3xl shadow-lg border border-gray-100 group">
+                <div className="w-10 h-10 bg-rose-50 text-rose-600 rounded-xl flex items-center justify-center mb-4"><Layers size={20}/></div>
+                <h3 className="font-bold text-gray-900 mb-1">Autonomous Library</h3>
+                <p className="text-xs text-gray-500 mb-4">Stop drowning in files.</p>
+                {/* Animation */}
+                <div className="relative h-12 w-full flex justify-center items-end">
+                    <div className="w-8 h-10 bg-rose-50 border border-rose-100 rounded absolute shadow-sm animate-sort-1" style={{left: '30%'}}></div>
+                    <div className="w-8 h-10 bg-rose-100 border border-rose-200 rounded absolute shadow-sm animate-sort-2" style={{left: '45%', zIndex: 10}}></div>
+                    <div className="absolute bottom-0 right-4 bg-gray-900 text-white text-[8px] px-2 py-1 rounded-full">SORTED</div>
                 </div>
-                <div className="p-3 bg-amber-50 rounded-xl border border-amber-100 text-sm text-amber-800">
-                    <span className="font-bold">Insight:</span> "Q3 projections contradict the fiscal report on page 12."
+            </div>
+
+            {/* PILLAR 4: Ambient Intelligence */}
+            <div className="bg-white p-6 rounded-3xl shadow-lg border border-gray-100 group">
+                <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center mb-4"><Mic size={20}/></div>
+                <h3 className="font-bold text-gray-900 mb-1">Ambient Intelligence</h3>
+                <p className="text-xs text-gray-500 mb-4">Research on the go.</p>
+                {/* Animation */}
+                <div className="flex gap-1 items-end h-8 justify-center">
+                    {[...Array(6)].map((_,i) => (
+                        <div key={i} className="w-1.5 bg-indigo-500 rounded-full animate-wave" style={{animationDelay: `${i*0.1}s`}}></div>
+                    ))}
                 </div>
             </div>
 
@@ -127,118 +132,149 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* 3. FEATURE QUADRANT (BENTO) */}
-      <section className="py-24 px-6 max-w-7xl mx-auto">
-        <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold mb-4">Scientific Precision. <span className="text-gray-400">Zero Friction.</span></h2>
-            <p className="text-gray-500">Four pillars of modern document intelligence.</p>
-        </div>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            
-            {/* 1. Evidence-Based Analysis (Teal) */}
-            <div className="bg-emerald-50 rounded-[2rem] p-8 border border-emerald-100 hover:shadow-xl hover:shadow-emerald-100 transition duration-300 group overflow-hidden">
-                <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-emerald-600 mb-6 shadow-sm group-hover:scale-110 transition relative">
-                    <ScanSearch size={24} className="relative z-10"/>
-                    {/* Scanning Animation Layer */}
-                    <div className="absolute top-0 left-0 h-full bg-emerald-200/30 animate-scan-text blur-sm"></div>
-                </div>
-                <h3 className="text-xl font-bold text-emerald-900 mb-2">Evidence-Based Analysis</h3>
-                <p className="text-sm text-emerald-700/80 leading-relaxed">
-                    Zero Hallucinations. Every insight we generate is backed by a verifiable citation directly from your PDFs.
-                </p>
+      {/* 3. WORKFLOW GALLERY (KILLER APPS) */}
+      <section className="py-24 px-6 bg-white border-y border-gray-100">
+        <div className="max-w-7xl mx-auto">
+            <div className="text-center mb-16 max-w-2xl mx-auto">
+                <h2 className="text-3xl font-bold mb-4">Built for High-Stakes Workflows.</h2>
+                <p className="text-gray-500">Don't just store PDFs. Transform them into a competitive advantage.</p>
             </div>
 
-            {/* 2. Cross-Doc Logic (Orange) */}
-            <div className="bg-amber-50 rounded-[2rem] p-8 border border-amber-100 hover:shadow-xl hover:shadow-amber-100 transition duration-300 group">
-                <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-amber-600 mb-6 shadow-sm group-hover:scale-110 transition relative">
-                    <GitMerge size={24} className="relative z-10"/>
-                    {/* Ping Animation Layer */}
-                    <div className="absolute bottom-0 h-0.5 bg-amber-400 animate-ping-line"></div>
+            <div className="grid md:grid-cols-2 gap-8">
+                
+                {/* WORKFLOW 1: Morning Walk */}
+                <div className="bg-gray-50 rounded-[2.5rem] p-8 md:p-12 hover:bg-indigo-50/50 transition duration-500 border border-gray-100 group">
+                    <div className="flex justify-between items-start mb-8">
+                        <div className="bg-white p-4 rounded-2xl shadow-sm"><Mic size={32} className="text-indigo-600"/></div>
+                        <span className="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full text-xs font-bold uppercase">Multimodal</span>
+                    </div>
+                    <h3 className="text-2xl font-bold mb-3">The "Morning Walk" Researcher</h3>
+                    <p className="text-gray-600 mb-6 leading-relaxed">
+                        Upload 10 complex reports. During your commute, ask: <em>"What are the core contradictions in the methodology?"</em> insightκAI reads back a cited summary, saving you 2 hours of desk time.
+                    </p>
+                    <div className="h-16 bg-white rounded-xl border border-gray-200 flex items-center px-4 gap-2 opacity-80 group-hover:opacity-100 transition">
+                        <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></div>
+                        <div className="flex-1 h-1 bg-gray-100 rounded-full overflow-hidden">
+                            <div className="h-full bg-indigo-500 w-2/3"></div>
+                        </div>
+                        <span className="text-xs font-mono text-gray-500">04:12</span>
+                    </div>
                 </div>
-                <h3 className="text-xl font-bold text-amber-900 mb-2">Cross-Doc Logic</h3>
-                <p className="text-sm text-amber-700/80 leading-relaxed">
-                    Connect the dots. Synthesize conflicting data points and find trends across hundreds of distinct files.
-                </p>
-            </div>
 
-            {/* 3. Autonomous Library (Rose) */}
-            <div className="bg-rose-50 rounded-[2rem] p-8 border border-rose-100 hover:shadow-xl hover:shadow-rose-100 transition duration-300 group">
-                <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-rose-600 mb-6 shadow-sm group-hover:scale-110 transition">
-                    <Layers size={24} className="animate-stack origin-bottom" />
+                {/* WORKFLOW 2: Resume Matchmaker */}
+                <div className="bg-gray-50 rounded-[2.5rem] p-8 md:p-12 hover:bg-amber-50/50 transition duration-500 border border-gray-100 group">
+                    <div className="flex justify-between items-start mb-8">
+                        <div className="bg-white p-4 rounded-2xl shadow-sm"><GitMerge size={32} className="text-amber-600"/></div>
+                        <span className="bg-amber-100 text-amber-700 px-3 py-1 rounded-full text-xs font-bold uppercase">Enterprise</span>
+                    </div>
+                    <h3 className="text-2xl font-bold mb-3">The Resume Matchmaker</h3>
+                    <p className="text-gray-600 mb-6 leading-relaxed">
+                        Instantly rank 150 resumes against a Job Description. Ask: <em>"Find the top 5 candidates with Rust experience."</em> We cite the exact projects in their PDFs. No manual screening.
+                    </p>
+                    <div className="space-y-2">
+                         <div className="flex items-center gap-3 p-3 bg-white rounded-xl border border-gray-200 shadow-sm">
+                            <div className="w-6 h-6 bg-amber-100 text-amber-700 rounded-full flex items-center justify-center text-xs font-bold">1</div>
+                            <div className="flex-1 text-sm font-bold text-gray-800">Jane Doe - Senior Rust Eng</div>
+                            <CheckCircle2 size={16} className="text-green-500"/>
+                         </div>
+                         <div className="flex items-center gap-3 p-3 bg-white/60 rounded-xl border border-gray-200 border-dashed">
+                            <div className="w-6 h-6 bg-gray-100 text-gray-500 rounded-full flex items-center justify-center text-xs font-bold">2</div>
+                            <div className="flex-1 text-sm text-gray-500">John Smith - Backend Dev</div>
+                            <span className="text-xs text-gray-400">92% Match</span>
+                         </div>
+                    </div>
                 </div>
-                <h3 className="text-xl font-bold text-rose-900 mb-2">Autonomous Library</h3>
-                <p className="text-sm text-rose-700/80 leading-relaxed">
-                    Stop drowning in PDFs. We automatically sort, tag, and organize your entire history into a structured graph.
-                </p>
-            </div>
 
-            {/* 4. Ambient Intelligence (Blue) */}
-            <div className="bg-indigo-50 rounded-[2rem] p-8 border border-indigo-100 hover:shadow-xl hover:shadow-indigo-100 transition duration-300 group">
-                <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-indigo-600 mb-6 shadow-sm group-hover:scale-110 transition relative">
-                    <Mic size={24} />
+                {/* WORKFLOW 3: Analyst's Vault */}
+                <div className="bg-gray-50 rounded-[2.5rem] p-8 md:p-12 hover:bg-emerald-50/50 transition duration-500 border border-gray-100 group">
+                    <div className="flex justify-between items-start mb-8">
+                        <div className="bg-white p-4 rounded-2xl shadow-sm"><ScanSearch size={32} className="text-emerald-600"/></div>
+                        <span className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-xs font-bold uppercase">Finance / Legal</span>
+                    </div>
+                    <h3 className="text-2xl font-bold mb-3">The Analyst's Vault</h3>
+                    <p className="text-gray-600 mb-6 leading-relaxed">
+                        Stop guessing. Ask: <em>"Calculate total EBITDA across these 12 quarterly PDF statements."</em> Get a calculated answer where every figure is a clickable link to the source page.
+                    </p>
+                    <div className="p-4 bg-white rounded-xl border border-gray-200 text-sm text-gray-700 shadow-sm">
+                        Total EBITDA: <span className="font-bold">$4.2M</span> <span className="text-emerald-600 font-bold cursor-pointer hover:underline">[ref: Q3_Report.pdf, p.14]</span>
+                    </div>
                 </div>
-                <h3 className="text-xl font-bold text-indigo-900 mb-2">Ambient Intelligence</h3>
-                <p className="text-sm text-indigo-700/80 leading-relaxed mb-4">
-                    SOTA Audio Input. Don't type—just speak complex research queries while on your morning walk.
-                </p>
-                {/* Waveform Visual */}
-                <div className="flex gap-1 items-end h-6 opacity-60">
-                    {[...Array(10)].map((_,i) => <div key={i} className="w-1.5 bg-indigo-400 rounded-full animate-waveform" style={{animationDelay: `${i*0.1}s`}}></div>)}
-                </div>
-            </div>
 
+                {/* WORKFLOW 4: Zero Clutter */}
+                <div className="bg-gray-50 rounded-[2.5rem] p-8 md:p-12 hover:bg-rose-50/50 transition duration-500 border border-gray-100 group">
+                    <div className="flex justify-between items-start mb-8">
+                        <div className="bg-white p-4 rounded-2xl shadow-sm"><Layers size={32} className="text-rose-600"/></div>
+                        <span className="bg-rose-100 text-rose-700 px-3 py-1 rounded-full text-xs font-bold uppercase">Operations</span>
+                    </div>
+                    <h3 className="text-2xl font-bold mb-3">Zero-Clutter Library</h3>
+                    <p className="text-gray-600 mb-6 leading-relaxed">
+                        Upload 100+ random files (invoices, contracts, receipts). Our engine reads, identifies, and auto-tags them: <span className="font-mono text-xs bg-gray-200 px-1 rounded">@INVOICE</span>, <span className="font-mono text-xs bg-gray-200 px-1 rounded">@LEGAL</span>. A structured intelligence hub, instantly.
+                    </p>
+                    <div className="flex gap-2">
+                        <span className="bg-white border border-rose-200 text-rose-700 px-3 py-1 rounded-lg text-xs font-bold shadow-sm">tax_2023.pdf</span>
+                        <span className="bg-white border border-blue-200 text-blue-700 px-3 py-1 rounded-lg text-xs font-bold shadow-sm">contract_v2.pdf</span>
+                        <span className="bg-white border border-green-200 text-green-700 px-3 py-1 rounded-lg text-xs font-bold shadow-sm">receipt.pdf</span>
+                    </div>
+                </div>
+
+            </div>
         </div>
       </section>
 
-      {/* 4. PRICING / DUAL PATH */}
-      <section className="py-24 px-6 max-w-5xl mx-auto border-t border-gray-100">
-        <h2 className="text-xs font-bold text-center uppercase tracking-widest text-gray-400 mb-12">Select your tier</h2>
+      {/* 4. PRICING ANCHOR */}
+      <section className="py-24 px-6 max-w-5xl mx-auto">
+        <h2 className="text-xs font-bold text-center uppercase tracking-widest text-gray-400 mb-12">Flexible Pricing</h2>
         
-        <div className="grid md:grid-cols-2 gap-8">
-            {/* INDIVIDUALS (PLG Motion) */}
-            <Link href="/dashboard" className="group">
-                <div className="h-full p-10 rounded-[2.5rem] border border-gray-200 hover:border-black hover:shadow-2xl transition duration-300 bg-white relative overflow-hidden">
-                    <div className="absolute top-0 right-0 bg-gray-100 px-4 py-2 rounded-bl-2xl text-xs font-bold text-gray-600">POPULAR</div>
+        <div className="grid md:grid-cols-2 gap-8 items-stretch">
+            {/* INDIVIDUALS */}
+            <Link href="/dashboard" className="group h-full">
+                <div className="h-full p-10 rounded-[2.5rem] border-2 border-gray-100 hover:border-black hover:shadow-2xl transition duration-300 bg-white relative overflow-hidden flex flex-col">
+                    <div className="absolute top-0 right-0 bg-gray-900 text-white px-4 py-2 rounded-bl-2xl text-xs font-bold">MOST POPULAR</div>
                     
-                    <FileText size={40} className="mb-6 text-gray-400 group-hover:text-black transition" />
+                    <div className="mb-6 bg-gray-50 w-16 h-16 rounded-2xl flex items-center justify-center group-hover:bg-black group-hover:text-white transition duration-300">
+                        <FileText size={32} />
+                    </div>
+                    
                     <h3 className="text-3xl font-bold mb-2">Individuals</h3>
-                    <p className="text-gray-500 mb-6 text-sm">For students, researchers, and power users.</p>
+                    <p className="text-gray-500 mb-6 text-sm">The cost of a coffee to reclaim 20+ hours a week.</p>
                     
-                    <div className="text-4xl font-bold mb-8">$3.99<span className="text-lg text-gray-400 font-medium">/mo</span></div>
+                    <div className="text-5xl font-bold mb-8 tracking-tight">$3.99<span className="text-lg text-gray-400 font-medium tracking-normal">/mo</span></div>
 
-                    <ul className="space-y-4 text-gray-600 mb-8 text-sm font-medium">
-                        <li className="flex items-center gap-3"><CheckCircle2 size={16} className="text-black"/> Deep dive into single PDFs</li>
-                        <li className="flex items-center gap-3"><CheckCircle2 size={16} className="text-black"/> 1,000 pages / month</li>
-                        <li className="flex items-center gap-3"><CheckCircle2 size={16} className="text-black"/> Verifiable Citations</li>
+                    <ul className="space-y-4 text-gray-600 mb-8 text-sm font-medium flex-1">
+                        <li className="flex items-center gap-3"><CheckCircle2 size={18} className="text-black"/> <strong>1,000 pages</strong> / month</li>
+                        <li className="flex items-center gap-3"><CheckCircle2 size={18} className="text-black"/> Deep Research & Citations</li>
+                        <li className="flex items-center gap-3"><CheckCircle2 size={18} className="text-black"/> Audio Input</li>
                     </ul>
-                    <span className="inline-block w-full text-center bg-gray-50 border border-gray-200 py-3 rounded-xl font-bold text-gray-900 group-hover:bg-black group-hover:text-white transition">Get Started &rarr;</span>
+                    <span className="inline-block w-full text-center bg-gray-50 border border-gray-200 py-4 rounded-xl font-bold text-gray-900 group-hover:bg-black group-hover:text-white transition">Get Started &rarr;</span>
                 </div>
             </Link>
 
             {/* ENTERPRISE */}
-            <Link href="/dashboard" className="group cursor-pointer">
-                <div className="h-full p-10 rounded-[2.5rem] bg-black text-white hover:scale-[1.02] transition duration-300 shadow-2xl relative">
+            <Link href="/dashboard" className="group h-full">
+                <div className="h-full p-10 rounded-[2.5rem] bg-black text-white hover:scale-[1.02] transition duration-300 shadow-2xl relative flex flex-col">
                     
-                    <BrainCircuit size={40} className="mb-6 text-gray-400 group-hover:text-white transition" />
-                    <h3 className="text-3xl font-bold mb-2">Enterprise</h3>
-                    <p className="text-gray-400 mb-6 text-sm">For teams requiring shared intelligence.</p>
-                    
-                    <div className="text-4xl font-bold mb-8">Custom<span className="text-lg text-gray-500 font-medium"></span></div>
+                    <div className="mb-6 bg-white/10 w-16 h-16 rounded-2xl flex items-center justify-center backdrop-blur-sm">
+                        <BrainCircuit size={32} className="text-white"/>
+                    </div>
 
-                    <ul className="space-y-4 text-gray-300 mb-8 text-sm font-medium">
-                        <li className="flex items-center gap-3"><CheckCircle2 size={16} className="text-white"/> Unlimited Resume & JD Matching</li>
-                        <li className="flex items-center gap-3"><CheckCircle2 size={16} className="text-white"/> Bulk Invoice Processing</li>
-                        <li className="flex items-center gap-3"><CheckCircle2 size={16} className="text-white"/> API Access & SSO</li>
+                    <h3 className="text-3xl font-bold mb-2">Enterprise</h3>
+                    <p className="text-gray-400 mb-6 text-sm">Shared intelligence for high-performance teams.</p>
+                    
+                    <div className="text-5xl font-bold mb-8 tracking-tight">Custom</div>
+
+                    <ul className="space-y-4 text-gray-300 mb-8 text-sm font-medium flex-1">
+                        <li className="flex items-center gap-3"><CheckCircle2 size={18} className="text-white"/> Unlimited Resume & JD Matching</li>
+                        <li className="flex items-center gap-3"><CheckCircle2 size={18} className="text-white"/> Bulk Invoice Processing (10k+)</li>
+                        <li className="flex items-center gap-3"><CheckCircle2 size={18} className="text-white"/> API Access & SSO</li>
                     </ul>
-                    <span className="inline-block w-full text-center bg-white/10 border border-white/20 py-3 rounded-xl font-bold text-white group-hover:bg-white group-hover:text-black transition">Launch Console &rarr;</span>
+                    <span className="inline-block w-full text-center bg-white/10 border border-white/20 py-4 rounded-xl font-bold text-white group-hover:bg-white group-hover:text-black transition">Launch Console &rarr;</span>
                 </div>
             </Link>
         </div>
       </section>
 
       {/* FOOTER */}
-      <footer className="py-12 border-t border-gray-100">
+      <footer className="py-12 border-t border-gray-100 bg-white">
         <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-4">
             <div className="flex items-center gap-1 opacity-50">
                 <span className="font-medium tracking-tight text-sm">insight</span>
