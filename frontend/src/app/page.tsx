@@ -87,7 +87,7 @@ export default function LandingPage() {
                     <div>
                         <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center mb-4"><Database size={20}/></div>
                         <h3 className="font-bold text-gray-900 text-lg">Self-Sorting Library</h3>
-                        <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest mt-1">Tagged, Sorted, Searchable Library</p>
+                        <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest mt-1">Tagged, Sorted, Searchable Document Library</p>
                     </div>
                     <div className="flex justify-center gap-1">
                         <div className="w-4 h-6 bg-blue-100 rounded animate-magnet"></div>
@@ -101,7 +101,7 @@ export default function LandingPage() {
                     <div>
                         <div className="w-10 h-10 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center mb-4"><BrainCircuit size={20}/></div>
                         <h3 className="font-bold text-gray-900 text-lg">Institutional Intelligence</h3>
-                        <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest mt-1">Build Your Enterprise Brain</p>
+                        <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest mt-1">Build Your Enterprise Document Brain</p>
                     </div>
                     <div className="flex justify-center items-center gap-2">
                         <BookOpen size={16} className="text-amber-500 animate-pulse"/>
@@ -141,8 +141,8 @@ export default function LandingPage() {
       <section className="py-24 px-6 bg-white border-y border-gray-100">
         <div className="max-w-7xl mx-auto">
             <div className="text-center mb-16 max-w-2xl mx-auto">
-                <h2 className="text-4xl font-bold mb-4 tracking-tight">No one understands documents like we do.</h2>
-                <p className="text-gray-500 font-bold text-lg">Built by researchers, financial analysts, and programmers.</p>
+                <h2 className="text-4xl font-bold mb-4 tracking-tight">No one understands documents like us.</h2>
+                <p className="text-gray-500 font-bold text-lg">Built and loved by researchers, financial analysts, and startups.</p>
             </div>
 
             <div className="grid md:grid-cols-2 gap-8">
@@ -206,7 +206,7 @@ export default function LandingPage() {
                     </div>
                     <h3 className="text-2xl font-bold mb-4 tracking-tight text-gray-900">Human-Level Voice Input</h3>
                     <p className="text-gray-600 text-sm font-medium mb-6 leading-relaxed">
-                        Talk to your data. Use state-of-the-art audio input to naturally query your library and get deep research results entirely hands-free.
+                        Talk to your documents. Use state-of-the-art audio input to naturally query your library and get deep research results entirely hands-free.
                     </p>
                     <ul className="space-y-3 text-sm text-gray-500 font-bold">
                         <li className="flex items-center gap-3"><ArrowRight size={16} className="text-indigo-500"/> Commute: Analyze PDFs while walking.</li>
