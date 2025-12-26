@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { 
   Folder, FileText, Trash2, Plus, ArrowLeft, MessageSquare, 
   X, Send, Loader2, FileClock, BrainCircuit, UploadCloud, 
-  LayoutGrid, LogOut 
+  LayoutGrid, LogOut, Quote, FileSearch 
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
@@ -12,20 +12,28 @@ import ReactMarkdown from 'react-markdown';
 const BACKEND_URL = "https://insightkai.onrender.com";
 const SITE_PASSWORD = "kai2025"; 
 
-export default function Dashboard() {
-  // ... (Keep all state and logic functions exactly as they were in the previous version) ...
-  // COPY-PASTE THE STATE AND LOGIC FROM THE PREVIOUS CODE BLOCK HERE.
-  // I am focusing on the JSX RETURN block below.
+// Helper interface for documents
+interface Doc {
+  id: string;
+  title: string;
+  folder: string;
+  status: string;
+  summary: string;
+  upload_date: string;
+}
 
-  // --- STATE & LOGIC ---
+export default function Dashboard() {
   const [folders, setFolders] = useState<string[]>([]);
-  const [docs, setDocs] = useState<any[]>([]);
+  const [docs, setDocs] = useState<Doc[]>([]);
   const [currentFolder, setCurrentFolder] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [showNewFolderInput, setShowNewFolderInput] = useState(false);
   const [showChat, setShowChat] = useState(false);
-  const [chatMessages, setChatMessages] = useState<{role: string, content: string}[]>([]);
+  
+  // UPDATED: Chat messages now hold citations
+  const [chatMessages, setChatMessages] = useState<{role: string, content: string, citations?: any[]}[]>([]);
+  
   const [chatInput, setChatInput] = useState("");
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [chatMode, setChatMode] = useState<'simple' | 'deep'>('simple'); 
@@ -136,13 +144,18 @@ export default function Dashboard() {
     } catch(e) { alert("Delete failed"); }
   };
 
+  // --- UPDATED: SEND FOLDER MESSAGE ---
   const sendFolderMessage = async () => {
     if (!chatInput.trim()) return;
+    
+    // Add user message
     const userMsg = { role: 'user', content: chatInput };
     setChatMessages(prev => [...prev, userMsg]);
+    
     const msgToSend = chatInput;
     setChatInput("");
     setIsChatLoading(true);
+    
     try {
       const res = await fetch(`${BACKEND_URL}/chat`, {
         method: 'POST',
@@ -150,10 +163,22 @@ export default function Dashboard() {
         body: JSON.stringify({ message: msgToSend, folder_name: currentFolder, mode: chatMode }),
       });
       const data = await res.json();
-      setChatMessages(prev => [...prev, { role: 'ai', content: data.answer }]);
+      
+      // Store answer AND citations
+      setChatMessages(prev => [...prev, { 
+          role: 'ai', 
+          content: data.answer,
+          citations: data.citations || [] 
+      }]);
     } catch (e) {
       setChatMessages(prev => [...prev, { role: 'ai', content: "Error reaching backend." }]);
     } finally { setIsChatLoading(false); }
+  };
+
+  // Helper to find document ID from title (for linking citations)
+  const findDocIdByTitle = (title: string) => {
+    const found = docs.find(d => d.title === title);
+    return found ? found.id : null;
   };
 
   if (!isAuthenticated) return (
@@ -176,7 +201,6 @@ export default function Dashboard() {
             <button onClick={() => setCurrentFolder(null)} className={`p-3 rounded-xl transition ${!currentFolder ? 'bg-blue-50 text-blue-600' : 'text-gray-400 hover:bg-gray-50'}`}>
                 <LayoutGrid size={24} />
             </button>
-            {/* Add more nav items here later */}
         </div>
         <div className="mt-auto">
             <button className="p-3 text-gray-400 hover:text-red-500 transition"><LogOut size={20} /></button>
@@ -321,13 +345,49 @@ export default function Dashboard() {
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
             {chatMessages.length === 0 && <div className="text-center text-gray-400 text-sm mt-10">Ask me anything about the files in this folder.</div>}
+            
             {chatMessages.map((m, i) => (
-                <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`p-4 max-w-[85%] rounded-2xl text-sm leading-relaxed shadow-sm ${m.role === 'user' ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white border border-gray-100 text-gray-700 rounded-bl-none'}`}>
+                <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
+                    <div className={`p-4 max-w-[90%] rounded-2xl text-sm leading-relaxed shadow-sm ${m.role === 'user' ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white border border-gray-100 text-gray-700 rounded-bl-none'}`}>
                         <div className={`prose prose-sm ${m.role === 'user' ? 'prose-invert' : ''}`}><ReactMarkdown>{m.content}</ReactMarkdown></div>
                     </div>
+
+                    {/* --- UPDATED: RENDER CITATION CARDS --- */}
+                    {m.role === 'ai' && m.citations && m.citations.length > 0 && (
+                        <div className="mt-3 w-[90%] space-y-2">
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1">
+                                <Quote size={10} /> Verified Sources
+                            </p>
+                            {m.citations.slice(0, 3).map((cit: any, idx: number) => {
+                                const docId = findDocIdByTitle(cit.source);
+                                // If we find a matching doc ID, we create a link to it
+                                const Wrapper = docId ? Link : 'div';
+                                const props = docId ? { 
+                                    href: `/chat/${docId}#page=${cit.page}&:~:text=${encodeURIComponent(cit.content.substring(0,50))}`,
+                                    className: "block" 
+                                } : {};
+
+                                return (
+                                    <Wrapper key={idx} {...props} >
+                                        <div className="bg-gray-50 hover:bg-blue-50/50 border border-gray-200 hover:border-blue-100 p-2.5 rounded-xl transition-all cursor-pointer group">
+                                            <div className="flex items-center justify-between mb-1">
+                                                <span className="font-bold text-[10px] text-blue-600 flex items-center gap-1 bg-blue-50 px-1.5 py-0.5 rounded">
+                                                    <FileSearch size={10} /> {cit.source}
+                                                </span>
+                                                <span className="text-[10px] text-gray-400 font-mono">Pg {cit.page}</span>
+                                            </div>
+                                            <p className="text-xs text-gray-600 italic line-clamp-2 leading-relaxed">
+                                                "{cit.content}"
+                                            </p>
+                                        </div>
+                                    </Wrapper>
+                                );
+                            })}
+                        </div>
+                    )}
                 </div>
             ))}
+            
             {isChatLoading && <div className="flex items-center gap-2 text-xs text-gray-400 px-4"><Loader2 size={12} className="animate-spin"/> AI is thinking...</div>}
         </div>
 
