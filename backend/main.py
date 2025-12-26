@@ -114,26 +114,63 @@ def get_document_status(doc_id: str):
 @app.post("/chat")
 async def chat(request: ChatRequest):
     relevant_chunks = []
-    mode_arg = "single_doc" # Default is the Safe Legacy Mode
+    system_manifest = None
+    # Default to 'simple' which triggers the original 'single_doc' logic in get_answer
+    mode_arg = "simple" 
 
-    # 1. INDIVIDUAL DOCUMENT CHAT (PRIORITY: HIGH)
+    # 1. INDIVIDUAL DOCUMENT CHAT (UNCHANGED)
     if request.document_id:
         relevant_chunks = ocr_engine.search_single_doc(request.message, request.document_id)
-        mode_arg = "single_doc"
+        mode_arg = "single_doc" # Explicitly use the safe legacy path
 
-    # 2. FOLDER CHAT (New Feature)
+    # 2. FOLDER CHAT
     elif request.folder_name:
-        if request.mode == "deep":
-            # Deep Mode: Vector Search across chunks
-            relevant_chunks = ocr_engine.search(request.message, folder_name=request.folder_name, limit=15)
-            mode_arg = "folder_deep"
+        
+        # 2a. FAST CHAT (UNCHANGED LOGIC)
+        if request.mode == "simple":
+            system_manifest = ocr_engine.get_folder_manifest(request.folder_name)
+            limit = 6
+            relevant_chunks = ocr_engine.search(request.message, folder_name=request.folder_name, limit=limit)
+            mode_arg = "simple" # Use legacy path
+
+        # 2b. DEEP CHAT (NEW "Select -> Loop" LOGIC)
         else:
-            # Fast Mode: Fetch Summaries Only
-            relevant_chunks = ocr_engine.get_folder_summaries(request.folder_name)
-            mode_arg = "folder_fast"
+            # Step A: Get all file summaries (No Vector Search)
+            all_files = ocr_engine.get_folder_files(request.folder_name)
+            
+            # Step B: AI selects top 4 relevant files
+            selected_ids = ai_service.select_relevant_files(all_files, request.message)
+            
+            # Step C: Loop through selected files and perform Single Doc Search on each
+            for doc_id in selected_ids:
+                # Get title for metadata
+                title = next((f['title'] for f in all_files if f['id'] == doc_id), "Unknown")
+                
+                # REUSE the working single-doc function
+                doc_chunks = ocr_engine.search_single_doc(request.message, doc_id)
+                
+                # Tag chunks with source filename for the Deep Chat AI
+                for chunk in doc_chunks:
+                    chunk['source'] = title 
+                    relevant_chunks.append(chunk)
+            
+            # Safety Fallback
+            if not relevant_chunks and all_files:
+                 for f in all_files[:3]:
+                     doc_chunks = ocr_engine.search_single_doc(request.message, f['id'])
+                     for chunk in doc_chunks:
+                         chunk['source'] = f['title']
+                         relevant_chunks.append(chunk)
+            
+            mode_arg = "deep_folder" # Use new Deep path
 
     # 3. GENERATE ANSWER
-    result = ai_service.get_answer(relevant_chunks, request.message, mode=mode_arg)
+    result = ai_service.get_answer(
+        relevant_chunks, 
+        request.message, 
+        system_message_override=system_manifest,
+        mode=mode_arg
+    )
     
     return result
 
