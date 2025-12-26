@@ -12,15 +12,11 @@ const BACKEND_URL = "https://insightkai.onrender.com";
 
 export default function ChatPage({ params }: { params: Promise<{ docId: string }> }) {
   const { docId } = use(params);
-  // Store citations in the message
   const [messages, setMessages] = useState<{role: string, content: string, citations?: any[]}[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [pdfUrl, setPdfUrl] = useState<string>("");
-  
-  // NEW: Force refresh key for the iframe
-  const [iframeKey, setIframeKey] = useState(0);
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -45,22 +41,23 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
     fetchManifest();
   }, [docId]);
 
-  // --- SOTA HIGHLIGHT STRATEGY (FUZZY FRAGMENTS + FORCE RELOAD) ---
+  // --- IMPROVED HIGHLIGHTING LOGIC ---
   const applyHighlight = (page: number, text: string) => {
-    // 1. Clean the text slightly (remove newlines that might break URL)
-    const cleanText = text.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+    // Strategy: Take the first 6-8 distinct words. 
+    // This is much more reliable than trying to match a whole paragraph.
+    const words = text.replace(/["“”]/g, "").replace(/\s+/g, " ").trim().split(" ");
     
-    // 2. Fragment Selection (First 8 words)
-    // This is the "Sniper Shot" method: short enough to match, long enough to be unique.
-    const words = cleanText.split(" ");
-    const snippet = words.slice(0, 8).join(" ");
+    let snippet = "";
+    if (words.length > 8) {
+        snippet = words.slice(0, 8).join(" "); // First 8 words
+    } else {
+        snippet = words.join(" ");
+    }
 
-    // 3. Construct URL with strictly formatted anchor
+    // Force iframe reload by updating key (or just URL if key logic is upstream)
+    // #:~:text=snippet highlights the text in Chrome/Edge native PDF viewer
     const newUrl = `${BACKEND_URL}/documents/${docId}/download#page=${page}&:~:text=${encodeURIComponent(snippet)}`;
-    
-    // 4. Update State and FORCE RELOAD the iframe
     setPdfUrl(newUrl);
-    setIframeKey(prev => prev + 1); 
   };
 
   const sendMessage = async (textOverride?: string) => {
@@ -86,11 +83,9 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
         citations: data.citations || [] 
       }]);
 
-      // Smart Auto-Scroll: Jump to first citation using raw text
+      // Auto-highlight first evidence
       if (data.citations && data.citations.length > 0) {
-          const topCit = data.citations[0];
-          // Note: Backend now returns 'raw_text' specifically for highlighting
-          applyHighlight(topCit.page, topCit.raw_text || topCit.content);
+          applyHighlight(data.citations[0].page, data.citations[0].content);
       }
 
     } catch (e) { 
@@ -139,8 +134,8 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
                 <ArrowLeft size={16} /> LIBRARY
             </Link>
         </div>
-        {/* KEY PROP FORCES RELOAD ON CLICK */}
-        <iframe key={iframeKey} src={pdfUrl} className="flex-1 w-full border-none bg-gray-800" title="PDF Viewer" />
+        {/* We use key={pdfUrl} to force React to re-mount the iframe when URL changes, ensuring the #fragment works */}
+        <iframe key={pdfUrl} src={pdfUrl} className="flex-1 w-full border-none bg-gray-800" title="PDF Viewer" />
       </div>
 
       {/* RIGHT: CHAT */}
@@ -149,6 +144,7 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
           {messages.map((m, i) => (
             <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
                 
+                {/* Chat Bubble */}
                 <div className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'} w-full`}>
                     {m.role === 'ai' && <div className="w-8 h-8 rounded-full bg-black text-white flex items-center justify-center font-serif italic font-bold mr-3 mt-1 shadow-md shrink-0">κ</div>}
                     <div className={`p-5 max-w-[90%] rounded-3xl text-sm leading-relaxed shadow-sm ${
@@ -160,25 +156,22 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
                     </div>
                 </div>
 
-                {/* CITATIONS */}
+                {/* Evidence Cards */}
                 {m.role === 'ai' && m.citations && m.citations.length > 0 && (
                     <div className="ml-11 mt-3 w-[85%]">
                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2 flex items-center gap-1">
-                            <Quote size={10} /> Verified Sources
+                            <Quote size={10} /> Verified Evidence
                         </p>
                         <div className="grid gap-2">
-                            {m.citations.map((cit, idx) => (
+                            {m.citations.map((cit: any, idx: number) => (
                                 <button 
                                     key={idx}
-                                    onClick={() => applyHighlight(cit.page, cit.raw_text || cit.content)}
+                                    onClick={() => applyHighlight(cit.page, cit.content)}
                                     className="text-left bg-blue-50/50 hover:bg-blue-100 border border-blue-100 p-3 rounded-xl transition-all duration-200 group group-hover:shadow-md"
                                 >
-                                    <div className="flex items-center justify-between mb-1">
+                                    <div className="flex items-center gap-2 mb-1">
                                         <span className="bg-blue-100 text-blue-700 text-[10px] font-bold px-1.5 py-0.5 rounded flex items-center gap-1">
                                             <MapPin size={8} /> Page {cit.page}
-                                        </span>
-                                        <span className="text-[9px] text-gray-400 opacity-0 group-hover:opacity-100 transition">
-                                            Click to locate
                                         </span>
                                     </div>
                                     <p className="text-xs text-gray-700 font-medium line-clamp-3 italic font-serif border-l-2 border-blue-200 pl-2">
@@ -195,7 +188,7 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
           {isLoading && (
              <div className="flex justify-start items-center gap-2 ml-11">
                 <Loader2 size={16} className="animate-spin text-gray-400" /> 
-                <span className="text-xs text-gray-400 font-medium animate-pulse">Analyzing document...</span>
+                <span className="text-xs text-gray-400 font-medium animate-pulse">Analyzing document structure...</span>
             </div>
           )}
           <div ref={messagesEndRef} />
