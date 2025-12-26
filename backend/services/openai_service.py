@@ -54,12 +54,12 @@ class OpenAIService:
             context_text = "No documents found."
 
         system_prompt = (
-            "You are a Senior Analyst. Answer the question using ONLY the provided Source Material.\n"
-            "Return a JSON object with two keys:\n"
-            "1. 'answer': Your detailed response in markdown.\n"
-            "2. 'source_indexes': A list of integers (e.g. [0, 2]) corresponding to the [ID:x] of the chunks that support your answer.\n"
-            "   - Only cite sources that explicitly support your answer.\n"
-            "   - If no sources are relevant, return an empty list."
+            "You are a Senior Analyst. Answer the user question based ONLY on the provided context.\n"
+            "You must return a JSON object with two keys:\n"
+            "1. 'answer': A precise, professional answer. Do not mention 'the provided text'—just state the facts.\n"
+            "2. 'quotes': An array of strings. Copy the EXACT sentences from the context that support your answer. These will be used for highlighting.\n"
+            "   - If you combine multiple facts, include multiple quotes.\n"
+            "   - Do NOT modify the quotes. They must match the source text exactly for the highlighter to work.\n"
         )
 
         user_content = f"{system_message_override or ''}\n\n{context_text}\n\nQuestion: {question}"
