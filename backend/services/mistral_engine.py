@@ -30,7 +30,6 @@ class MistralEngine:
         text = text.replace("\n", " ")
         return self.openai.embeddings.create(input=[text], model="text-embedding-3-small").data[0].embedding
 
-    # --- 3-PART STRUCTURED SUMMARY ---
     def _generate_summary(self, full_text: str) -> str:
         try:
             preview_text = full_text[:8000]
@@ -53,7 +52,6 @@ class MistralEngine:
             print(f"Summary Generation Error: {e}")
             return "[TAG]: OTHER\n[DESC]: Processed document.\n[DETAILED]: No summary available."
 
-    # --- FOLDER MANIFEST ---
     def get_folder_manifest(self, folder_name: str) -> str:
         try:
             res = self.supabase.table("documents").select("title, summary").eq("folder", folder_name).execute()
@@ -72,26 +70,54 @@ class MistralEngine:
         except Exception as e:
             return f"Error fetching folder manifest: {e}"
 
-    # --- SEARCH WITH METADATA (UPDATED) ---
+    # --- UPDATED: SEARCH WITH METADATA RESCUE ---
     def search_single_doc(self, query: str, doc_id: str) -> List[dict]:
         """
-        Returns structured chunks with page numbers for highlighting.
+        Returns structured chunks. Performs a double-check to ensure Page Numbers are retrieved.
         """
         query_vector = self.get_embedding(query)
-        # We assume the RPC 'match_page_sections' returns page_number. 
-        # If your RPC doesn't, you need to update it in Supabase SQL editor.
         params = {"query_embedding": query_vector, "match_threshold": 0.01, "match_count": 8, "filter_doc_id": doc_id}
+        
         try:
+            # 1. Run Vector Search
             res = self.supabase.rpc("match_page_sections", params).execute()
-            # Return dicts instead of just strings
-            return [
-                {
-                    "content": row['content'], 
-                    "page": row.get('page_number', 1),
+            
+            # 2. Extract Contents to Rescue Metadata
+            # If the RPC didn't return 'page_number' (or returned null), we fetch it manually.
+            contents_to_lookup = [row['content'] for row in res.data if row.get('content')]
+            page_map = {}
+
+            if contents_to_lookup:
+                # We fetch the exact page numbers for these text chunks
+                try:
+                    meta_res = self.supabase.table("document_pages")\
+                        .select("content, page_number")\
+                        .eq("document_id", doc_id)\
+                        .in_("content", contents_to_lookup)\
+                        .execute()
+                    
+                    for m in meta_res.data:
+                        page_map[m['content']] = m['page_number']
+                except Exception as e:
+                    print(f"Metadata Rescue Failed: {e}")
+
+            # 3. Build Final Results
+            results = []
+            for row in res.data:
+                content = row.get('content')
+                if not content: continue
+                
+                # Priority: 1. Lookup Map, 2. RPC Result, 3. Default to 1
+                final_page = page_map.get(content, row.get('page_number', 1))
+                
+                results.append({
+                    "content": content,
+                    "page": final_page,
                     "similarity": row.get('similarity', 0)
-                } 
-                for row in res.data if row.get('content')
-            ]
+                })
+            
+            return results
+
         except Exception as e:
             print(f"Search Error: {e}")
             return []
@@ -116,14 +142,30 @@ class MistralEngine:
                 for d in docs_res.data:
                     title_map[d['id']] = d['title']
 
+            # Rescue Metadata for Folder Search too
+            contents_to_lookup = [row['content'] for row in response.data if row.get('content')]
+            page_map = {}
+            if contents_to_lookup:
+                try:
+                    meta_res = self.supabase.table("document_pages")\
+                        .select("content, page_number")\
+                        .in_("content", contents_to_lookup)\
+                        .execute()
+                    for m in meta_res.data:
+                        page_map[m['content']] = m['page_number']
+                except: pass
+
             results = []
             for row in response.data:
                 doc_id = row['document_id']
                 filename = title_map.get(doc_id, "Unknown File")
-                # Structure the return data
+                content = row.get('content')
+                
+                final_page = page_map.get(content, row.get('page_number', 1))
+
                 results.append({
-                    "content": row['content'],
-                    "page": row.get('page_number', 1),
+                    "content": content,
+                    "page": final_page,
                     "source": filename,
                     "similarity": row.get('similarity', 0)
                 })
@@ -133,7 +175,6 @@ class MistralEngine:
             print(f"Search Error: {e}")
             return []
 
-    # --- UNCHANGED HELPERS BELOW ---
     async def process_pdf_background(self, doc_id: str, file_bytes: bytes, filename: str, folder: str):
         try:
             print(f"[{doc_id}] Starting Mistral Native OCR (Latest) for {filename}...")

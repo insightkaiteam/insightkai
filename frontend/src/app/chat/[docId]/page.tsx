@@ -18,6 +18,9 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
   const [isRecording, setIsRecording] = useState(false);
   const [pdfUrl, setPdfUrl] = useState<string>("");
   
+  // NEW: Force refresh key for the iframe
+  const [iframeKey, setIframeKey] = useState(0);
+  
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -41,21 +44,21 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
     fetchManifest();
   }, [docId]);
 
-  // --- SOTA HIGHLIGHT STRATEGY (FUZZY FRAGMENTS) ---
+  // --- SOTA HIGHLIGHT STRATEGY (FUZZY FRAGMENTS + FORCE RELOAD) ---
   const applyHighlight = (page: number, text: string) => {
-    // 1. Clean the text slightly (remove newlines that might break URL)
-    // We KEEP citations and special chars because we want to match the RAW text layer.
+    // 1. Clean the text slightly 
     const cleanText = text.replace(/\n/g, ' ').trim();
     
-    // 2. Fragment Selection
-    // Instead of sending 500 words (which fails if 1 character is wrong),
-    // we send the first 6-8 distinct words. This is a "Sniper Shot" approach.
+    // 2. Fragment Selection (First 8 words)
     const words = cleanText.split(" ");
     const snippet = words.slice(0, 8).join(" ");
 
-    // 3. Construct URL
+    // 3. Construct URL with strictly formatted anchor
     const newUrl = `${BACKEND_URL}/documents/${docId}/download#page=${page}&:~:text=${encodeURIComponent(snippet)}`;
+    
+    // 4. Update State and FORCE RELOAD the iframe
     setPdfUrl(newUrl);
+    setIframeKey(prev => prev + 1); // Increments key, React destroys old iframe and makes new one
   };
 
   const sendMessage = async (textOverride?: string) => {
@@ -81,8 +84,7 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
         citations: data.citations || [] 
       }]);
 
-      // Smart Auto-Scroll:
-      // If we have citations, jump to the first one immediately.
+      // Smart Auto-Scroll: Jump to first citation
       if (data.citations && data.citations.length > 0) {
           const topCit = data.citations[0];
           applyHighlight(topCit.page, topCit.content);
@@ -134,8 +136,8 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
                 <ArrowLeft size={16} /> LIBRARY
             </Link>
         </div>
-        {/* Key prop ensures re-render on URL change to force navigation */}
-        <iframe key={pdfUrl} src={pdfUrl} className="flex-1 w-full border-none bg-gray-800" title="PDF Viewer" />
+        {/* KEY PROP FORCES RELOAD ON CLICK */}
+        <iframe key={iframeKey} src={pdfUrl} className="flex-1 w-full border-none bg-gray-800" title="PDF Viewer" />
       </div>
 
       {/* RIGHT: CHAT */}
@@ -172,7 +174,6 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
                                         <span className="bg-blue-100 text-blue-700 text-[10px] font-bold px-1.5 py-0.5 rounded flex items-center gap-1">
                                             <MapPin size={8} /> Page {cit.page}
                                         </span>
-                                        {/* Helper for OCR Confidence */}
                                         <span className="text-[9px] text-gray-400 opacity-0 group-hover:opacity-100 transition">
                                             Click to locate
                                         </span>
@@ -197,7 +198,7 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
           <div ref={messagesEndRef} />
         </div>
         
-        {/* INPUT BAR (Keep existing) */}
+        {/* INPUT BAR */}
         <div className="absolute bottom-8 left-0 w-full px-8 flex justify-center">
           <div className={`bg-white border border-gray-200 shadow-2xl rounded-[2rem] p-2 flex gap-2 items-center transition-all duration-300 w-full max-w-3xl ${isRecording ? 'ring-4 ring-red-50 border-red-100' : 'focus-within:ring-4 focus-within:ring-blue-50 focus-within:border-blue-200'}`}>
             <button
