@@ -9,6 +9,7 @@ from openai import OpenAI
 from supabase import create_client, Client
 from pydantic import BaseModel, Field
 
+# --- SCHEMA DEFINITION ---
 class VisualContext(BaseModel):
     image_description: str = Field(..., description="Detailed description of the image visual content.")
     data_extraction: str = Field(..., description="If this is a chart/table, transcribe the key numbers, axis labels, and trends. If a diagram, describe the flow.")
@@ -29,6 +30,7 @@ class MistralEngine:
         text = text.replace("\n", " ")
         return self.openai.embeddings.create(input=[text], model="text-embedding-3-small").data[0].embedding
 
+    # --- 3-PART STRUCTURED SUMMARY ---
     def _generate_summary(self, full_text: str) -> str:
         try:
             preview_text = full_text[:8000]
@@ -51,6 +53,7 @@ class MistralEngine:
             print(f"Summary Generation Error: {e}")
             return "[TAG]: OTHER\n[DESC]: Processed document.\n[DETAILED]: No summary available."
 
+    # --- FOLDER MANIFEST ---
     def get_folder_manifest(self, folder_name: str) -> str:
         try:
             res = self.supabase.table("documents").select("title, summary").eq("folder", folder_name).execute()
@@ -69,87 +72,68 @@ class MistralEngine:
         except Exception as e:
             return f"Error fetching folder manifest: {e}"
 
-    # --- UPDATED: POINTS TO V2 FUNCTION ---
+    # --- SEARCH WITH METADATA (UPDATED) ---
     def search_single_doc(self, query: str, doc_id: str) -> List[dict]:
+        """
+        Returns structured chunks with page numbers for highlighting.
+        """
         query_vector = self.get_embedding(query)
-        # ⚠️ Using match_page_sections_v2 to avoid conflict with your old SQL
+        # We assume the RPC 'match_page_sections' returns page_number. 
+        # If your RPC doesn't, you need to update it in Supabase SQL editor.
         params = {"query_embedding": query_vector, "match_threshold": 0.01, "match_count": 8, "filter_doc_id": doc_id}
         try:
-            res = self.supabase.rpc("match_page_sections_v2", params).execute()
+            res = self.supabase.rpc("match_page_sections", params).execute()
+            # Return dicts instead of just strings
             return [
                 {
                     "content": row['content'], 
                     "page": row.get('page_number', 1),
-                    "similarity": row.get('similarity', 0),
-                    "source": "Current File"
+                    "similarity": row.get('similarity', 0)
                 } 
                 for row in res.data if row.get('content')
             ]
         except Exception as e:
-            print(f"Search Error (Single Doc): {e}")
+            print(f"Search Error: {e}")
             return []
 
-    def search_folder_fast(self, query: str, folder_name: str) -> List[dict]:
+    def search(self, query: str, folder_name: str = None, limit: int = 5) -> List[dict]:
         query_vector = self.get_embedding(query)
         params = {
-            "query_embedding": query_vector,
-            "match_threshold": 0.01, 
-            "match_count": 5,        
-            "filter_folder": folder_name
+            "query_text": query, 
+            "query_embedding": query_vector, 
+            "match_threshold": 0.01,  
+            "match_count": limit, 
+            "filter_folder": folder_name or "General"
         }
         try:
-            response = self.supabase.rpc("match_document_summaries", params).execute()
+            response = self.supabase.rpc("match_documents_hybrid", params).execute()
             
+            # Fetch Titles
+            doc_ids = list(set([row['document_id'] for row in response.data])) if response.data else []
+            title_map = {}
+            if doc_ids:
+                docs_res = self.supabase.table("documents").select("id, title").in_("id", doc_ids).execute()
+                for d in docs_res.data:
+                    title_map[d['id']] = d['title']
+
             results = []
             for row in response.data:
-                clean_summary = row['summary'].split("---_SEPARATOR_---")[0].replace("**Content Summary:**", "").strip()
+                doc_id = row['document_id']
+                filename = title_map.get(doc_id, "Unknown File")
+                # Structure the return data
                 results.append({
-                    "content": f"**FILE MATCH: {row['title']}**\n{clean_summary}", 
-                    "page": 1, 
-                    "source": row['title'],
+                    "content": row['content'],
+                    "page": row.get('page_number', 1),
+                    "source": filename,
                     "similarity": row.get('similarity', 0)
                 })
+                
             return results
         except Exception as e:
-            print(f"Fast Search Error: {e}")
+            print(f"Search Error: {e}")
             return []
 
-    def search_folder_deep(self, query: str, folder_name: str) -> List[dict]:
-        try:
-            # Step 1: Identify relevant docs via summary
-            query_vector = self.get_embedding(query)
-            
-            params_summary = {
-                "query_embedding": query_vector,
-                "match_threshold": 0.01, 
-                "match_count": 4, 
-                "filter_folder": folder_name
-            }
-            summary_res = self.supabase.rpc("match_document_summaries", params_summary).execute()
-            
-            if not summary_res.data:
-                return []
-            
-            target_doc_ids = [row['id'] for row in summary_res.data]
-            aggregated_chunks = []
-            
-            for doc_id in target_doc_ids:
-                # ⚠️ Re-using single doc search (which now points to V2)
-                doc_chunks = self.search_single_doc(query, doc_id)
-                
-                # Take top 3 chunks from this file
-                for chunk in doc_chunks[:3]:
-                    file_title = next((item['title'] for item in summary_res.data if item['id'] == doc_id), "Unknown File")
-                    chunk['content'] = f"[Source File: {file_title}]\n{chunk['content']}"
-                    chunk['source'] = file_title
-                    aggregated_chunks.append(chunk)
-            
-            return aggregated_chunks
-
-        except Exception as e:
-            print(f"Deep Search Error: {e}")
-            return []
-
+    # --- UNCHANGED HELPERS BELOW ---
     async def process_pdf_background(self, doc_id: str, file_bytes: bytes, filename: str, folder: str):
         try:
             print(f"[{doc_id}] Starting Mistral Native OCR (Latest) for {filename}...")
@@ -214,15 +198,8 @@ class MistralEngine:
 
             content_summary = self._generate_summary(full_document_text)
             final_summary_field = f"**Content Summary:** {content_summary}\n\n---_SEPARATOR_---\n\n{manifest_log}\n✅ **Extraction Complete.**"
-            summary_vector = self.get_embedding(content_summary)
-            
-            self.supabase.table("documents").update({
-                "status": "ready", 
-                "summary": final_summary_field,
-                "summary_embedding": summary_vector
-            }).eq("id", doc_id).execute()
-            
-            print(f"[{doc_id}] Success. Summary Generated & Embedded.")
+            self.supabase.table("documents").update({"status": "ready", "summary": final_summary_field}).eq("id", doc_id).execute()
+            print(f"[{doc_id}] Success. Summary Generated.")
 
         except Exception as e:
             print(f"[{doc_id}] FAILED: {e}")
@@ -265,7 +242,6 @@ class MistralEngine:
         try:
             query_vector = self.get_embedding(query)
             params = {"query_embedding": query_vector, "match_threshold": 0.01, "match_count": 3, "filter_doc_id": doc_id}
-            # Also using v2 here for consistency
-            res = self.supabase.rpc("match_page_sections_v2", params).execute()
+            res = self.supabase.rpc("match_page_sections", params).execute()
             return {"query": query, "chunks_found": len(res.data), "preview": res.data[0]['content'][:200] if res.data else "None"}
         except Exception as e: return {"error": str(e)}
