@@ -110,6 +110,7 @@ def get_document_status(doc_id: str):
         raise HTTPException(status_code=404, detail="Document not found")
     return res.data[0]
 
+# --- UPDATED CHAT ENDPOINT ---
 @app.post("/chat")
 async def chat(request: ChatRequest):
     relevant_chunks = []
@@ -117,26 +118,25 @@ async def chat(request: ChatRequest):
 
     # CASE A: Chat with Folder
     if request.folder_name:
-        # 1. Fetch Global Awareness (The Manifest)
-        # This solves "What files are here?"
         system_manifest = ocr_engine.get_folder_manifest(request.folder_name)
-
-        # 2. Decide Depth
         limit = 5 
-        if request.mode == "deep":
-            limit = 25 
-
-        # 3. Vector Search (Find specific details)
-        results = ocr_engine.search(request.message, folder_name=request.folder_name, limit=limit)
-        relevant_chunks = [r['content'] for r in results]
+        if request.mode == "deep": limit = 25 
+        
+        # Results are now Dicts: {'content': '...', 'page': 1, 'source': '...'}
+        relevant_chunks = ocr_engine.search(request.message, folder_name=request.folder_name, limit=limit)
 
     # CASE B: Chat with Single Document
     elif request.document_id:
         relevant_chunks = ocr_engine.search_single_doc(request.message, request.document_id)
 
-    # 4. Generate Answer with Manifest + Chunks
+    # Generate Answer using the Analyst Persona
     answer = ai_service.get_answer(relevant_chunks, request.message, system_message_override=system_manifest)
-    return {"answer": answer}
+    
+    # Return structured data. Frontend can use 'relevant_chunks' to highlight text.
+    return {
+        "answer": answer,
+        "citations": relevant_chunks  # Frontend should render these as "Proof"
+    }
 
 @app.get("/documents/{doc_id}/download")
 def download_pdf(doc_id: str):

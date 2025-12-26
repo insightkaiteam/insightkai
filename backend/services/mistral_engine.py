@@ -30,68 +30,110 @@ class MistralEngine:
         text = text.replace("\n", " ")
         return self.openai.embeddings.create(input=[text], model="text-embedding-3-small").data[0].embedding
 
-    # --- NEW: 3-PART STRUCTURED SUMMARY ---
+    # --- 3-PART STRUCTURED SUMMARY ---
     def _generate_summary(self, full_text: str) -> str:
-        """
-        Generates a 3-part structured summary: [TAG], [DESC], and [DETAILED].
-        This powers the 'Fast Search' intelligence.
-        """
         try:
-            # We give it more context (8k chars) to ensure it catches details like 'Duke Energy'
             preview_text = full_text[:8000]
-            
             system_prompt = (
                 "You are a sophisticated document analyzer. Analyze the text and return a summary in EXACTLY this format:\n\n"
                 "[TAG]: <Classify into one: INVOICE, RESEARCH, FINANCIAL, LEGAL, RECEIPT, OTHER>\n"
                 "[DESC]: <A single, concise sentence describing the file (e.g. 'August 2023 Power Bill for $150')>\n"
                 "[DETAILED]: <A dense, 5-10 line summary containing specific entities (company names, authors), dates, key outcomes, core themes, and numerical data. This will be used for search retrieval, so be specific.>"
             )
-
             response = self.openai.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": f"Analyze this document content:\n\n{preview_text}"}
                 ],
-                max_tokens=300 # Increased to allow for the detailed section
+                max_tokens=300
             )
             return response.choices[0].message.content.strip()
         except Exception as e:
             print(f"Summary Generation Error: {e}")
             return "[TAG]: OTHER\n[DESC]: Processed document.\n[DETAILED]: No summary available."
 
-    # --- UPDATED: GET FOLDER MANIFEST ---
+    # --- FOLDER MANIFEST ---
     def get_folder_manifest(self, folder_name: str) -> str:
-        """
-        Injects the FULL structured summary into the AI's brain.
-        This allows 'Fast Search' to find 'Duke Energy' even if the user didn't open the file.
-        """
         try:
-            res = self.supabase.table("documents").select("title, summary, created_at").eq("folder", folder_name).execute()
-            
+            res = self.supabase.table("documents").select("title, summary").eq("folder", folder_name).execute()
             if not res.data:
                 return "This folder is empty."
 
             manifest = f"### 📂 FOLDER CONTENT MANIFEST ({len(res.data)} files):\n"
-            manifest += "Use this list to answer questions like 'Which bill is from X?' or 'List all research papers'.\n"
-            manifest += "Each entry has a Tag, a Description, and Detailed Metadata.\n\n"
             
             for doc in res.data:
                 raw_summary = doc.get('summary') or ""
-                # We extract the structured part (before the verification log separator)
                 clean_summary = raw_summary.split("---_SEPARATOR_---")[0].replace("**Content Summary:**", "").strip()
-                
-                if not clean_summary:
-                    clean_summary = "[TAG]: FILE\n[DESC]: Unknown content."
-
-                # We explicitly label the filename so the AI links the data to the source
+                if not clean_summary: clean_summary = "[TAG]: FILE\n[DESC]: Unknown content."
                 manifest += f"📄 **FILENAME: {doc['title']}**\n{clean_summary}\n\n---\n"
             
             return manifest
         except Exception as e:
             return f"Error fetching folder manifest: {e}"
 
-    # --- MAIN TASK (UNCHANGED) ---
+    # --- SEARCH WITH METADATA (UPDATED) ---
+    def search_single_doc(self, query: str, doc_id: str) -> List[dict]:
+        """
+        Returns structured chunks with page numbers for highlighting.
+        """
+        query_vector = self.get_embedding(query)
+        # We assume the RPC 'match_page_sections' returns page_number. 
+        # If your RPC doesn't, you need to update it in Supabase SQL editor.
+        params = {"query_embedding": query_vector, "match_threshold": 0.01, "match_count": 8, "filter_doc_id": doc_id}
+        try:
+            res = self.supabase.rpc("match_page_sections", params).execute()
+            # Return dicts instead of just strings
+            return [
+                {
+                    "content": row['content'], 
+                    "page": row.get('page_number', 1),
+                    "similarity": row.get('similarity', 0)
+                } 
+                for row in res.data if row.get('content')
+            ]
+        except Exception as e:
+            print(f"Search Error: {e}")
+            return []
+
+    def search(self, query: str, folder_name: str = None, limit: int = 5) -> List[dict]:
+        query_vector = self.get_embedding(query)
+        params = {
+            "query_text": query, 
+            "query_embedding": query_vector, 
+            "match_threshold": 0.01,  
+            "match_count": limit, 
+            "filter_folder": folder_name or "General"
+        }
+        try:
+            response = self.supabase.rpc("match_documents_hybrid", params).execute()
+            
+            # Fetch Titles
+            doc_ids = list(set([row['document_id'] for row in response.data])) if response.data else []
+            title_map = {}
+            if doc_ids:
+                docs_res = self.supabase.table("documents").select("id, title").in_("id", doc_ids).execute()
+                for d in docs_res.data:
+                    title_map[d['id']] = d['title']
+
+            results = []
+            for row in response.data:
+                doc_id = row['document_id']
+                filename = title_map.get(doc_id, "Unknown File")
+                # Structure the return data
+                results.append({
+                    "content": row['content'],
+                    "page": row.get('page_number', 1),
+                    "source": filename,
+                    "similarity": row.get('similarity', 0)
+                })
+                
+            return results
+        except Exception as e:
+            print(f"Search Error: {e}")
+            return []
+
+    # --- UNCHANGED HELPERS BELOW ---
     async def process_pdf_background(self, doc_id: str, file_bytes: bytes, filename: str, folder: str):
         try:
             print(f"[{doc_id}] Starting Mistral Native OCR (Latest) for {filename}...")
@@ -120,7 +162,6 @@ class MistralEngine:
                         figure_id = f"Figure {page_num}-{image_count_on_page}"
                         annotation_data = None
                         raw_ann = getattr(img, 'image_annotation', None)
-                        
                         if raw_ann:
                             if isinstance(raw_ann, str):
                                 try: annotation_data = json.loads(raw_ann)
@@ -139,14 +180,11 @@ class MistralEngine:
 
                             visual_section += (f"\n> **[{figure_id} Analysis]**\n> - **Visual:** {desc}\n> - **Data:** {data_pts}\n> - **Insight:** {analysis}\n")
                             manifest_log += f"- **Page {page_num}**: Found {figure_id}. Data: *\"{str(data_pts)[:50]}...\"*\n"
-                        else:
-                            manifest_log += f"- **Page {page_num}**: Found {figure_id} BUT annotation was empty.\n"
 
                 enriched_content = f"**[Page {page_num}]**\n{markdown}\n"
                 if visual_section: enriched_content += "\n### 📊 Visual Data Extracted:\n" + visual_section
 
-                # Accumulate text for the Summary Generator
-                if len(full_document_text) < 15000: # Increased limit to ensure detailed summary covers more ground
+                if len(full_document_text) < 15000:
                     full_document_text += enriched_content + "\n"
 
                 chunks = self._chunk_markdown(enriched_content)
@@ -158,11 +196,8 @@ class MistralEngine:
                         "content": chunk, "embedding": vector, "title": filename, "image_url": ""
                     }).execute()
 
-            # --- GENERATE & SAVE 3-PART SUMMARY ---
             content_summary = self._generate_summary(full_document_text)
-            
             final_summary_field = f"**Content Summary:** {content_summary}\n\n---_SEPARATOR_---\n\n{manifest_log}\n✅ **Extraction Complete.**"
-
             self.supabase.table("documents").update({"status": "ready", "summary": final_summary_field}).eq("id", doc_id).execute()
             print(f"[{doc_id}] Success. Summary Generated.")
 
@@ -170,7 +205,6 @@ class MistralEngine:
             print(f"[{doc_id}] FAILED: {e}")
             self.supabase.table("documents").update({"status": "failed"}).eq("id", doc_id).execute()
 
-    # --- HELPERS (Unchanged) ---
     def _chunk_markdown(self, text: str) -> List[str]:
         chunks = []
         current_chunk = ""
@@ -182,47 +216,6 @@ class MistralEngine:
             if len(current_chunk) > 3500: chunks.append(current_chunk.strip()); current_chunk = ""
         if current_chunk: chunks.append(current_chunk.strip())
         return chunks
-
-    def search_single_doc(self, query: str, doc_id: str) -> List[str]:
-        query_vector = self.get_embedding(query)
-        params = {"query_embedding": query_vector, "match_threshold": 0.01, "match_count": 10, "filter_doc_id": doc_id}
-        try:
-            res = self.supabase.rpc("match_page_sections", params).execute()
-            return [row['content'] for row in res.data if row.get('content')]
-        except: return []
-
-    def search(self, query: str, folder_name: str = None, limit: int = 5) -> List[dict]:
-        query_vector = self.get_embedding(query)
-        params = {
-            "query_text": query, 
-            "query_embedding": query_vector, 
-            "match_threshold": 0.01,  
-            "match_count": limit, 
-            "filter_folder": folder_name or "General"
-        }
-        try:
-            response = self.supabase.rpc("match_documents_hybrid", params).execute()
-            
-            # ID to Title Map
-            doc_ids = list(set([row['document_id'] for row in response.data])) if response.data else []
-            title_map = {}
-            if doc_ids:
-                docs_res = self.supabase.table("documents").select("id, title").in_("id", doc_ids).execute()
-                for d in docs_res.data:
-                    title_map[d['id']] = d['title']
-
-            results = []
-            for row in response.data:
-                doc_id = row['document_id']
-                filename = title_map.get(doc_id, "Unknown File")
-                injected_content = f"[[SOURCE DOCUMENT: {filename}]]\n\n{row['content']}"
-                row['content'] = injected_content
-                results.append(row)
-                
-            return results
-        except Exception as e:
-            print(f"Search Error: {e}")
-            return []
 
     def get_documents(self):
         try:
