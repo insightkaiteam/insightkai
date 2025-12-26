@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { 
   Folder, FileText, Trash2, Plus, ArrowLeft, MessageSquare, 
   X, Send, Loader2, FileClock, BrainCircuit, UploadCloud, 
-  LayoutGrid, LogOut, Quote, FileSearch, MapPin 
+  LayoutGrid, LogOut, Quote, FileSearch 
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 

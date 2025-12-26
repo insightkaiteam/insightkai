@@ -1,8 +1,7 @@
 from openai import OpenAI
 import os
 import json
-import re
-from typing import List, Dict, Any, Optional
+from typing import List, Optional
 from tenacity import retry, stop_after_attempt, wait_random_exponential
 
 class OpenAIService:
@@ -14,45 +13,22 @@ class OpenAIService:
         return self.client.chat.completions.create(
             model=model,
             messages=messages,
-            response_format={"type": "json_object"}, 
+            response_format={"type": "json_object"},  # FORCE JSON
             max_tokens=1000 
         )
 
-    def _extract_best_sentence(self, full_text: str, query: str) -> str:
-        """
-        Extracts the most relevant sentence for the quote card.
-        """
-        clean_text = full_text.replace('\n', ' ')
-        sentences = re.split(r'(?<=[.!?])\s+', clean_text)
-        if not sentences: return clean_text[:150]
+    def get_answer(self, context_chunks: List[dict], question: str, system_message_override: Optional[str] = None) -> dict:
         
-        query_words = set(query.lower().split())
-        best_sent = sentences[0]
-        max_overlap = 0
-        
-        for sent in sentences:
-            sent_words = set(sent.lower().split())
-            overlap = len(query_words.intersection(sent_words))
-            if overlap > max_overlap:
-                max_overlap = overlap
-                best_sent = sent
-        
-        if len(best_sent) < 20: return clean_text[:150] + "..."
-        return best_sent.strip()
-
-    def get_answer(self, context_chunks: List[dict], question: str, system_message_override: Optional[str] = None) -> Dict[str, Any]:
-        
-        # Build Indexed Context for the AI
+        # 1. Construct Context Block
         context_text = ""
         if context_chunks:
-            context_text += "--- SOURCE MATERIAL ---\n"
             for i, chunk in enumerate(context_chunks):
-                clean = chunk['content'].replace('\n', ' ')
-                source_label = f" (File: {chunk.get('source', 'Unknown')}, Page {chunk.get('page', '?')})"
-                context_text += f"[ID:{i}] {source_label}: {clean}\n\n"
+                # We include the page number in the text so the LLM can reference it if needed
+                context_text += f"\n[ID:{i}] [Page {chunk.get('page', '?')}] {chunk['content']}\n"
         else:
-            context_text = "No documents found."
+            context_text = "No specific document context found."
 
+        # 2. Analyst Persona with STRICT JSON Instructions
         system_prompt = (
             "You are a Senior Financial Analyst. Answer the user question based ONLY on the provided context.\n"
             "You must return a JSON object with two keys:\n"
@@ -62,7 +38,7 @@ class OpenAIService:
             "   - Do NOT modify the quotes. They must match the source text exactly for the highlighter to work.\n"
         )
 
-        user_content = f"{system_message_override or ''}\n\n{context_text}\n\nQuestion: {question}"
+        user_content = f"Context:\n{context_text}\n\nQuestion: {question}"
 
         messages = [
             {"role": "system", "content": system_prompt},
@@ -72,47 +48,15 @@ class OpenAIService:
         try:
             response = self.get_answer_with_backoff(messages=messages)
             content = response.choices[0].message.content
-            data = json.loads(content)
-            
-            raw_answer = data.get("answer", "No answer generated.")
-            indices = data.get("source_indexes", [])
-            
-            # Robust Parsing of Indices
-            valid_indices = []
-            for i in indices:
-                try:
-                    idx = int(i)
-                    if 0 <= idx < len(context_chunks):
-                        valid_indices.append(idx)
-                except: continue
-            
-            unique_indices = sorted(list(set(valid_indices)))
-            
-            final_citations = []
-            for idx in unique_indices:
-                chunk = context_chunks[idx]
-                full_text = chunk["content"]
-                tight_quote = self._extract_best_sentence(full_text, question)
-                
-                final_citations.append({
-                    "page": chunk.get("page", 1),
-                    "source": chunk.get("source", "Unknown"),
-                    "content": tight_quote,     # The smart short quote
-                    "raw_text": full_text,      # The full text for robust highlighting
-                    "id": idx
-                })
-
-            return {
-                "answer": raw_answer,
-                "citations": final_citations
-            }
-
+            return json.loads(content) # Return Dict: {'answer': '...', 'quotes': ['...']}
         except Exception as e:
             print(f"AI Error: {e}")
-            return {"answer": "Error generating analysis.", "citations": []}
+            return {"answer": "Error generating response.", "quotes": []}
 
     def transcribe_audio(self, audio_file):
+        # (Keep existing transcription logic)
         try:
             transcript = self.client.audio.transcriptions.create(model="whisper-1", file=audio_file)
             return transcript.text
-        except: return "Error transcribing."
+        except Exception as e:
+            return "Error transcribing audio."

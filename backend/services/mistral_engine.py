@@ -30,7 +30,7 @@ class MistralEngine:
         text = text.replace("\n", " ")
         return self.openai.embeddings.create(input=[text], model="text-embedding-3-small").data[0].embedding
 
-    # --- KEEP EXISTING HELPERS ---
+    # --- 3-PART STRUCTURED SUMMARY ---
     def _generate_summary(self, full_text: str) -> str:
         try:
             preview_text = full_text[:8000]
@@ -50,8 +50,10 @@ class MistralEngine:
             )
             return response.choices[0].message.content.strip()
         except Exception as e:
+            print(f"Summary Generation Error: {e}")
             return "[TAG]: OTHER\n[DESC]: Processed document.\n[DETAILED]: No summary available."
 
+    # --- FOLDER MANIFEST ---
     def get_folder_manifest(self, folder_name: str) -> str:
         try:
             res = self.supabase.table("documents").select("title, summary").eq("folder", folder_name).execute()
@@ -70,48 +72,26 @@ class MistralEngine:
         except Exception as e:
             return f"Error fetching folder manifest: {e}"
 
-    # --- UPDATED: SEARCH WITH METADATA RESCUE ---
+    # --- SEARCH WITH METADATA (UPDATED) ---
     def search_single_doc(self, query: str, doc_id: str) -> List[dict]:
+        """
+        Returns structured chunks with page numbers for highlighting.
+        """
         query_vector = self.get_embedding(query)
+        # We assume the RPC 'match_page_sections' returns page_number. 
+        # If your RPC doesn't, you need to update it in Supabase SQL editor.
         params = {"query_embedding": query_vector, "match_threshold": 0.01, "match_count": 8, "filter_doc_id": doc_id}
-        
         try:
-            # 1. Run Vector Search
             res = self.supabase.rpc("match_page_sections", params).execute()
-            
-            # 2. Rescue Metadata (Fixes Page 1 Bug)
-            chunks = []
-            if res.data:
-                contents = [r['content'] for r in res.data if r.get('content')]
-                
-                # Fetch EXACT page number from DB
-                meta_map = {}
-                try:
-                    if contents:
-                        meta_res = self.supabase.table("document_pages")\
-                            .select("id, content, page_number")\
-                            .eq("document_id", doc_id)\
-                            .in_("content", contents)\
-                            .execute()
-                        meta_map = {row['content']: row for row in meta_res.data}
-                except: pass
-
-                for row in res.data:
-                    content = row.get('content')
-                    if not content: continue
-                    
-                    meta = meta_map.get(content)
-                    final_page = meta['page_number'] if meta else row.get('page_number', 1)
-                    
-                    chunks.append({
-                        "content": content,
-                        "page": final_page,
-                        "source": "Document",
-                        "similarity": row.get('similarity', 0)
-                    })
-            
-            return chunks
-
+            # Return dicts instead of just strings
+            return [
+                {
+                    "content": row['content'], 
+                    "page": row.get('page_number', 1),
+                    "similarity": row.get('similarity', 0)
+                } 
+                for row in res.data if row.get('content')
+            ]
         except Exception as e:
             print(f"Search Error: {e}")
             return []
@@ -128,43 +108,32 @@ class MistralEngine:
         try:
             response = self.supabase.rpc("match_documents_hybrid", params).execute()
             
-            chunks = []
-            if response.data:
-                contents = [r['content'] for r in response.data if r.get('content')]
+            # Fetch Titles
+            doc_ids = list(set([row['document_id'] for row in response.data])) if response.data else []
+            title_map = {}
+            if doc_ids:
+                docs_res = self.supabase.table("documents").select("id, title").in_("id", doc_ids).execute()
+                for d in docs_res.data:
+                    title_map[d['id']] = d['title']
+
+            results = []
+            for row in response.data:
+                doc_id = row['document_id']
+                filename = title_map.get(doc_id, "Unknown File")
+                # Structure the return data
+                results.append({
+                    "content": row['content'],
+                    "page": row.get('page_number', 1),
+                    "source": filename,
+                    "similarity": row.get('similarity', 0)
+                })
                 
-                # Metadata Rescue for Folder Search
-                meta_map = {}
-                try:
-                    if contents:
-                        meta_res = self.supabase.table("document_pages")\
-                            .select("content, page_number, title")\
-                            .in_("content", contents)\
-                            .execute()
-                        meta_map = {row['content']: row for row in meta_res.data}
-                except: pass
-
-                for row in response.data:
-                    content = row.get('content')
-                    if not content: continue
-
-                    meta = meta_map.get(content)
-                    
-                    final_page = meta['page_number'] if meta else row.get('page_number', 1)
-                    final_source = meta['title'] if meta else "Unknown File"
-
-                    chunks.append({
-                        "content": content,
-                        "page": final_page,
-                        "source": final_source,
-                        "similarity": row.get('similarity', 0)
-                    })
-                
-            return chunks
+            return results
         except Exception as e:
             print(f"Search Error: {e}")
             return []
 
-    # --- OCR PROCESSING (Standard) ---
+    # --- UNCHANGED HELPERS BELOW ---
     async def process_pdf_background(self, doc_id: str, file_bytes: bytes, filename: str, folder: str):
         try:
             print(f"[{doc_id}] Starting Mistral Native OCR (Latest) for {filename}...")
