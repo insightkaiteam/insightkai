@@ -360,28 +360,34 @@ export default function Dashboard() {
                             </p>
                             {m.citations.slice(0, 3).map((cit: any, idx: number) => {
                                 const docId = findDocIdByTitle(cit.source);
-                                // If we find a matching doc ID, we create a link to it
-                                const Wrapper = docId ? Link : 'div';
-                                const props = docId ? { 
-                                    href: `/chat/${docId}#page=${cit.page}&:~:text=${encodeURIComponent(cit.content.substring(0,50))}`,
-                                    className: "block" 
-                                } : {};
-
-                                return (
-                                    <Wrapper key={idx} {...props} >
-                                        <div className="bg-gray-50 hover:bg-blue-50/50 border border-gray-200 hover:border-blue-100 p-2.5 rounded-xl transition-all cursor-pointer group">
-                                            <div className="flex items-center justify-between mb-1">
-                                                <span className="font-bold text-[10px] text-blue-600 flex items-center gap-1 bg-blue-50 px-1.5 py-0.5 rounded">
-                                                    <FileSearch size={10} /> {cit.source}
-                                                </span>
-                                                <span className="text-[10px] text-gray-400 font-mono">Pg {cit.page}</span>
-                                            </div>
-                                            <p className="text-xs text-gray-600 italic line-clamp-2 leading-relaxed">
-                                                "{cit.content}"
-                                            </p>
+                                
+                                const content = (
+                                    <div className="bg-gray-50 hover:bg-blue-50/50 border border-gray-200 hover:border-blue-100 p-2.5 rounded-xl transition-all cursor-pointer group">
+                                        <div className="flex items-center justify-between mb-1">
+                                            <span className="font-bold text-[10px] text-blue-600 flex items-center gap-1 bg-blue-50 px-1.5 py-0.5 rounded">
+                                                <FileSearch size={10} /> {cit.source}
+                                            </span>
+                                            <span className="text-[10px] text-gray-400 font-mono">Pg {cit.page}</span>
                                         </div>
-                                    </Wrapper>
+                                        <p className="text-xs text-gray-600 italic line-clamp-2 leading-relaxed">
+                                            "{cit.content}"
+                                        </p>
+                                    </div>
                                 );
+
+                                if (docId) {
+                                    return (
+                                        <Link 
+                                            key={idx} 
+                                            href={`/chat/${docId}#page=${cit.page}&:~:text=${encodeURIComponent(cit.content.substring(0,50))}`}
+                                            className="block"
+                                        >
+                                            {content}
+                                        </Link>
+                                    );
+                                }
+
+                                return <div key={idx}>{content}</div>;
                             })}
                         </div>
                     )}
