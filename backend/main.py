@@ -116,33 +116,43 @@ def normalize_text(text: str) -> str:
     """Removes special characters and lowercases text for better fuzzy matching."""
     return re.sub(r'[^a-zA-Z0-9\s]', '', text).lower().replace('\n', ' ').strip()
 
-# --- UPDATED CHAT ENDPOINT ---
-@app.post("/chat")
+# --- UPDATED CHAT ENDPOINT ---@app.post("/chat")
 async def chat(request: ChatRequest):
     relevant_chunks = []
     system_manifest = None
 
-    # 1. Retrieval (Get raw chunks)
+    # 1. Retrieval Strategy Selection
     if request.folder_name:
+        # Get Manifest (Table of Contents) for context
         system_manifest = ocr_engine.get_folder_manifest(request.folder_name)
-        limit = 15 if request.mode == "deep" else 8
-        relevant_chunks = ocr_engine.search(request.message, folder_name=request.folder_name, limit=limit)
+        
+        # 🚀 STRATEGY A: FAST CHAT (Summary Only)
+        if request.mode == "simple":
+            relevant_chunks = ocr_engine.search_folder_fast(request.message, request.folder_name)
+            
+            # If fast search fails to find metadata, we fallback to a light deep search
+            if not relevant_chunks:
+                relevant_chunks = ocr_engine.search_folder_deep(request.message, request.folder_name)
+
+        # 🚀 STRATEGY B: DEEP CHAT (Targeted Rerank)
+        else:
+             relevant_chunks = ocr_engine.search_folder_deep(request.message, request.folder_name)
+            
     elif request.document_id:
+        # UNCHANGED: Single Doc Chat
         relevant_chunks = ocr_engine.search_single_doc(request.message, request.document_id)
 
     # 2. Generation (Get Answer + Exact Quotes)
     ai_response = ai_service.get_answer(relevant_chunks, request.message, system_message_override=system_manifest)
     
-    # Handle response types (String vs Dict)
+    # [Rest of the function remains identical to preserve citation logic]
     if isinstance(ai_response, str):
-        # Fallback if JSON mode failed
         answer_text = ai_response
         used_quotes = []
     else:
         answer_text = ai_response.get("answer", "")
         used_quotes = ai_response.get("quotes", [])
 
-    # 3. Citation Matching (The "Fix Page 1" Logic)
     final_citations = []
     
     for quote in used_quotes:
@@ -150,17 +160,13 @@ async def chat(request: ChatRequest):
         highest_score = 0
         norm_quote = normalize_text(quote)
         
-        # We try to find which original chunk contains this quote
         for chunk in relevant_chunks:
             norm_chunk = normalize_text(chunk['content'])
             
-            # Method A: Direct substring match (Strongest)
             if norm_quote in norm_chunk:
                 best_match = chunk
                 break
             
-            # Method B: Overlap Score (Fallback)
-            # Check how many 4-word snippets of the quote exist in the chunk
             quote_words = norm_quote.split()
             if len(quote_words) < 4: continue
             
@@ -173,7 +179,7 @@ async def chat(request: ChatRequest):
             
             score = matches / total_snippets if total_snippets > 0 else 0
             
-            if score > 0.5 and score > highest_score: # Threshold: 50% overlap
+            if score > 0.5 and score > highest_score:
                 highest_score = score
                 best_match = chunk
 
@@ -181,7 +187,7 @@ async def chat(request: ChatRequest):
             final_citations.append({
                 "page": best_match.get("page", 1),
                 "source": best_match.get("source", "Unknown"),
-                "content": quote  # Keep the clean AI quote for display
+                "content": quote 
             })
 
     return {

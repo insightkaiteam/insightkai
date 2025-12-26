@@ -9,7 +9,7 @@ from openai import OpenAI
 from supabase import create_client, Client
 from pydantic import BaseModel, Field
 
-# --- SCHEMA DEFINITION ---
+# --- SCHEMA DEFINITION (Unchanged) ---
 class VisualContext(BaseModel):
     image_description: str = Field(..., description="Detailed description of the image visual content.")
     data_extraction: str = Field(..., description="If this is a chart/table, transcribe the key numbers, axis labels, and trends. If a diagram, describe the flow.")
@@ -30,7 +30,7 @@ class MistralEngine:
         text = text.replace("\n", " ")
         return self.openai.embeddings.create(input=[text], model="text-embedding-3-small").data[0].embedding
 
-    # --- 3-PART STRUCTURED SUMMARY ---
+    # --- UNCHANGED: SUMMARY GENERATOR ---
     def _generate_summary(self, full_text: str) -> str:
         try:
             preview_text = full_text[:8000]
@@ -53,7 +53,7 @@ class MistralEngine:
             print(f"Summary Generation Error: {e}")
             return "[TAG]: OTHER\n[DESC]: Processed document.\n[DETAILED]: No summary available."
 
-    # --- FOLDER MANIFEST ---
+    # --- UNCHANGED: FOLDER MANIFEST ---
     def get_folder_manifest(self, folder_name: str) -> str:
         try:
             res = self.supabase.table("documents").select("title, summary").eq("folder", folder_name).execute()
@@ -72,18 +72,15 @@ class MistralEngine:
         except Exception as e:
             return f"Error fetching folder manifest: {e}"
 
-    # --- SEARCH WITH METADATA (UPDATED) ---
+    # --- UNCHANGED: SINGLE DOC SEARCH ---
     def search_single_doc(self, query: str, doc_id: str) -> List[dict]:
         """
         Returns structured chunks with page numbers for highlighting.
         """
         query_vector = self.get_embedding(query)
-        # We assume the RPC 'match_page_sections' returns page_number. 
-        # If your RPC doesn't, you need to update it in Supabase SQL editor.
         params = {"query_embedding": query_vector, "match_threshold": 0.01, "match_count": 8, "filter_doc_id": doc_id}
         try:
             res = self.supabase.rpc("match_page_sections", params).execute()
-            # Return dicts instead of just strings
             return [
                 {
                     "content": row['content'], 
@@ -96,44 +93,97 @@ class MistralEngine:
             print(f"Search Error: {e}")
             return []
 
-    def search(self, query: str, folder_name: str = None, limit: int = 5) -> List[dict]:
+    # ==========================================
+    # 🚀 NEW: FAST FOLDER SEARCH (Summaries Only)
+    # ==========================================
+    def search_folder_fast(self, query: str, folder_name: str) -> List[dict]:
+        """
+        Searches ONLY the document summaries (TAG, DESC, DETAILED). 
+        Used for quick metadata lookups like 'Where is the August bill?'
+        """
         query_vector = self.get_embedding(query)
         params = {
-            "query_text": query, 
-            "query_embedding": query_vector, 
-            "match_threshold": 0.01,  
-            "match_count": limit, 
-            "filter_folder": folder_name or "General"
+            "query_embedding": query_vector,
+            "match_threshold": 0.1, # Higher threshold for relevance
+            "match_count": 5,        # Only need top 5 matches
+            "filter_folder": folder_name
         }
         try:
-            response = self.supabase.rpc("match_documents_hybrid", params).execute()
+            # ⚠️ Calls the NEW SQL function 'match_document_summaries'
+            response = self.supabase.rpc("match_document_summaries", params).execute()
             
-            # Fetch Titles
-            doc_ids = list(set([row['document_id'] for row in response.data])) if response.data else []
-            title_map = {}
-            if doc_ids:
-                docs_res = self.supabase.table("documents").select("id, title").in_("id", doc_ids).execute()
-                for d in docs_res.data:
-                    title_map[d['id']] = d['title']
-
             results = []
             for row in response.data:
-                doc_id = row['document_id']
-                filename = title_map.get(doc_id, "Unknown File")
-                # Structure the return data
+                # We format the summary as the "Content" so the AI reads the summary
+                clean_summary = row['summary'].split("---_SEPARATOR_---")[0].replace("**Content Summary:**", "").strip()
                 results.append({
-                    "content": row['content'],
-                    "page": row.get('page_number', 1),
-                    "source": filename,
+                    "content": f"**FILE MATCH: {row['title']}**\n{clean_summary}", 
+                    "page": 1, # Metadata always points to page 1
+                    "source": row['title'],
                     "similarity": row.get('similarity', 0)
                 })
-                
             return results
         except Exception as e:
-            print(f"Search Error: {e}")
+            print(f"Fast Search Error: {e}")
             return []
 
-    # --- UNCHANGED HELPERS BELOW ---
+    # ==========================================
+    # 🚀 NEW: DEEP FOLDER SEARCH (Two-Step)
+    # ==========================================
+    def search_folder_deep(self, query: str, folder_name: str) -> List[dict]:
+        """
+        Step 1: Find top 4 relevant FILES using summary search.
+        Step 2: Find top chunks ONLY from those files.
+        """
+        try:
+            # Step 1: Identify relevant docs
+            query_vector = self.get_embedding(query)
+            
+            # Using summary search to pick the best files
+            params_summary = {
+                "query_embedding": query_vector,
+                "match_threshold": 0.1, 
+                "match_count": 4, # Pick top 4 most relevant files
+                "filter_folder": folder_name
+            }
+            summary_res = self.supabase.rpc("match_document_summaries", params_summary).execute()
+            
+            if not summary_res.data:
+                return []
+            
+            # Extract IDs of the top files
+            target_doc_ids = [row['id'] for row in summary_res.data]
+            
+            # Step 2: Search for chunks WITHIN these docs
+            # We need a new RPC or we can loop. Since it's only 4 docs, looping is actually fine and safer given RPC limits.
+            # But efficiently, let's use a filter on the existing 'match_documents_hybrid' if possible?
+            # Actually, standard vector search across folder is fine, but we will filter results in Python
+            # OR better: iterate the top 4 docs and get top 3 chunks from EACH.
+            
+            aggregated_chunks = []
+            
+            for doc_id in target_doc_ids:
+                # Re-use single doc search logic for these specific files
+                # This ensures we get high quality "Analysis" chunks
+                doc_chunks = self.search_single_doc(query, doc_id)
+                
+                # Take top 3 chunks from this file
+                for chunk in doc_chunks[:3]:
+                    # Append file title to content so AI knows context
+                    file_title = next((item['title'] for item in summary_res.data if item['id'] == doc_id), "Unknown File")
+                    chunk['content'] = f"[Source File: {file_title}]\n{chunk['content']}"
+                    chunk['source'] = file_title
+                    aggregated_chunks.append(chunk)
+            
+            # Sort all chunks by similarity (if available) or just return list
+            # Since search_single_doc sorts by relevance, we have a list of (Top chunks of Doc A) + (Top chunks of Doc B)...
+            return aggregated_chunks
+
+        except Exception as e:
+            print(f"Deep Search Error: {e}")
+            return []
+
+    # --- UPDATED: PROCESSING TO SAVE SUMMARY EMBEDDING ---
     async def process_pdf_background(self, doc_id: str, file_bytes: bytes, filename: str, folder: str):
         try:
             print(f"[{doc_id}] Starting Mistral Native OCR (Latest) for {filename}...")
@@ -196,10 +246,20 @@ class MistralEngine:
                         "content": chunk, "embedding": vector, "title": filename, "image_url": ""
                     }).execute()
 
+            # --- GENERATE AND SAVE SUMMARY ---
             content_summary = self._generate_summary(full_document_text)
             final_summary_field = f"**Content Summary:** {content_summary}\n\n---_SEPARATOR_---\n\n{manifest_log}\n✅ **Extraction Complete.**"
-            self.supabase.table("documents").update({"status": "ready", "summary": final_summary_field}).eq("id", doc_id).execute()
-            print(f"[{doc_id}] Success. Summary Generated.")
+            
+            # 🚀 NEW: Generate Embedding for the Summary
+            summary_vector = self.get_embedding(content_summary)
+            
+            self.supabase.table("documents").update({
+                "status": "ready", 
+                "summary": final_summary_field,
+                "summary_embedding": summary_vector # 🚀 Save Vector
+            }).eq("id", doc_id).execute()
+            
+            print(f"[{doc_id}] Success. Summary Generated & Embedded.")
 
         except Exception as e:
             print(f"[{doc_id}] FAILED: {e}")
