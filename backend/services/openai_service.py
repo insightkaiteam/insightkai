@@ -10,7 +10,7 @@ class OpenAIService:
         self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
     @retry(wait=wait_random_exponential(min=1, max=60), stop=stop_after_attempt(6))
-    def get_answer_with_backoff(self, messages, model="gpt-5-mini", json_mode=True):
+    def get_answer_with_backoff(self, messages, model="gpt-4o-mini", json_mode=True):
         kwargs = {"model": model, "messages": messages, "max_tokens": 1000}
         if json_mode: kwargs["response_format"] = {"type": "json_object"}
         return self.client.chat.completions.create(**kwargs)
