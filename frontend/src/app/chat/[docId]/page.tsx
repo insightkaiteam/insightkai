@@ -12,6 +12,7 @@ const BACKEND_URL = "https://insightkai.onrender.com";
 
 export default function ChatPage({ params }: { params: Promise<{ docId: string }> }) {
   const { docId } = use(params);
+  // Store citations in the message
   const [messages, setMessages] = useState<{role: string, content: string, citations?: any[]}[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -46,10 +47,11 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
 
   // --- SOTA HIGHLIGHT STRATEGY (FUZZY FRAGMENTS + FORCE RELOAD) ---
   const applyHighlight = (page: number, text: string) => {
-    // 1. Clean the text slightly 
-    const cleanText = text.replace(/\n/g, ' ').trim();
+    // 1. Clean the text slightly (remove newlines that might break URL)
+    const cleanText = text.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
     
     // 2. Fragment Selection (First 8 words)
+    // This is the "Sniper Shot" method: short enough to match, long enough to be unique.
     const words = cleanText.split(" ");
     const snippet = words.slice(0, 8).join(" ");
 
@@ -58,7 +60,7 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
     
     // 4. Update State and FORCE RELOAD the iframe
     setPdfUrl(newUrl);
-    setIframeKey(prev => prev + 1); // Increments key, React destroys old iframe and makes new one
+    setIframeKey(prev => prev + 1); 
   };
 
   const sendMessage = async (textOverride?: string) => {
@@ -84,10 +86,11 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
         citations: data.citations || [] 
       }]);
 
-      // Smart Auto-Scroll: Jump to first citation
+      // Smart Auto-Scroll: Jump to first citation using raw text
       if (data.citations && data.citations.length > 0) {
           const topCit = data.citations[0];
-          applyHighlight(topCit.page, topCit.content);
+          // Note: Backend now returns 'raw_text' specifically for highlighting
+          applyHighlight(topCit.page, topCit.raw_text || topCit.content);
       }
 
     } catch (e) { 
@@ -164,10 +167,10 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
                             <Quote size={10} /> Verified Sources
                         </p>
                         <div className="grid gap-2">
-                            {m.citations.map((cit: any, idx: number) => (
+                            {m.citations.map((cit, idx) => (
                                 <button 
                                     key={idx}
-                                    onClick={() => applyHighlight(cit.page, cit.content)}
+                                    onClick={() => applyHighlight(cit.page, cit.raw_text || cit.content)}
                                     className="text-left bg-blue-50/50 hover:bg-blue-100 border border-blue-100 p-3 rounded-xl transition-all duration-200 group group-hover:shadow-md"
                                 >
                                     <div className="flex items-center justify-between mb-1">

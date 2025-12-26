@@ -1,7 +1,8 @@
 from openai import OpenAI
 import os
+import json
 import re
-from typing import List, Optional, Dict, Any
+from typing import List, Dict, Any, Optional
 from tenacity import retry, stop_after_attempt, wait_random_exponential
 
 class OpenAIService:
@@ -13,32 +14,57 @@ class OpenAIService:
         return self.client.chat.completions.create(
             model=model,
             messages=messages,
-            temperature=0.3, # Low temp for strict ID adherence
+            response_format={"type": "json_object"}, # STRICT JSON
             max_tokens=1000 
         )
+
+    def _extract_best_sentence(self, full_text: str, query: str) -> str:
+        """
+        Simple heuristic to find the most relevant sentence in a chunk for the quote card.
+        """
+        # Clean text first
+        clean_text = full_text.replace('\n', ' ')
+        # Split into sentences (rudimentary)
+        sentences = re.split(r'(?<=[.!?])\s+', clean_text)
+        if not sentences: return clean_text[:150]
+        
+        # Find sentence with most overlapping words with query
+        query_words = set(query.lower().split())
+        best_sent = sentences[0]
+        max_overlap = 0
+        
+        for sent in sentences:
+            sent_words = set(sent.lower().split())
+            overlap = len(query_words.intersection(sent_words))
+            if overlap > max_overlap:
+                max_overlap = overlap
+                best_sent = sent
+        
+        # If the sentence is too short, take a bigger chunk
+        if len(best_sent) < 20: return clean_text[:150] + "..."
+        return best_sent.strip()
 
     def get_answer(self, context_chunks: List[dict], question: str, system_message_override: Optional[str] = None) -> Dict[str, Any]:
         
         # 1. Build Indexed Context
-        # We assign a temporary ID [0], [1] to each chunk for this specific chat turn.
         context_text = ""
         if context_chunks:
-            context_text += "--- SOURCE DOCUMENTS ---\n"
+            context_text += "--- SOURCE MATERIAL ---\n"
             for i, chunk in enumerate(context_chunks):
-                # We strip newlines for the prompt readability, but keep the original content in memory
-                clean_content = chunk['content'].replace('\n', ' ')
-                context_text += f"[ID:{i}] {clean_content}\n\n"
+                # Clean newlines for the prompt readability
+                clean = chunk['content'].replace('\n', ' ')
+                context_text += f"[ID:{i}] {clean}\n\n"
         else:
             context_text = "No documents found."
 
-        # 2. Strict Citation Prompt
+        # 2. Strict JSON Prompt
         system_prompt = (
-            "You are a Senior Financial Analyst. Answer the question using ONLY the provided Source Documents.\n"
-            "CRITICAL CITATION RULES:\n"
-            "1. Every single claim you make must be immediately followed by a citation ID like [0], [1], etc.\n"
-            "2. Do NOT write out the source name or page number. Just use the [ID].\n"
-            "3. If you combine information from multiple sources, cite all of them: [0][2].\n"
-            "4. Do not invent information. If the answer is not in the sources, say 'Data not available'."
+            "You are a Senior Analyst. Answer the question using ONLY the provided Source Material.\n"
+            "Return a JSON object with two keys:\n"
+            "1. 'answer': Your detailed response in markdown. Do not explicitly mention 'Source 1' in the text, just write naturally.\n"
+            "2. 'source_indexes': A list of integers (e.g. [0, 2]) corresponding to the [ID:x] of the chunks that support your answer.\n"
+            "   - Only cite sources that explicitly support your answer.\n"
+            "   - If no sources are relevant, return an empty list."
         )
 
         user_content = f"{system_message_override or ''}\n\n{context_text}\n\nQuestion: {question}"
@@ -50,34 +76,39 @@ class OpenAIService:
 
         try:
             response = self.get_answer_with_backoff(messages=messages)
-            raw_answer = response.choices[0].message.content
+            data = json.loads(response.choices[0].message.content)
             
-            # 3. Parse Citations from the Answer
-            # We extract all [0], [1] tags to build the evidence list
-            citation_indices = set()
-            matches = re.findall(r'\[(\d+)\]', raw_answer)
-            for m in matches:
-                if m.isdigit():
-                    idx = int(m)
-                    if 0 <= idx < len(context_chunks):
-                        citation_indices.add(idx)
+            raw_answer = data.get("answer", "No answer generated.")
+            indices = data.get("source_indexes", [])
             
-            # 4. Resolve Indices to Original Data
-            # We return the RAW DB text. This ensures that even if the text has OCR errors 
-            # (e.g. "lnvestment"), we send that exact string to the browser so highlighting works.
+            # 3. Resolve Indices to Metadata & Smart Quotes
             final_citations = []
-            for idx in sorted(citation_indices):
+            
+            # Validate indices
+            valid_indices = [i for i in indices if isinstance(i, int) and 0 <= i < len(context_chunks)]
+            # Deduplicate preserving order
+            unique_indices = []
+            seen = set()
+            for i in valid_indices:
+                if i not in seen:
+                    unique_indices.append(i)
+                    seen.add(i)
+            
+            for idx in unique_indices:
                 chunk = context_chunks[idx]
+                
+                # SMART SNIPPET: Find the best sentence for the UI card
+                full_text = chunk["content"]
+                tight_quote = self._extract_best_sentence(full_text, question)
+                
                 final_citations.append({
                     "page": chunk.get("page", 1),
                     "source": chunk.get("source", "Unknown"),
-                    "content": chunk["content"], # RAW TEXT for perfect highlighting
+                    "content": tight_quote, # The nice short quote for display
+                    "raw_text": full_text,  # The full text for the highlighter to search in
                     "id": idx
                 })
 
-            # Optional: Remove the [0] tags from the user-facing answer if you want it cleaner,
-            # or keep them so the user knows which sentence maps to which card.
-            # For now, we keep them as they act as visual anchors.
             return {
                 "answer": raw_answer,
                 "citations": final_citations
@@ -91,5 +122,4 @@ class OpenAIService:
         try:
             transcript = self.client.audio.transcriptions.create(model="whisper-1", file=audio_file)
             return transcript.text
-        except Exception as e:
-            return "Error transcribing audio."
+        except: return "Error transcribing."

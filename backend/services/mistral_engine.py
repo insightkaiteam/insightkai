@@ -70,53 +70,51 @@ class MistralEngine:
         except Exception as e:
             return f"Error fetching folder manifest: {e}"
 
-    # --- UPDATED: SEARCH WITH METADATA RESCUE ---
+    # --- UPDATED: SEARCH WITH ROBUST METADATA LOOKUP ---
     def search_single_doc(self, query: str, doc_id: str) -> List[dict]:
         """
-        Returns structured chunks. Performs a double-check to ensure Page Numbers are retrieved.
+        Retrieves chunks with ensured ID and Page metadata.
         """
         query_vector = self.get_embedding(query)
-        params = {"query_embedding": query_vector, "match_threshold": 0.01, "match_count": 8, "filter_doc_id": doc_id}
+        params = {"query_embedding": query_vector, "match_threshold": 0.01, "match_count": 10, "filter_doc_id": doc_id}
         
         try:
-            # 1. Run Vector Search
+            # 1. Vector Search
             res = self.supabase.rpc("match_page_sections", params).execute()
             
-            # 2. Extract Contents to Rescue Metadata
-            # If the RPC didn't return 'page_number' (or returned null), we fetch it manually.
-            contents_to_lookup = [row['content'] for row in res.data if row.get('content')]
-            page_map = {}
+            # 2. Rescue Metadata via Content Lookup (Robust Fallback)
+            # If RPC doesn't return 'id' or 'page_number' correctly, we fetch them explicitly.
+            chunks = []
+            if res.data:
+                contents = [r['content'] for r in res.data]
+                
+                # Fetch EXACT page number & ID from DB using content exact match
+                meta_res = self.supabase.table("document_pages")\
+                    .select("id, content, page_number, title")\
+                    .eq("document_id", doc_id)\
+                    .in_("content", contents)\
+                    .execute()
+                
+                # Map content -> metadata
+                meta_map = {row['content']: row for row in meta_res.data}
 
-            if contents_to_lookup:
-                # We fetch the exact page numbers for these text chunks
-                try:
-                    meta_res = self.supabase.table("document_pages")\
-                        .select("content, page_number")\
-                        .eq("document_id", doc_id)\
-                        .in_("content", contents_to_lookup)\
-                        .execute()
+                for row in res.data:
+                    content = row['content']
+                    meta = meta_map.get(content)
                     
-                    for m in meta_res.data:
-                        page_map[m['content']] = m['page_number']
-                except Exception as e:
-                    print(f"Metadata Rescue Failed: {e}")
-
-            # 3. Build Final Results
-            results = []
-            for row in res.data:
-                content = row.get('content')
-                if not content: continue
-                
-                # Priority: 1. Lookup Map, 2. RPC Result, 3. Default to 1
-                final_page = page_map.get(content, row.get('page_number', 1))
-                
-                results.append({
-                    "content": content,
-                    "page": final_page,
-                    "similarity": row.get('similarity', 0)
-                })
+                    # If we found metadata, use it. Otherwise fall back to row data.
+                    final_page = meta['page_number'] if meta else row.get('page_number', 1)
+                    final_id = meta['id'] if meta else row.get('id', 0)
+                    
+                    chunks.append({
+                        "id": final_id,
+                        "content": content,
+                        "page": final_page,
+                        "source": meta.get('title', "Document") if meta else "Document",
+                        "similarity": row.get('similarity', 0)
+                    })
             
-            return results
+            return chunks
 
         except Exception as e:
             print(f"Search Error: {e}")
@@ -134,47 +132,51 @@ class MistralEngine:
         try:
             response = self.supabase.rpc("match_documents_hybrid", params).execute()
             
-            # Fetch Titles
-            doc_ids = list(set([row['document_id'] for row in response.data])) if response.data else []
-            title_map = {}
-            if doc_ids:
-                docs_res = self.supabase.table("documents").select("id, title").in_("id", doc_ids).execute()
-                for d in docs_res.data:
-                    title_map[d['id']] = d['title']
-
-            # Rescue Metadata for Folder Search too
-            contents_to_lookup = [row['content'] for row in response.data if row.get('content')]
-            page_map = {}
-            if contents_to_lookup:
+            chunks = []
+            if response.data:
+                contents = [r['content'] for r in response.data]
                 try:
+                    # Batch fetch metadata for all found contents
                     meta_res = self.supabase.table("document_pages")\
-                        .select("content, page_number")\
-                        .in_("content", contents_to_lookup)\
+                        .select("id, content, page_number, title")\
+                        .in_("content", contents)\
                         .execute()
-                    for m in meta_res.data:
-                        page_map[m['content']] = m['page_number']
-                except: pass
+                    
+                    meta_map = {row['content']: row for row in meta_res.data}
 
-            results = []
-            for row in response.data:
-                doc_id = row['document_id']
-                filename = title_map.get(doc_id, "Unknown File")
-                content = row.get('content')
-                
-                final_page = page_map.get(content, row.get('page_number', 1))
+                    for row in response.data:
+                        content = row['content']
+                        meta = meta_map.get(content)
+                        
+                        final_page = meta['page_number'] if meta else row.get('page_number', 1)
+                        final_id = meta['id'] if meta else row.get('id', 0)
+                        final_source = meta['title'] if meta else "Unknown File"
 
-                results.append({
-                    "content": content,
-                    "page": final_page,
-                    "source": filename,
-                    "similarity": row.get('similarity', 0)
-                })
+                        chunks.append({
+                            "id": final_id,
+                            "content": content,
+                            "page": final_page,
+                            "source": final_source,
+                            "similarity": row.get('similarity', 0)
+                        })
+                except Exception as e:
+                    print(f"Metadata rescue failed in folder search: {e}")
+                    # Fallback to existing data
+                    for row in response.data:
+                        chunks.append({
+                            "id": row.get('id', 0),
+                            "content": row['content'],
+                            "page": row.get('page_number', 1),
+                            "source": "Unknown",
+                            "similarity": row.get('similarity', 0)
+                        })
                 
-            return results
+            return chunks
         except Exception as e:
             print(f"Search Error: {e}")
             return []
 
+    # --- ASYNC OCR PROCESSING ---
     async def process_pdf_background(self, doc_id: str, file_bytes: bytes, filename: str, folder: str):
         try:
             print(f"[{doc_id}] Starting Mistral Native OCR (Latest) for {filename}...")

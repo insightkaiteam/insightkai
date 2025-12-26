@@ -126,7 +126,7 @@ async def chat(request: ChatRequest):
         relevant_chunks = ocr_engine.search_single_doc(request.message, request.document_id)
 
     # 2. Generation & Deterministic Resolution
-    # The ID->Page mapping is now handled inside get_answer via the Anchor ID logic
+    # The ID->Page mapping is now handled inside get_answer via the JSON/Index logic
     result = ai_service.get_answer(relevant_chunks, request.message, system_message_override=system_manifest)
     
     return result
