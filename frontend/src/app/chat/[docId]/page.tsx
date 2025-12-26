@@ -22,14 +22,10 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
   const chunksRef = useRef<Blob[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Scroll to bottom on new message
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
-  // Initial PDF Load
   useEffect(() => {
     setPdfUrl(`${BACKEND_URL}/documents/${docId}/download`);
-    
-    // Fetch Status/Summary
     const fetchManifest = async () => {
       try {
         const res = await fetch(`${BACKEND_URL}/documents/${docId}/status`);
@@ -45,17 +41,22 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
     fetchManifest();
   }, [docId]);
 
-  // --- AUTO-HIGHLIGHT LOGIC ---
+  // --- IMPROVED HIGHLIGHTING LOGIC ---
   const applyHighlight = (page: number, text: string) => {
-    // Chrome Text Fragment Syntax: #:~:text=Start,End (or just a snippet)
-    // We clean the text to ensure the browser finds it
-    const cleanSnippet = text
-        .replace(/["“”]/g, "") // Remove smart quotes
-        .replace(/\s+/g, " ")   // Normalize whitespace
-        .trim()
-        .substring(0, 100);     // Take first 100 chars to avoid URL length issues
+    // Strategy: Take the first 6-8 distinct words. 
+    // This is much more reliable than trying to match a whole paragraph.
+    const words = text.replace(/["“”]/g, "").replace(/\s+/g, " ").trim().split(" ");
+    
+    let snippet = "";
+    if (words.length > 8) {
+        snippet = words.slice(0, 8).join(" "); // First 8 words
+    } else {
+        snippet = words.join(" ");
+    }
 
-    const newUrl = `${BACKEND_URL}/documents/${docId}/download#page=${page}&:~:text=${encodeURIComponent(cleanSnippet)}`;
+    // Force iframe reload by updating key (or just URL if key logic is upstream)
+    // #:~:text=snippet highlights the text in Chrome/Edge native PDF viewer
+    const newUrl = `${BACKEND_URL}/documents/${docId}/download#page=${page}&:~:text=${encodeURIComponent(snippet)}`;
     setPdfUrl(newUrl);
   };
 
@@ -82,10 +83,9 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
         citations: data.citations || [] 
       }]);
 
-      // AUTO-SCROLL TO FIRST EVIDENCE
+      // Auto-highlight first evidence
       if (data.citations && data.citations.length > 0) {
-          const firstCit = data.citations[0];
-          applyHighlight(firstCit.page, firstCit.content);
+          applyHighlight(data.citations[0].page, data.citations[0].content);
       }
 
     } catch (e) { 
@@ -95,7 +95,6 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
     }
   };
 
-  // Audio Logic
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -128,14 +127,14 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
   return (
     <div className="flex h-screen bg-[#F3F4F6] font-sans overflow-hidden">
       
-      {/* LEFT: PDF VIEWER (With Dynamic URL for Highlighting) */}
+      {/* LEFT: PDF VIEWER */}
       <div className="w-1/2 bg-gray-900 border-r border-gray-800 flex flex-col relative">
         <div className="h-16 bg-gray-900 border-b border-gray-800 flex items-center px-6 shadow-md z-10">
             <Link href="/dashboard" className="text-gray-400 hover:text-white transition flex items-center gap-2 text-sm font-bold tracking-wide">
                 <ArrowLeft size={16} /> LIBRARY
             </Link>
         </div>
-        {/* 'key={pdfUrl}' forces the iframe to reload when the highlight changes */}
+        {/* We use key={pdfUrl} to force React to re-mount the iframe when URL changes, ensuring the #fragment works */}
         <iframe key={pdfUrl} src={pdfUrl} className="flex-1 w-full border-none bg-gray-800" title="PDF Viewer" />
       </div>
 
@@ -145,7 +144,7 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
           {messages.map((m, i) => (
             <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
                 
-                {/* 1. Main Chat Bubble */}
+                {/* Chat Bubble */}
                 <div className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'} w-full`}>
                     {m.role === 'ai' && <div className="w-8 h-8 rounded-full bg-black text-white flex items-center justify-center font-serif italic font-bold mr-3 mt-1 shadow-md shrink-0">κ</div>}
                     <div className={`p-5 max-w-[90%] rounded-3xl text-sm leading-relaxed shadow-sm ${
@@ -157,14 +156,14 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
                     </div>
                 </div>
 
-                {/* 2. Evidence / Citations Block (Only for AI) */}
+                {/* Evidence Cards */}
                 {m.role === 'ai' && m.citations && m.citations.length > 0 && (
                     <div className="ml-11 mt-3 w-[85%]">
                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2 flex items-center gap-1">
                             <Quote size={10} /> Verified Evidence
                         </p>
                         <div className="grid gap-2">
-                            {m.citations.map((cit, idx) => (
+                            {m.citations.map((cit: any, idx: number) => (
                                 <button 
                                     key={idx}
                                     onClick={() => applyHighlight(cit.page, cit.content)}
@@ -195,7 +194,7 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
           <div ref={messagesEndRef} />
         </div>
         
-        {/* INPUT BAR (Unchanged) */}
+        {/* INPUT BAR */}
         <div className="absolute bottom-8 left-0 w-full px-8 flex justify-center">
           <div className={`bg-white border border-gray-200 shadow-2xl rounded-[2rem] p-2 flex gap-2 items-center transition-all duration-300 w-full max-w-3xl ${isRecording ? 'ring-4 ring-red-50 border-red-100' : 'focus-within:ring-4 focus-within:ring-blue-50 focus-within:border-blue-200'}`}>
             <button
