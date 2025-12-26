@@ -30,7 +30,111 @@ class MistralEngine:
         text = text.replace("\n", " ")
         return self.openai.embeddings.create(input=[text], model="text-embedding-3-small").data[0].embedding
 
-    # --- 3-PART STRUCTURED SUMMARY ---
+    # --- FAST FOLDER MODE: Summaries Only ---
+    def get_folder_summaries(self, folder_name: str) -> List[dict]:
+        """
+        Fetches metadata summaries [TAG], [DESC] from the 'documents' table.
+        Does NOT search vectors.
+        """
+        try:
+            res = self.supabase.table("documents").select("id, title, summary").eq("folder", folder_name).execute()
+            
+            summaries = []
+            for doc in res.data:
+                raw_summary = doc.get("summary", "")
+                if not raw_summary: continue
+                
+                # Cleanup
+                clean_summary = raw_summary.split("---_SEPARATOR_---")[0].replace("**Content Summary:**", "").strip()
+                
+                summaries.append({
+                    "id": doc["id"],
+                    "source": doc["title"],
+                    "content": clean_summary,
+                    "page": 1, 
+                    "type": "summary"
+                })
+            return summaries
+        except Exception as e:
+            print(f"Summary Fetch Error: {e}")
+            return []
+
+    # --- DEEP FOLDER MODE: Vector Search ---
+    def search(self, query: str, folder_name: str = None, limit: int = 5) -> List[dict]:
+        """
+        Searches vectors across all files in a folder. 
+        """
+        query_vector = self.get_embedding(query)
+        params = {
+            "query_text": query, 
+            "query_embedding": query_vector, 
+            "match_threshold": 0.01,  
+            "match_count": limit, 
+            "filter_folder": folder_name or "General"
+        }
+        try:
+            # Uses the NEW SQL function
+            response = self.supabase.rpc("match_documents_hybrid", params).execute()
+            
+            chunks = []
+            if response.data:
+                # Metadata Rescue to get Titles
+                doc_ids = list(set([row['document_id'] for row in response.data]))
+                title_map = {}
+                if doc_ids:
+                    try:
+                        docs_res = self.supabase.table("documents").select("id, title").in_("id", doc_ids).execute()
+                        for d in docs_res.data:
+                            title_map[d['id']] = d['title']
+                    except: pass
+
+                for row in response.data:
+                    doc_id = row['document_id']
+                    filename = title_map.get(doc_id, "Unknown File")
+                    
+                    chunks.append({
+                        "id": row.get('id', 0),
+                        "content": row['content'],
+                        "page": row.get('page_number', 1),
+                        "source": filename,
+                        "similarity": row.get('similarity', 0),
+                        "type": "chunk"
+                    })
+                
+            return chunks
+        except Exception as e:
+            print(f"Deep Search Error: {e}")
+            return []
+
+    # --- SINGLE DOC SEARCH (UNCHANGED) ---
+    def search_single_doc(self, query: str, doc_id: str) -> List[dict]:
+        query_vector = self.get_embedding(query)
+        params = {"query_embedding": query_vector, "match_threshold": 0.01, "match_count": 8, "filter_doc_id": doc_id}
+        try:
+            res = self.supabase.rpc("match_page_sections", params).execute()
+            return [{
+                "content": row['content'], 
+                "page": row.get('page_number', 1),
+                "source": "Current Document",
+                "similarity": row.get('similarity', 0)
+            } for row in res.data if row.get('content')]
+        except Exception as e:
+            print(f"Single Search Error: {e}")
+            return []
+
+    # --- OCR HELPERS (Unchanged) ---
+    def _chunk_markdown(self, text: str) -> List[str]:
+        chunks = []
+        current_chunk = ""
+        lines = text.split('\n')
+        for line in lines:
+            if line.strip().startswith("#") and len(current_chunk) > 600:
+                chunks.append(current_chunk.strip()); current_chunk = line + "\n"
+            else: current_chunk += line + "\n"
+            if len(current_chunk) > 3500: chunks.append(current_chunk.strip()); current_chunk = ""
+        if current_chunk: chunks.append(current_chunk.strip())
+        return chunks
+
     def _generate_summary(self, full_text: str) -> str:
         try:
             preview_text = full_text[:8000]
@@ -50,90 +154,8 @@ class MistralEngine:
             )
             return response.choices[0].message.content.strip()
         except Exception as e:
-            print(f"Summary Generation Error: {e}")
             return "[TAG]: OTHER\n[DESC]: Processed document.\n[DETAILED]: No summary available."
 
-    # --- FOLDER MANIFEST ---
-    def get_folder_manifest(self, folder_name: str) -> str:
-        try:
-            res = self.supabase.table("documents").select("title, summary").eq("folder", folder_name).execute()
-            if not res.data:
-                return "This folder is empty."
-
-            manifest = f"### 📂 FOLDER CONTENT MANIFEST ({len(res.data)} files):\n"
-            
-            for doc in res.data:
-                raw_summary = doc.get('summary') or ""
-                clean_summary = raw_summary.split("---_SEPARATOR_---")[0].replace("**Content Summary:**", "").strip()
-                if not clean_summary: clean_summary = "[TAG]: FILE\n[DESC]: Unknown content."
-                manifest += f"📄 **FILENAME: {doc['title']}**\n{clean_summary}\n\n---\n"
-            
-            return manifest
-        except Exception as e:
-            return f"Error fetching folder manifest: {e}"
-
-    # --- SEARCH WITH METADATA (UPDATED) ---
-    def search_single_doc(self, query: str, doc_id: str) -> List[dict]:
-        """
-        Returns structured chunks with page numbers for highlighting.
-        """
-        query_vector = self.get_embedding(query)
-        # We assume the RPC 'match_page_sections' returns page_number. 
-        # If your RPC doesn't, you need to update it in Supabase SQL editor.
-        params = {"query_embedding": query_vector, "match_threshold": 0.01, "match_count": 8, "filter_doc_id": doc_id}
-        try:
-            res = self.supabase.rpc("match_page_sections", params).execute()
-            # Return dicts instead of just strings
-            return [
-                {
-                    "content": row['content'], 
-                    "page": row.get('page_number', 1),
-                    "similarity": row.get('similarity', 0)
-                } 
-                for row in res.data if row.get('content')
-            ]
-        except Exception as e:
-            print(f"Search Error: {e}")
-            return []
-
-    def search(self, query: str, folder_name: str = None, limit: int = 5) -> List[dict]:
-        query_vector = self.get_embedding(query)
-        params = {
-            "query_text": query, 
-            "query_embedding": query_vector, 
-            "match_threshold": 0.01,  
-            "match_count": limit, 
-            "filter_folder": folder_name or "General"
-        }
-        try:
-            response = self.supabase.rpc("match_documents_hybrid", params).execute()
-            
-            # Fetch Titles
-            doc_ids = list(set([row['document_id'] for row in response.data])) if response.data else []
-            title_map = {}
-            if doc_ids:
-                docs_res = self.supabase.table("documents").select("id, title").in_("id", doc_ids).execute()
-                for d in docs_res.data:
-                    title_map[d['id']] = d['title']
-
-            results = []
-            for row in response.data:
-                doc_id = row['document_id']
-                filename = title_map.get(doc_id, "Unknown File")
-                # Structure the return data
-                results.append({
-                    "content": row['content'],
-                    "page": row.get('page_number', 1),
-                    "source": filename,
-                    "similarity": row.get('similarity', 0)
-                })
-                
-            return results
-        except Exception as e:
-            print(f"Search Error: {e}")
-            return []
-
-    # --- UNCHANGED HELPERS BELOW ---
     async def process_pdf_background(self, doc_id: str, file_bytes: bytes, filename: str, folder: str):
         try:
             print(f"[{doc_id}] Starting Mistral Native OCR (Latest) for {filename}...")
@@ -154,38 +176,18 @@ class MistralEngine:
                 page_num = i + 1
                 markdown = page.markdown
                 visual_section = ""
-                image_count_on_page = 0
-                
                 if page.images:
                     for j, img in enumerate(page.images):
-                        image_count_on_page += 1
-                        figure_id = f"Figure {page_num}-{image_count_on_page}"
-                        annotation_data = None
                         raw_ann = getattr(img, 'image_annotation', None)
                         if raw_ann:
                             if isinstance(raw_ann, str):
-                                try: annotation_data = json.loads(raw_ann)
-                                except: annotation_data = {"image_description": raw_ann}
-                            else: annotation_data = raw_ann
-                        
-                        if annotation_data:
-                            if isinstance(annotation_data, dict):
-                                desc = annotation_data.get('image_description', 'N/A')
-                                data_pts = annotation_data.get('data_extraction', 'N/A')
-                                analysis = annotation_data.get('comparative_analysis', 'N/A')
-                            else:
-                                desc = getattr(annotation_data, 'image_description', 'N/A')
-                                data_pts = getattr(annotation_data, 'data_extraction', 'N/A')
-                                analysis = getattr(annotation_data, 'comparative_analysis', 'N/A')
+                                try: raw_ann = json.loads(raw_ann)
+                                except: pass
+                            desc = getattr(raw_ann, 'image_description', 'N/A') if not isinstance(raw_ann, dict) else raw_ann.get('image_description', 'N/A')
+                            visual_section += (f"\n> **[Figure Analysis]** {desc}\n")
 
-                            visual_section += (f"\n> **[{figure_id} Analysis]**\n> - **Visual:** {desc}\n> - **Data:** {data_pts}\n> - **Insight:** {analysis}\n")
-                            manifest_log += f"- **Page {page_num}**: Found {figure_id}. Data: *\"{str(data_pts)[:50]}...\"*\n"
-
-                enriched_content = f"**[Page {page_num}]**\n{markdown}\n"
-                if visual_section: enriched_content += "\n### 📊 Visual Data Extracted:\n" + visual_section
-
-                if len(full_document_text) < 15000:
-                    full_document_text += enriched_content + "\n"
+                enriched_content = f"**[Page {page_num}]**\n{markdown}\n{visual_section}"
+                if len(full_document_text) < 15000: full_document_text += enriched_content + "\n"
 
                 chunks = self._chunk_markdown(enriched_content)
                 for chunk in chunks:
@@ -204,18 +206,6 @@ class MistralEngine:
         except Exception as e:
             print(f"[{doc_id}] FAILED: {e}")
             self.supabase.table("documents").update({"status": "failed"}).eq("id", doc_id).execute()
-
-    def _chunk_markdown(self, text: str) -> List[str]:
-        chunks = []
-        current_chunk = ""
-        lines = text.split('\n')
-        for line in lines:
-            if line.strip().startswith("#") and len(current_chunk) > 600:
-                chunks.append(current_chunk.strip()); current_chunk = line + "\n"
-            else: current_chunk += line + "\n"
-            if len(current_chunk) > 3500: chunks.append(current_chunk.strip()); current_chunk = ""
-        if current_chunk: chunks.append(current_chunk.strip())
-        return chunks
 
     def get_documents(self):
         try:
