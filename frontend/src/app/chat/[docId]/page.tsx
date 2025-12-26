@@ -41,21 +41,19 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
     fetchManifest();
   }, [docId]);
 
-  // --- IMPROVED HIGHLIGHTING LOGIC ---
+  // --- SOTA HIGHLIGHT STRATEGY (FUZZY FRAGMENTS) ---
   const applyHighlight = (page: number, text: string) => {
-    // Strategy: Take the first 6-8 distinct words. 
-    // This is much more reliable than trying to match a whole paragraph.
-    const words = text.replace(/["“”]/g, "").replace(/\s+/g, " ").trim().split(" ");
+    // 1. Clean the text slightly (remove newlines that might break URL)
+    // We KEEP citations and special chars because we want to match the RAW text layer.
+    const cleanText = text.replace(/\n/g, ' ').trim();
     
-    let snippet = "";
-    if (words.length > 8) {
-        snippet = words.slice(0, 8).join(" "); // First 8 words
-    } else {
-        snippet = words.join(" ");
-    }
+    // 2. Fragment Selection
+    // Instead of sending 500 words (which fails if 1 character is wrong),
+    // we send the first 6-8 distinct words. This is a "Sniper Shot" approach.
+    const words = cleanText.split(" ");
+    const snippet = words.slice(0, 8).join(" ");
 
-    // Force iframe reload by updating key (or just URL if key logic is upstream)
-    // #:~:text=snippet highlights the text in Chrome/Edge native PDF viewer
+    // 3. Construct URL
     const newUrl = `${BACKEND_URL}/documents/${docId}/download#page=${page}&:~:text=${encodeURIComponent(snippet)}`;
     setPdfUrl(newUrl);
   };
@@ -83,9 +81,11 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
         citations: data.citations || [] 
       }]);
 
-      // Auto-highlight first evidence
+      // Smart Auto-Scroll:
+      // If we have citations, jump to the first one immediately.
       if (data.citations && data.citations.length > 0) {
-          applyHighlight(data.citations[0].page, data.citations[0].content);
+          const topCit = data.citations[0];
+          applyHighlight(topCit.page, topCit.content);
       }
 
     } catch (e) { 
@@ -134,7 +134,7 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
                 <ArrowLeft size={16} /> LIBRARY
             </Link>
         </div>
-        {/* We use key={pdfUrl} to force React to re-mount the iframe when URL changes, ensuring the #fragment works */}
+        {/* Key prop ensures re-render on URL change to force navigation */}
         <iframe key={pdfUrl} src={pdfUrl} className="flex-1 w-full border-none bg-gray-800" title="PDF Viewer" />
       </div>
 
@@ -144,7 +144,6 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
           {messages.map((m, i) => (
             <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
                 
-                {/* Chat Bubble */}
                 <div className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'} w-full`}>
                     {m.role === 'ai' && <div className="w-8 h-8 rounded-full bg-black text-white flex items-center justify-center font-serif italic font-bold mr-3 mt-1 shadow-md shrink-0">κ</div>}
                     <div className={`p-5 max-w-[90%] rounded-3xl text-sm leading-relaxed shadow-sm ${
@@ -156,11 +155,11 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
                     </div>
                 </div>
 
-                {/* Evidence Cards */}
+                {/* CITATIONS */}
                 {m.role === 'ai' && m.citations && m.citations.length > 0 && (
                     <div className="ml-11 mt-3 w-[85%]">
                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2 flex items-center gap-1">
-                            <Quote size={10} /> Verified Evidence
+                            <Quote size={10} /> Verified Sources
                         </p>
                         <div className="grid gap-2">
                             {m.citations.map((cit: any, idx: number) => (
@@ -169,9 +168,13 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
                                     onClick={() => applyHighlight(cit.page, cit.content)}
                                     className="text-left bg-blue-50/50 hover:bg-blue-100 border border-blue-100 p-3 rounded-xl transition-all duration-200 group group-hover:shadow-md"
                                 >
-                                    <div className="flex items-center gap-2 mb-1">
+                                    <div className="flex items-center justify-between mb-1">
                                         <span className="bg-blue-100 text-blue-700 text-[10px] font-bold px-1.5 py-0.5 rounded flex items-center gap-1">
                                             <MapPin size={8} /> Page {cit.page}
+                                        </span>
+                                        {/* Helper for OCR Confidence */}
+                                        <span className="text-[9px] text-gray-400 opacity-0 group-hover:opacity-100 transition">
+                                            Click to locate
                                         </span>
                                     </div>
                                     <p className="text-xs text-gray-700 font-medium line-clamp-3 italic font-serif border-l-2 border-blue-200 pl-2">
@@ -188,13 +191,13 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
           {isLoading && (
              <div className="flex justify-start items-center gap-2 ml-11">
                 <Loader2 size={16} className="animate-spin text-gray-400" /> 
-                <span className="text-xs text-gray-400 font-medium animate-pulse">Analyzing document structure...</span>
+                <span className="text-xs text-gray-400 font-medium animate-pulse">Analyzing document...</span>
             </div>
           )}
           <div ref={messagesEndRef} />
         </div>
         
-        {/* INPUT BAR */}
+        {/* INPUT BAR (Keep existing) */}
         <div className="absolute bottom-8 left-0 w-full px-8 flex justify-center">
           <div className={`bg-white border border-gray-200 shadow-2xl rounded-[2rem] p-2 flex gap-2 items-center transition-all duration-300 w-full max-w-3xl ${isRecording ? 'ring-4 ring-red-50 border-red-100' : 'focus-within:ring-4 focus-within:ring-blue-50 focus-within:border-blue-200'}`}>
             <button
