@@ -46,7 +46,7 @@ class OpenAIService:
         # ====================================================
         # PATH 1: SIMPLE / SINGLE DOC (STRICTLY PRESERVED)
         # ====================================================
-        if mode == "simple":
+        if mode == "single_doc":
             # 1. Build Context (Original Format)
             context_text = ""
             if context_chunks:
