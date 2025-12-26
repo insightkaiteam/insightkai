@@ -14,21 +14,18 @@ class OpenAIService:
         return self.client.chat.completions.create(
             model=model,
             messages=messages,
-            response_format={"type": "json_object"}, # STRICT JSON
+            response_format={"type": "json_object"}, 
             max_tokens=1000 
         )
 
     def _extract_best_sentence(self, full_text: str, query: str) -> str:
         """
-        Simple heuristic to find the most relevant sentence in a chunk for the quote card.
+        Extracts the most relevant sentence for the quote card.
         """
-        # Clean text first
         clean_text = full_text.replace('\n', ' ')
-        # Split into sentences (rudimentary)
         sentences = re.split(r'(?<=[.!?])\s+', clean_text)
         if not sentences: return clean_text[:150]
         
-        # Find sentence with most overlapping words with query
         query_words = set(query.lower().split())
         best_sent = sentences[0]
         max_overlap = 0
@@ -40,28 +37,24 @@ class OpenAIService:
                 max_overlap = overlap
                 best_sent = sent
         
-        # If the sentence is too short, take a bigger chunk
         if len(best_sent) < 20: return clean_text[:150] + "..."
         return best_sent.strip()
 
     def get_answer(self, context_chunks: List[dict], question: str, system_message_override: Optional[str] = None) -> Dict[str, Any]:
         
-        # 1. Build Indexed Context
         context_text = ""
         if context_chunks:
             context_text += "--- SOURCE MATERIAL ---\n"
             for i, chunk in enumerate(context_chunks):
-                # Clean newlines for the prompt readability
                 clean = chunk['content'].replace('\n', ' ')
                 context_text += f"[ID:{i}] {clean}\n\n"
         else:
             context_text = "No documents found."
 
-        # 2. Strict JSON Prompt
         system_prompt = (
             "You are a Senior Analyst. Answer the question using ONLY the provided Source Material.\n"
             "Return a JSON object with two keys:\n"
-            "1. 'answer': Your detailed response in markdown. Do not explicitly mention 'Source 1' in the text, just write naturally.\n"
+            "1. 'answer': Your detailed response in markdown.\n"
             "2. 'source_indexes': A list of integers (e.g. [0, 2]) corresponding to the [ID:x] of the chunks that support your answer.\n"
             "   - Only cite sources that explicitly support your answer.\n"
             "   - If no sources are relevant, return an empty list."
@@ -76,36 +69,35 @@ class OpenAIService:
 
         try:
             response = self.get_answer_with_backoff(messages=messages)
-            data = json.loads(response.choices[0].message.content)
+            content = response.choices[0].message.content
+            data = json.loads(content)
             
             raw_answer = data.get("answer", "No answer generated.")
             indices = data.get("source_indexes", [])
             
-            # 3. Resolve Indices to Metadata & Smart Quotes
+            # --- FIX: ROBUST INDEX PARSING ---
+            # Handle cases where AI returns strings "1" instead of int 1
+            valid_indices = []
+            for i in indices:
+                try:
+                    idx = int(i)
+                    if 0 <= idx < len(context_chunks):
+                        valid_indices.append(idx)
+                except: continue
+            
+            unique_indices = sorted(list(set(valid_indices)))
+            
             final_citations = []
-            
-            # Validate indices
-            valid_indices = [i for i in indices if isinstance(i, int) and 0 <= i < len(context_chunks)]
-            # Deduplicate preserving order
-            unique_indices = []
-            seen = set()
-            for i in valid_indices:
-                if i not in seen:
-                    unique_indices.append(i)
-                    seen.add(i)
-            
             for idx in unique_indices:
                 chunk = context_chunks[idx]
-                
-                # SMART SNIPPET: Find the best sentence for the UI card
                 full_text = chunk["content"]
                 tight_quote = self._extract_best_sentence(full_text, question)
                 
                 final_citations.append({
                     "page": chunk.get("page", 1),
                     "source": chunk.get("source", "Unknown"),
-                    "content": tight_quote, # The nice short quote for display
-                    "raw_text": full_text,  # The full text for the highlighter to search in
+                    "content": tight_quote,     # The smart short quote
+                    "raw_text": full_text,      # The full text for robust highlighting
                     "id": idx
                 })
 

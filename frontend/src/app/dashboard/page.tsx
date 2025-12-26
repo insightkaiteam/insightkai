@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { 
   Folder, FileText, Trash2, Plus, ArrowLeft, MessageSquare, 
   X, Send, Loader2, FileClock, BrainCircuit, UploadCloud, 
-  LayoutGrid, LogOut, Quote, FileSearch 
+  LayoutGrid, LogOut, Quote, FileSearch, MapPin 
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
@@ -12,7 +12,6 @@ import ReactMarkdown from 'react-markdown';
 const BACKEND_URL = "https://insightkai.onrender.com";
 const SITE_PASSWORD = "kai2025"; 
 
-// Helper interface for documents
 interface Doc {
   id: string;
   title: string;
@@ -31,7 +30,7 @@ export default function Dashboard() {
   const [showNewFolderInput, setShowNewFolderInput] = useState(false);
   const [showChat, setShowChat] = useState(false);
   
-  // UPDATED: Chat messages now hold citations
+  // UPDATED STATE for citations
   const [chatMessages, setChatMessages] = useState<{role: string, content: string, citations?: any[]}[]>([]);
   
   const [chatInput, setChatInput] = useState("");
@@ -144,14 +143,11 @@ export default function Dashboard() {
     } catch(e) { alert("Delete failed"); }
   };
 
-  // --- UPDATED: SEND FOLDER MESSAGE ---
+  // --- UPDATED: SEND MESSAGE WITH CITATIONS ---
   const sendFolderMessage = async () => {
     if (!chatInput.trim()) return;
-    
-    // Add user message
     const userMsg = { role: 'user', content: chatInput };
     setChatMessages(prev => [...prev, userMsg]);
-    
     const msgToSend = chatInput;
     setChatInput("");
     setIsChatLoading(true);
@@ -164,7 +160,7 @@ export default function Dashboard() {
       });
       const data = await res.json();
       
-      // Store answer AND citations
+      // Store citations
       setChatMessages(prev => [...prev, { 
           role: 'ai', 
           content: data.answer,
@@ -175,7 +171,6 @@ export default function Dashboard() {
     } finally { setIsChatLoading(false); }
   };
 
-  // Helper to find document ID from title (for linking citations)
   const findDocIdByTitle = (title: string) => {
     const found = docs.find(d => d.title === title);
     return found ? found.id : null;
@@ -194,7 +189,7 @@ export default function Dashboard() {
   return (
     <div className="flex h-screen bg-[#F3F4F6] overflow-hidden font-sans text-gray-900">
       
-      {/* 1. SIDEBAR NAVIGATION */}
+      {/* 1. SIDEBAR */}
       <aside className="w-20 bg-white border-r border-gray-200 flex flex-col items-center py-8 gap-8 z-20">
         <Link href="/" className="w-10 h-10 bg-black rounded-xl flex items-center justify-center text-white font-serif italic font-bold text-xl shadow-lg">κ</Link>
         <div className="flex flex-col gap-4">
@@ -207,11 +202,10 @@ export default function Dashboard() {
         </div>
       </aside>
 
-      {/* 2. MAIN CANVAS */}
+      {/* 2. MAIN CONTENT */}
       <main className={`flex-1 p-8 overflow-y-auto transition-all duration-500 ${showChat ? 'mr-[400px]' : ''}`}>
         <div className="max-w-7xl mx-auto">
-          
-          {/* TOP BAR */}
+          {/* Header */}
           <header className="flex justify-between items-center mb-10">
               <div className="flex items-center gap-4">
                   {currentFolder && (
@@ -256,15 +250,13 @@ export default function Dashboard() {
               </div>
           )}
 
-          {/* FOLDER CARDS */}
+          {/* Folder/File List (Unchanged Logic, just simplified JSX for brevity here) */}
           {!currentFolder && (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                   {folders.map(folder => (
                       <div key={folder} onClick={() => setCurrentFolder(folder)} 
                            className="group bg-white p-6 rounded-[2rem] border border-gray-200 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all cursor-pointer relative overflow-hidden">
-                          
                           <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-purple-500 opacity-0 group-hover:opacity-100 transition"></div>
-                          
                           <div className="flex justify-between items-start mb-4">
                             <div className="w-12 h-12 bg-gray-50 rounded-2xl flex items-center justify-center text-gray-700 group-hover:bg-blue-50 group-hover:text-blue-600 transition">
                                 <Folder size={24} fill="currentColor" className="text-gray-300 group-hover:text-blue-200" />
@@ -273,7 +265,6 @@ export default function Dashboard() {
                                 <button onClick={(e) => handleDeleteFolder(folder, e)} className="text-gray-300 hover:text-red-500 transition"><Trash2 size={16}/></button>
                             )}
                           </div>
-                          
                           <h3 className="font-bold text-lg text-gray-900 mb-1">{folder}</h3>
                           <p className="text-xs text-gray-400 font-medium">{docs.filter(d => d.folder === folder).length} items</p>
                       </div>
@@ -281,7 +272,6 @@ export default function Dashboard() {
               </div>
           )}
 
-          {/* DOCUMENT LIST */}
           {currentFolder && (
               <div className="grid grid-cols-1 gap-4">
                   {docs.filter(doc => doc.folder === currentFolder).map((doc) => {
@@ -289,7 +279,6 @@ export default function Dashboard() {
                       return (
                         <div key={doc.id} className="group bg-white p-5 rounded-3xl border border-gray-200 hover:border-blue-300 hover:shadow-lg transition-all flex justify-between items-start relative overflow-hidden">
                             {doc.status === 'processing' && <div className="absolute top-0 left-0 w-full h-1 bg-blue-100"><div className="h-full bg-blue-500 animate-progress origin-left"></div></div>}
-                            
                             <div className="flex gap-5">
                                 <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${doc.status === 'processing' ? 'bg-amber-50 text-amber-600' : 'bg-gray-50 text-gray-600'}`}>
                                     {doc.status === 'processing' ? <Loader2 className="animate-spin" size={20} /> : <FileText size={20} />}
@@ -305,7 +294,6 @@ export default function Dashboard() {
                                     </div>
                                 </div>
                             </div>
-
                             <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                 {doc.status !== 'processing' && (
                                     <Link href={`/chat/${doc.id}`}>
@@ -317,7 +305,6 @@ export default function Dashboard() {
                         </div>
                       );
                   })}
-                  
                   {docs.filter(doc => doc.folder === currentFolder).length === 0 && (
                       <div className="flex flex-col items-center justify-center py-20 border-2 border-dashed border-gray-200 rounded-3xl text-gray-400">
                           <UploadCloud size={40} className="mb-4 text-gray-300"/>
@@ -352,7 +339,7 @@ export default function Dashboard() {
                         <div className={`prose prose-sm ${m.role === 'user' ? 'prose-invert' : ''}`}><ReactMarkdown>{m.content}</ReactMarkdown></div>
                     </div>
 
-                    {/* --- UPDATED: RENDER CITATION CARDS --- */}
+                    {/* --- UPDATED: RENDER CITATIONS FOR FOLDER CHAT --- */}
                     {m.role === 'ai' && m.citations && m.citations.length > 0 && (
                         <div className="mt-3 w-[90%] space-y-2">
                             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1">
@@ -375,25 +362,24 @@ export default function Dashboard() {
                                     </div>
                                 );
 
+                                // Link to the specific document chat
                                 if (docId) {
                                     return (
                                         <Link 
                                             key={idx} 
-                                            href={`/chat/${docId}#page=${cit.page}&:~:text=${encodeURIComponent(cit.content.substring(0,50))}`}
+                                            href={`/chat/${docId}#page=${cit.page}&:~:text=${encodeURIComponent((cit.content || "").substring(0,50))}`}
                                             className="block"
                                         >
                                             {content}
                                         </Link>
                                     );
                                 }
-
                                 return <div key={idx}>{content}</div>;
                             })}
                         </div>
                     )}
                 </div>
             ))}
-            
             {isChatLoading && <div className="flex items-center gap-2 text-xs text-gray-400 px-4"><Loader2 size={12} className="animate-spin"/> AI is thinking...</div>}
         </div>
 
