@@ -7,29 +7,29 @@ import 'katex/dist/katex.min.css';
 import { Mic, Send, ArrowLeft, StopCircle, Loader2, Quote, MapPin } from 'lucide-react';
 import Link from 'next/link';
 
-// ⚠️ REPLACE THIS WITH YOUR RENDER URL
+// ⚠️ REPLACE WITH YOUR RENDER URL
 const BACKEND_URL = "https://insightkai.onrender.com"; 
 
 export default function ChatPage({ params }: { params: Promise<{ docId: string }> }) {
   const { docId } = use(params);
-  // UPDATED: Message type now includes citations
   const [messages, setMessages] = useState<{role: string, content: string, citations?: any[]}[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
-  // NEW: State to control the PDF Viewer URL for highlighting
   const [pdfUrl, setPdfUrl] = useState<string>("");
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Scroll to bottom on new message
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
-  // Initial Load
+  // Initial PDF Load
   useEffect(() => {
-    setPdfUrl(`${BACKEND_URL}/documents/${docId}/download`); // Set base URL
+    setPdfUrl(`${BACKEND_URL}/documents/${docId}/download`);
     
+    // Fetch Status/Summary
     const fetchManifest = async () => {
       try {
         const res = await fetch(`${BACKEND_URL}/documents/${docId}/status`);
@@ -44,6 +44,20 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
     };
     fetchManifest();
   }, [docId]);
+
+  // --- AUTO-HIGHLIGHT LOGIC ---
+  const applyHighlight = (page: number, text: string) => {
+    // Chrome Text Fragment Syntax: #:~:text=Start,End (or just a snippet)
+    // We clean the text to ensure the browser finds it
+    const cleanSnippet = text
+        .replace(/["“”]/g, "") // Remove smart quotes
+        .replace(/\s+/g, " ")   // Normalize whitespace
+        .trim()
+        .substring(0, 100);     // Take first 100 chars to avoid URL length issues
+
+    const newUrl = `${BACKEND_URL}/documents/${docId}/download#page=${page}&:~:text=${encodeURIComponent(cleanSnippet)}`;
+    setPdfUrl(newUrl);
+  };
 
   const sendMessage = async (textOverride?: string) => {
     const messageToSend = textOverride || input;
@@ -62,12 +76,17 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
       });
       const data = await res.json();
       
-      // UPDATED: Store citations in the message object
       setMessages(prev => [...prev, { 
         role: 'ai', 
         content: data.answer, 
         citations: data.citations || [] 
       }]);
+
+      // AUTO-SCROLL TO FIRST EVIDENCE
+      if (data.citations && data.citations.length > 0) {
+          const firstCit = data.citations[0];
+          applyHighlight(firstCit.page, firstCit.content);
+      }
 
     } catch (e) { 
         setMessages(prev => [...prev, { role: 'ai', content: "Error connecting to analysis engine." }]); 
@@ -76,18 +95,7 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
     }
   };
 
-  // --- HIGHLIGHTING LOGIC ---
-  const handleCitationClick = (page: number, text: string) => {
-    // 1. Clean the text for the URL fragment (remove markdown, newlines)
-    const cleanText = text.replace(/[*_#]/g, '').substring(0, 100).trim(); 
-    // 2. Construct URL with Page anchor and Text Fragment
-    // Syntax: #page=5&text=start_of_sentence,end_of_sentence
-    // We use a simpler version: #:~:text=snippet
-    const newUrl = `${BACKEND_URL}/documents/${docId}/download#page=${page}&:~:text=${encodeURIComponent(cleanText)}`;
-    setPdfUrl(newUrl);
-  };
-
-  // Audio Logic (Unchanged)
+  // Audio Logic
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -120,14 +128,14 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
   return (
     <div className="flex h-screen bg-[#F3F4F6] font-sans overflow-hidden">
       
-      {/* LEFT: PDF VIEWER (With Dynamic URL) */}
+      {/* LEFT: PDF VIEWER (With Dynamic URL for Highlighting) */}
       <div className="w-1/2 bg-gray-900 border-r border-gray-800 flex flex-col relative">
         <div className="h-16 bg-gray-900 border-b border-gray-800 flex items-center px-6 shadow-md z-10">
             <Link href="/dashboard" className="text-gray-400 hover:text-white transition flex items-center gap-2 text-sm font-bold tracking-wide">
                 <ArrowLeft size={16} /> LIBRARY
             </Link>
         </div>
-        {/* Key prop forces reload when URL changes */}
+        {/* 'key={pdfUrl}' forces the iframe to reload when the highlight changes */}
         <iframe key={pdfUrl} src={pdfUrl} className="flex-1 w-full border-none bg-gray-800" title="PDF Viewer" />
       </div>
 
@@ -156,18 +164,18 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
                             <Quote size={10} /> Verified Evidence
                         </p>
                         <div className="grid gap-2">
-                            {m.citations.slice(0, 3).map((cit, idx) => (
+                            {m.citations.map((cit, idx) => (
                                 <button 
                                     key={idx}
-                                    onClick={() => handleCitationClick(cit.page, cit.content)}
-                                    className="text-left bg-blue-50/50 hover:bg-blue-50 border border-blue-100 p-3 rounded-xl transition-all duration-200 group group-hover:shadow-md"
+                                    onClick={() => applyHighlight(cit.page, cit.content)}
+                                    className="text-left bg-blue-50/50 hover:bg-blue-100 border border-blue-100 p-3 rounded-xl transition-all duration-200 group group-hover:shadow-md"
                                 >
                                     <div className="flex items-center gap-2 mb-1">
                                         <span className="bg-blue-100 text-blue-700 text-[10px] font-bold px-1.5 py-0.5 rounded flex items-center gap-1">
                                             <MapPin size={8} /> Page {cit.page}
                                         </span>
                                     </div>
-                                    <p className="text-xs text-gray-600 font-medium line-clamp-2 italic font-serif">
+                                    <p className="text-xs text-gray-700 font-medium line-clamp-3 italic font-serif border-l-2 border-blue-200 pl-2">
                                         "{cit.content}"
                                     </p>
                                 </button>
@@ -187,7 +195,7 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
           <div ref={messagesEndRef} />
         </div>
         
-        {/* INPUT BAR */}
+        {/* INPUT BAR (Unchanged) */}
         <div className="absolute bottom-8 left-0 w-full px-8 flex justify-center">
           <div className={`bg-white border border-gray-200 shadow-2xl rounded-[2rem] p-2 flex gap-2 items-center transition-all duration-300 w-full max-w-3xl ${isRecording ? 'ring-4 ring-red-50 border-red-100' : 'focus-within:ring-4 focus-within:ring-blue-50 focus-within:border-blue-200'}`}>
             <button

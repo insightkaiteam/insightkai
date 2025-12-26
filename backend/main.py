@@ -116,26 +116,53 @@ async def chat(request: ChatRequest):
     relevant_chunks = []
     system_manifest = None
 
-    # CASE A: Chat with Folder
+    # 1. Retrieval (Get raw chunks)
     if request.folder_name:
         system_manifest = ocr_engine.get_folder_manifest(request.folder_name)
-        limit = 5 
-        if request.mode == "deep": limit = 25 
-        
-        # Results are now Dicts: {'content': '...', 'page': 1, 'source': '...'}
+        limit = 15 if request.mode == "deep" else 8
         relevant_chunks = ocr_engine.search(request.message, folder_name=request.folder_name, limit=limit)
-
-    # CASE B: Chat with Single Document
     elif request.document_id:
         relevant_chunks = ocr_engine.search_single_doc(request.message, request.document_id)
 
-    # Generate Answer using the Analyst Persona
-    answer = ai_service.get_answer(relevant_chunks, request.message, system_message_override=system_manifest)
+    # 2. Generation (Get Answer + Exact Quotes)
+    ai_response = ai_service.get_answer(relevant_chunks, request.message, system_message_override=system_manifest)
     
-    # Return structured data. Frontend can use 'relevant_chunks' to highlight text.
+    answer_text = ai_response.get("answer", "")
+    used_quotes = ai_response.get("quotes", [])
+
+    # 3. Citation Matching (The "Fix Page 1" Logic)
+    # We look for the used quotes inside our original chunks to find their Page Number.
+    final_citations = []
+    
+    for quote in used_quotes:
+        best_match = None
+        highest_overlap = 0
+        
+        # Simple fuzzy match: Find which chunk contains this quote
+        for chunk in relevant_chunks:
+            if quote in chunk['content']:
+                best_match = chunk
+                break
+            
+            # Fallback: If exact string match fails (due to AI minor formatting), check overlap
+            # (Simplified logic: check if 50% of quote words exist in chunk)
+            quote_words = set(quote.split())
+            chunk_words = set(chunk['content'].split())
+            overlap = len(quote_words.intersection(chunk_words))
+            if overlap > highest_overlap:
+                highest_overlap = overlap
+                best_match = chunk
+
+        if best_match:
+            final_citations.append({
+                "page": best_match.get("page", 1),
+                "source": best_match.get("source", "Unknown"),
+                "content": quote  # Use the concise quote, not the whole chunk
+            })
+
     return {
-        "answer": answer,
-        "citations": relevant_chunks  # Frontend should render these as "Proof"
+        "answer": answer_text,
+        "citations": final_citations
     }
 
 @app.get("/documents/{doc_id}/download")
