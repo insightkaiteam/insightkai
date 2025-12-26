@@ -9,7 +9,7 @@ from openai import OpenAI
 from supabase import create_client, Client
 from pydantic import BaseModel, Field
 
-# --- SCHEMA DEFINITION ---
+# --- SCHEMA DEFINITION (Unchanged) ---
 class VisualContext(BaseModel):
     image_description: str = Field(..., description="Detailed description of the image visual content.")
     data_extraction: str = Field(..., description="If this is a chart/table, transcribe the key numbers, axis labels, and trends. If a diagram, describe the flow.")
@@ -30,12 +30,8 @@ class MistralEngine:
         text = text.replace("\n", " ")
         return self.openai.embeddings.create(input=[text], model="text-embedding-3-small").data[0].embedding
 
-    # --- NEW: Helper for Deep Chat Selection Step ---
+    # --- NEW: Get File Summaries (Used for Fast Chat & Deep Chat Selection) ---
     def get_folder_files(self, folder_name: str) -> List[dict]:
-        """
-        Returns a raw list of files in the folder with their summaries.
-        Used by the Deep Chat to select which files to read.
-        """
         try:
             res = self.supabase.table("documents")\
                 .select("id, title, summary")\
@@ -48,6 +44,7 @@ class MistralEngine:
                 if not raw: continue
                 # Clean summary
                 clean = raw.split("---_SEPARATOR_---")[0].replace("**Content Summary:**", "").strip()
+                
                 files.append({
                     "id": doc["id"],
                     "title": doc["title"],
@@ -58,7 +55,7 @@ class MistralEngine:
             print(f"Error getting folder files: {e}")
             return []
 
-    # --- EXISTING SEARCH FUNCTIONS (UNCHANGED) ---
+    # --- UNCHANGED: SINGLE DOC SEARCH (Preserved) ---
     def search_single_doc(self, query: str, doc_id: str) -> List[dict]:
         query_vector = self.get_embedding(query)
         params = {"query_embedding": query_vector, "match_threshold": 0.01, "match_count": 8, "filter_doc_id": doc_id}
@@ -80,44 +77,7 @@ class MistralEngine:
             print(f"Search Error: {e}")
             return []
 
-    def search(self, query: str, folder_name: str = None, limit: int = 5) -> List[dict]:
-        query_vector = self.get_embedding(query)
-        params = {
-            "query_text": query, 
-            "query_embedding": query_vector, 
-            "match_threshold": 0.01,  
-            "match_count": limit, 
-            "filter_folder": folder_name or "General"
-        }
-        try:
-            response = self.supabase.rpc("match_documents_hybrid", params).execute()
-            # If match_documents_hybrid exists in DB, it returns results. 
-            # If standard vector search logic is used, this works for Fast Chat.
-            chunks = []
-            for row in response.data:
-                chunks.append({
-                    "content": row['content'],
-                    "page": row.get('page_number', 1),
-                    "source": "Unknown", # Basic search might not return source title unless joined
-                    "similarity": row.get('similarity', 0)
-                })
-            return chunks
-        except Exception as e:
-            print(f"Search Error: {e}")
-            return []
-
-    # --- HELPERS (UNCHANGED) ---
-    def get_folder_manifest(self, folder_name: str) -> str:
-        try:
-            res = self.supabase.table("documents").select("title, summary").eq("folder", folder_name).execute()
-            if not res.data: return "This folder is empty."
-            manifest = f"### 📂 FOLDER: {folder_name}\n"
-            for doc in res.data:
-                s = doc.get('summary', '').split("---_SEPARATOR_---")[0].replace("**Content Summary:**", "").strip()
-                manifest += f"- **{doc['title']}**: {s}\n"
-            return manifest
-        except: return ""
-
+    # --- HELPERS (Unchanged) ---
     def _chunk_markdown(self, text: str) -> List[str]:
         chunks = []
         current_chunk = ""
