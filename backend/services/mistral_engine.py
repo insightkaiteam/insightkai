@@ -30,7 +30,7 @@ class MistralEngine:
         text = text.replace("\n", " ")
         return self.openai.embeddings.create(input=[text], model="text-embedding-3-small").data[0].embedding
 
-    # --- NEW: Get File Summaries (Used for Fast Chat & Deep Chat Selection) ---
+    # --- NEW: Get File Summaries for Selection ---
     def get_folder_files(self, folder_name: str) -> List[dict]:
         try:
             res = self.supabase.table("documents")\
@@ -42,9 +42,7 @@ class MistralEngine:
             for doc in res.data:
                 raw = doc.get("summary", "")
                 if not raw: continue
-                # Clean summary
                 clean = raw.split("---_SEPARATOR_---")[0].replace("**Content Summary:**", "").strip()
-                
                 files.append({
                     "id": doc["id"],
                     "title": doc["title"],
@@ -55,10 +53,11 @@ class MistralEngine:
             print(f"Error getting folder files: {e}")
             return []
 
-    # --- UNCHANGED: SINGLE DOC SEARCH (Preserved) ---
+    # --- UPDATED: Increased match_count to 12 for more references ---
     def search_single_doc(self, query: str, doc_id: str) -> List[dict]:
         query_vector = self.get_embedding(query)
-        params = {"query_embedding": query_vector, "match_threshold": 0.01, "match_count": 8, "filter_doc_id": doc_id}
+        # Increased limit from 8 to 12
+        params = {"query_embedding": query_vector, "match_threshold": 0.01, "match_count": 12, "filter_doc_id": doc_id}
         
         try:
             res = self.supabase.rpc("match_page_sections", params).execute()
@@ -78,6 +77,17 @@ class MistralEngine:
             return []
 
     # --- HELPERS (Unchanged) ---
+    def get_folder_manifest(self, folder_name: str) -> str:
+        try:
+            res = self.supabase.table("documents").select("title, summary").eq("folder", folder_name).execute()
+            if not res.data: return "This folder is empty."
+            manifest = f"### 📂 FOLDER: {folder_name}\n"
+            for doc in res.data:
+                s = doc.get('summary', '').split("---_SEPARATOR_---")[0].replace("**Content Summary:**", "").strip()
+                manifest += f"- **{doc['title']}**: {s}\n"
+            return manifest
+        except: return ""
+
     def _chunk_markdown(self, text: str) -> List[str]:
         chunks = []
         current_chunk = ""
@@ -95,7 +105,7 @@ class MistralEngine:
             preview_text = full_text[:8000]
             system_prompt = (
                 "You are a sophisticated document analyzer. Analyze the text and return a summary in EXACTLY this format:\n\n"
-                "[TAG]: <Classify into one: INVOICE, RESEARCH, FINANCIAL, LEGAL, RECEIPT, RESUME, OTHER>\n"
+                "[TAG]: <Classify into one: INVOICE, RESEARCH, FINANCIAL, LEGAL, RECEIPT, OTHER>\n"
                 "[DESC]: <A single, concise sentence describing the file (e.g. 'August 2023 Power Bill for $150')>\n"
                 "[DETAILED]: <A dense, 5-10 line summary containing specific entities (company names, authors), dates, key outcomes, core themes, and numerical data. This will be used for search retrieval, so be specific.>"
             )

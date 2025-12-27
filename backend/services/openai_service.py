@@ -11,12 +11,11 @@ class OpenAIService:
 
     @retry(wait=wait_random_exponential(min=1, max=60), stop=stop_after_attempt(6))
     def get_answer_with_backoff(self, messages, model="gpt-4o-mini", json_mode=True):
-        # Using gpt-4o-mini (or gpt-5-mini if you have access)
         kwargs = {"model": model, "messages": messages, "max_tokens": 1000}
         if json_mode: kwargs["response_format"] = {"type": "json_object"}
         return self.client.chat.completions.create(**kwargs)
 
-    # --- DEEP CHAT: SELECT FILES ---
+    # --- AI SELECTION FOR DEEP CHAT ---
     def select_relevant_files(self, file_summaries: List[dict], question: str) -> List[str]:
         if not file_summaries: return []
         context = "AVAILABLE FILES:\n"
@@ -38,11 +37,15 @@ class OpenAIService:
             return data.get("selected_ids", [])
         except: return []
 
+    def _normalize(self, text: str) -> str:
+        # Helper to normalize text for fuzzy matching citations
+        return re.sub(r'\s+', ' ', text).strip().lower()
+
     # --- MAIN ANSWER FUNCTION ---
     def get_answer(self, context_chunks: List[dict], question: str, mode: str = "single_doc", system_message_override: Optional[str] = None) -> Dict[str, Any]:
         
         # ====================================================
-        # MODE 1: SINGLE DOCUMENT (UNCHANGED - YOUR EXACT LOGIC)
+        # MODE 1: SINGLE DOCUMENT (UNCHANGED)
         # ====================================================
         if mode == "single_doc":
             context_text = ""
@@ -56,7 +59,7 @@ class OpenAIService:
                 "You are a Senior Financial Analyst. Answer the user question based ONLY on the provided context.\n"
                 "You must return a JSON object with two keys:\n"
                 "1. 'answer': A precise, professional answer. Do not mention 'the provided text'—just state the facts.\n"
-                "2. 'quotes': An array of strings. Copy the EXACT sentences from the context that support your answer. These will be used for highlighting.\n"
+                "2. 'quotes': An array of strings. Copy the EXACT sentences from the context that support your answer.\n"
                 "   - If you combine multiple facts, include multiple quotes.\n"
                 "   - Do NOT modify the quotes. They must match the source text exactly for the highlighter to work.\n"
             )
@@ -87,7 +90,7 @@ class OpenAIService:
                 return {"answer": "Error generating response.", "citations": []}
 
         # ====================================================
-        # MODE 2: FAST FOLDER CHAT (SUMMARIES)
+        # MODE 2: FAST FOLDER CHAT (UNCHANGED)
         # ====================================================
         elif mode == "folder_fast" or mode == "simple":
             context_text = ""
@@ -119,7 +122,7 @@ class OpenAIService:
                 return {"answer": "Error in fast search.", "citations": []}
 
         # ====================================================
-        # MODE 3: DEEP FOLDER CHAT (STRICT QUOTES NOW)
+        # MODE 3: DEEP FOLDER CHAT (IMPROVED MATCHING)
         # ====================================================
         elif mode == "folder_deep":
             context_text = ""
@@ -128,20 +131,19 @@ class OpenAIService:
                 for i, chunk in enumerate(context_chunks):
                     filename = chunk.get('source', 'Unknown File')
                     page = chunk.get('page', '?')
-                    # We inject File/Page tags for the AI's context, 
-                    # but we tell the AI NOT to include them in the quote.
                     context_text += f"[ID:{i}] [File: {filename} | Page {page}] {chunk['content']}\n\n"
             else:
                 context_text = "No documents found."
 
-            # --- KEY CHANGE: STRICT PROMPT FOR DEEP CHAT ---
+            # Updated Prompt for More Citations
             system_prompt = (
                 "You are a Senior Research Analyst. You are analyzing excerpts from MULTIPLE selected files.\n"
                 "You must return a JSON object with two keys:\n"
-                "1. 'answer': A synthesized answer based ONLY on the provided text. If files contradict, point it out.\n"
+                "1. 'answer': A synthesized answer based ONLY on the provided text. Point out contradictions if any.\n"
                 "2. 'quotes': An array of strings. Copy the EXACT sentences from the context that support your answer.\n"
-                "   - Copy ONLY the text content. Do NOT include the [File:...] or [Page] tags in the quote string.\n"
-                "   - Do NOT paraphrase. It must be an exact substring match for citation linking.\n"
+                "   - BE COMPREHENSIVE. Provide multiple quotes per claim if available.\n"
+                "   - Do NOT include [File:...] tags in the quote string.\n"
+                "   - Do NOT paraphrase. Exact substrings only.\n"
             )
 
             messages = [
@@ -158,16 +160,22 @@ class OpenAIService:
                 
                 for q in raw_quotes:
                     best_match = None
-                    # We look for the quote inside our chunks to find the metadata
+                    # 1. Try Exact Match First
                     for c in context_chunks:
                         if q in c['content']:
                             best_match = c
                             break
                     
-                    # We use 'q' (the tight sentence) as the content, 
-                    # ensuring the UI shows a clean, short quote.
+                    # 2. Try Fuzzy Match (Normalized) if exact fails
+                    if not best_match:
+                        norm_q = self._normalize(q)
+                        for c in context_chunks:
+                            if norm_q in self._normalize(c['content']):
+                                best_match = c
+                                break
+
                     formatted_citations.append({
-                        "content": q, 
+                        "content": q,
                         "page": best_match.get('page', 1) if best_match else 1,
                         "source": best_match.get('source', 'Unknown') if best_match else "Folder",
                         "id": best_match.get('id', 0) if best_match else 0
