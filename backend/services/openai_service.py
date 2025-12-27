@@ -67,13 +67,14 @@ class OpenAIService:
             else:
                 context_text = "No specific document context found."
 
+# --- KEY CHANGE: STRICTER PROMPT ---
             system_prompt = (
-                "You are a Senior Financial Analyst. Answer the user question based ONLY on the provided context.\n"
+                "You are a Senior Research Analyst. You are analyzing excerpts from MULTIPLE selected files.\n"
                 "You must return a JSON object with two keys:\n"
-                "1. 'answer': A precise, professional answer. Do not mention 'the provided text'—just state the facts.\n"
-                "2. 'quotes': An array of strings. Copy the EXACT sentences from the context that support your answer. These will be used for highlighting.\n"
-                "   - If you combine multiple facts, include multiple quotes.\n"
-                "   - Do NOT modify the quotes. They must match the source text exactly for the highlighter to work.\n"
+                "1. 'answer': A synthesized answer based ONLY on the provided text. If files contradict each other, explicitly point this out.\n"
+                "2. 'quotes': An array of strings. Copy the EXACT sentences from the context that support your answer.\n"
+                "   - Do NOT paraphrase the quotes. They must match the source text exactly for citation linking.\n"
+                "   - Do NOT include the [File:...] tags inside the quote string itself.\n"
             )
 
             messages = [
