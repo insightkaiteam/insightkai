@@ -166,9 +166,7 @@ export default function Dashboard() {
         const formData = new FormData();
         formData.append("file", audioBlob, "recording.webm");
         
-        // Show loading state in input
         setChatInput("Transcribing...");
-        
         try {
           const res = await fetch(`${BACKEND_URL}/transcribe`, {
             method: "POST",
@@ -194,7 +192,6 @@ export default function Dashboard() {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
-      // Stop all tracks to release mic
       mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
     }
   };
@@ -404,7 +401,7 @@ export default function Dashboard() {
                         <div className={`prose prose-sm ${m.role === 'user' ? 'prose-invert' : ''}`}><ReactMarkdown>{m.content}</ReactMarkdown></div>
                     </div>
 
-                    {/* CITATION CARDS */}
+                    {/* --- CITATION CARDS (FIXED: No line-clamp) --- */}
                     {m.role === 'ai' && m.citations && m.citations.length > 0 && (
                         <div className="mt-3 w-[90%] space-y-2">
                             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1">
@@ -412,6 +409,7 @@ export default function Dashboard() {
                             </p>
                             {m.citations.slice(0, 3).map((cit: any, idx: number) => {
                                 const docId = findDocIdByTitle(cit.source);
+                                
                                 const content = (
                                     <div className="bg-gray-50 hover:bg-blue-50/50 border border-gray-200 hover:border-blue-100 p-2.5 rounded-xl transition-all cursor-pointer group">
                                         <div className="flex items-center justify-between mb-1">
@@ -420,7 +418,8 @@ export default function Dashboard() {
                                             </span>
                                             <span className="text-[10px] text-gray-400 font-mono">Pg {cit.page}</span>
                                         </div>
-                                        <p className="text-xs text-gray-600 italic line-clamp-2 leading-relaxed">
+                                        {/* FIXED: Removed line-clamp-2 so full quote shows */}
+                                        <p className="text-xs text-gray-600 italic leading-relaxed">
                                             "{cit.content}"
                                         </p>
                                     </div>
@@ -430,13 +429,14 @@ export default function Dashboard() {
                                     return (
                                         <Link 
                                             key={idx} 
-                                            href={`/chat/${docId}#page=${cit.page}&:~:text=${encodeURIComponent(cit.content.substring(0,50))}`}
+                                            href={`/chat/${docId}#page=${cit.page}&:~:text=${encodeURIComponent(cit.content.substring(0,300))}`}
                                             className="block"
                                         >
                                             {content}
                                         </Link>
                                     );
                                 }
+
                                 return <div key={idx}>{content}</div>;
                             })}
                         </div>
