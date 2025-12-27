@@ -131,11 +131,12 @@ class OpenAIService:
                     "Rules: Always attribute claims to their specific source filename."
                 )
 
+
             system_prompt = (
                 f"{persona}\n"
                 "Using ONLY the provided Source Material, return a JSON object with:\n"
-                "1. 'answer': Your precise, professional, insightful response in markdown.\n"
-                "2. 'source_indexes': A list of integers (e.g. [0, 2]) corresponding to the [ID:x] of the chunks used."
+                "1. 'answer': A precise, professional answer. Do not mention 'the provided text'—just state the facts.\n"
+                "2. 'source_indexes': A list of integers (e.g. [0, 2]) corresponding to the [ID:x] of the chunks used. Copy the EXACT sentences from the context that support your answer. Do NOT modify the quotes"
             )
 
             messages = [
