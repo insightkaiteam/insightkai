@@ -1,10 +1,10 @@
 "use client";
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { 
   Folder, FileText, Trash2, Plus, ArrowLeft, MessageSquare, 
   X, Send, Loader2, FileClock, BrainCircuit, UploadCloud, 
-  LayoutGrid, LogOut, Quote, FileSearch 
+  LayoutGrid, LogOut, Quote, FileSearch, Mic, StopCircle 
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
@@ -31,12 +31,18 @@ export default function Dashboard() {
   const [showNewFolderInput, setShowNewFolderInput] = useState(false);
   const [showChat, setShowChat] = useState(false);
   
-  // UPDATED: Chat messages now hold citations
+  // Chat State
   const [chatMessages, setChatMessages] = useState<{role: string, content: string, citations?: any[]}[]>([]);
-  
   const [chatInput, setChatInput] = useState("");
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [chatMode, setChatMode] = useState<'simple' | 'deep'>('simple'); 
+  
+  // Audio Recording State
+  const [isRecording, setIsRecording] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+
+  // Auth State
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
 
@@ -144,11 +150,59 @@ export default function Dashboard() {
     } catch(e) { alert("Delete failed"); }
   };
 
-  // --- UPDATED: SEND FOLDER MESSAGE ---
+  // --- AUDIO RECORDING ---
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorderRef.current = new MediaRecorder(stream);
+      chunksRef.current = [];
+      
+      mediaRecorderRef.current.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+
+      mediaRecorderRef.current.onstop = async () => {
+        const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm' });
+        const formData = new FormData();
+        formData.append("file", audioBlob, "recording.webm");
+        
+        // Show loading state in input
+        setChatInput("Transcribing...");
+        
+        try {
+          const res = await fetch(`${BACKEND_URL}/transcribe`, {
+            method: "POST",
+            body: formData
+          });
+          const data = await res.json();
+          setChatInput(data.text);
+        } catch (e) {
+          alert("Transcription failed");
+          setChatInput("");
+        }
+      };
+
+      mediaRecorderRef.current.start();
+      setIsRecording(true);
+    } catch (e) {
+      console.error("Microphone access denied", e);
+      alert("Microphone access denied. Please check permissions.");
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      // Stop all tracks to release mic
+      mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+    }
+  };
+
+  // --- CHAT LOGIC ---
   const sendFolderMessage = async () => {
     if (!chatInput.trim()) return;
     
-    // Add user message
     const userMsg = { role: 'user', content: chatInput };
     setChatMessages(prev => [...prev, userMsg]);
     
@@ -164,7 +218,6 @@ export default function Dashboard() {
       });
       const data = await res.json();
       
-      // Store answer AND citations
       setChatMessages(prev => [...prev, { 
           role: 'ai', 
           content: data.answer,
@@ -175,7 +228,6 @@ export default function Dashboard() {
     } finally { setIsChatLoading(false); }
   };
 
-  // Helper to find document ID from title (for linking citations)
   const findDocIdByTitle = (title: string) => {
     const found = docs.find(d => d.title === title);
     return found ? found.id : null;
@@ -352,7 +404,7 @@ export default function Dashboard() {
                         <div className={`prose prose-sm ${m.role === 'user' ? 'prose-invert' : ''}`}><ReactMarkdown>{m.content}</ReactMarkdown></div>
                     </div>
 
-                    {/* --- UPDATED: RENDER CITATION CARDS --- */}
+                    {/* CITATION CARDS */}
                     {m.role === 'ai' && m.citations && m.citations.length > 0 && (
                         <div className="mt-3 w-[90%] space-y-2">
                             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1">
@@ -360,7 +412,6 @@ export default function Dashboard() {
                             </p>
                             {m.citations.slice(0, 3).map((cit: any, idx: number) => {
                                 const docId = findDocIdByTitle(cit.source);
-                                
                                 const content = (
                                     <div className="bg-gray-50 hover:bg-blue-50/50 border border-gray-200 hover:border-blue-100 p-2.5 rounded-xl transition-all cursor-pointer group">
                                         <div className="flex items-center justify-between mb-1">
@@ -386,7 +437,6 @@ export default function Dashboard() {
                                         </Link>
                                     );
                                 }
-
                                 return <div key={idx}>{content}</div>;
                             })}
                         </div>
@@ -398,9 +448,25 @@ export default function Dashboard() {
         </div>
 
         <div className="p-4 border-t border-gray-100 bg-white/50">
-            <div className="flex gap-2 relative">
+            <div className="flex gap-2 relative items-center">
+                {/* NEW AUDIO BUTTON */}
+                <button
+                    onMouseDown={startRecording}
+                    onMouseUp={stopRecording}
+                    onMouseLeave={stopRecording}
+                    disabled={isChatLoading}
+                    className={`p-3 rounded-xl transition-all ${isRecording ? 'bg-red-500 text-white scale-110 shadow-lg shadow-red-200' : 'bg-white border border-gray-200 text-gray-400 hover:text-black hover:border-gray-300'}`}
+                >
+                    {isRecording ? <StopCircle size={20} className="animate-pulse" /> : <Mic size={20} />}
+                </button>
+
                 <input className="w-full bg-gray-50 border border-gray-200 rounded-2xl py-3 pl-4 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-black/5" 
-                    placeholder="Ask a question..." value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendFolderMessage()} />
+                    placeholder={isRecording ? "Listening..." : "Ask a question..."} 
+                    value={chatInput} 
+                    onChange={e => setChatInput(e.target.value)} 
+                    onKeyDown={e => e.key === 'Enter' && sendFolderMessage()} 
+                    disabled={isRecording}
+                />
                 <button onClick={sendFolderMessage} className="absolute right-2 top-2 p-1.5 bg-black text-white rounded-xl hover:scale-95 transition"><Send size={16}/></button>
             </div>
         </div>
