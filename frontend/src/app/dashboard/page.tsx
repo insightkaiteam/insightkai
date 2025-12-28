@@ -4,7 +4,8 @@ import Link from 'next/link';
 import { 
   Folder, FileText, Trash2, Plus, ArrowLeft, 
   X, Send, Loader2, FileClock, BrainCircuit, UploadCloud, 
-  LayoutGrid, LogOut, Quote, FileSearch, Mic, StopCircle, Zap
+  LayoutGrid, LogOut, Quote, FileSearch, Mic, StopCircle, Zap,
+  CheckCircle2, AlertCircle, Clock
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
@@ -12,7 +13,6 @@ import ReactMarkdown from 'react-markdown';
 const BACKEND_URL = "https://insightkai.onrender.com";
 const SITE_PASSWORD = "kai2025"; 
 
-// Helper interface for documents
 interface Doc {
   id: string;
   title: string;
@@ -22,35 +22,113 @@ interface Doc {
   upload_date: string;
 }
 
+// NEW: Upload Item Interface
+interface UploadItem {
+  id: string;
+  file: File;
+  status: 'pending' | 'uploading' | 'completed' | 'error';
+}
+
 export default function Dashboard() {
   const [folders, setFolders] = useState<string[]>([]);
   const [docs, setDocs] = useState<Doc[]>([]);
   const [currentFolder, setCurrentFolder] = useState<string | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
+  
+  // --- UPLOAD QUEUE STATE ---
+  const [uploadQueue, setUploadQueue] = useState<UploadItem[]>([]);
+  const [isProcessingQueue, setIsProcessingQueue] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [newFolderName, setNewFolderName] = useState("");
   const [showNewFolderInput, setShowNewFolderInput] = useState(false);
   
-  // --- CHAT STATE ---
-  // Replaced showChat boolean with a tri-state mode
+  // Chat & Audio State
   const [chatMode, setChatMode] = useState<'simple' | 'deep' | null>(null);
   const [chatMessages, setChatMessages] = useState<{role: string, content: string, citations?: any[]}[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [isChatLoading, setIsChatLoading] = useState(false);
-  
-  // Audio Recording State
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
-  // Auth State
+  // Auth
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
 
+  // --- 1. QUEUE PROCESSOR ---
+  useEffect(() => {
+    const processNext = async () => {
+      // If already busy or nothing to do, stop.
+      if (isProcessingQueue) return;
+      
+      // Find the next pending item
+      const nextItemIndex = uploadQueue.findIndex(item => item.status === 'pending');
+      if (nextItemIndex === -1) return; // All done
+
+      setIsProcessingQueue(true);
+      const item = uploadQueue[nextItemIndex];
+
+      // 1. Mark as Uploading
+      setUploadQueue(prev => prev.map((i, idx) => idx === nextItemIndex ? { ...i, status: 'uploading' } : i));
+
+      try {
+        // 2. Perform Upload
+        const formData = new FormData();
+        formData.append('file', item.file);
+        formData.append('folder', currentFolder || "General");
+
+        const res = await fetch(`${BACKEND_URL}/upload`, { method: 'POST', body: formData });
+        if (!res.ok) throw new Error("Upload failed");
+
+        // 3. Mark as Completed
+        setUploadQueue(prev => prev.map((i, idx) => idx === nextItemIndex ? { ...i, status: 'completed' } : i));
+        refreshData(); // Refresh list immediately to show new file
+      } catch (e) {
+        setUploadQueue(prev => prev.map((i, idx) => idx === nextItemIndex ? { ...i, status: 'error' } : i));
+      }
+
+      // 4. RATE LIMIT DELAY (10 Seconds)
+      // Check if there are more items pending before waiting
+      const remaining = uploadQueue.filter(i => i.status === 'pending').length;
+      if (remaining > 1) { // Current one is still counted as pending in this scope logic, so check count
+         await new Promise(resolve => setTimeout(resolve, 10000));
+      }
+
+      setIsProcessingQueue(false); // Trigger useEffect again for next item
+    };
+
+    processNext();
+  }, [uploadQueue, isProcessingQueue, currentFolder]);
+
+  // --- 2. UPLOAD HANDLERS ---
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    
+    const newItems: UploadItem[] = Array.from(e.target.files).map(file => ({
+      id: Math.random().toString(36).substr(2, 9),
+      file,
+      status: 'pending'
+    }));
+
+    setUploadQueue(prev => [...prev, ...newItems]);
+    // Reset input so same files can be selected again if needed
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const cancelUploads = () => {
+    // Keeps completed/error/uploading, removes pending
+    setUploadQueue(prev => prev.filter(i => i.status !== 'pending'));
+  };
+
+  const clearCompleted = () => {
+    setUploadQueue([]);
+  };
+
+  // --- UTILS ---
   const parseSummary = (rawSummary: string) => {
     if (!rawSummary) return { tag: null, desc: null };
     const tagMatch = rawSummary.match(/\[TAG\]:\s*(.*?)(?=\n|\[|$)/i);
     const descMatch = rawSummary.match(/\[DESC\]:\s*(.*?)(?=\n|\[|$)/i);
-    if (!tagMatch && !descMatch) return { tag: null, desc: null };
     return {
       tag: tagMatch ? tagMatch[1].trim().toUpperCase() : "FILE",
       desc: descMatch ? descMatch[1].trim() : "No description available."
@@ -59,12 +137,12 @@ export default function Dashboard() {
 
   const getTagColor = (tag: string) => {
     const colors: {[key: string]: string} = {
-      'INVOICE': 'bg-rose-50 text-rose-600 border-rose-200 ring-rose-500/10',
-      'RESEARCH': 'bg-purple-50 text-purple-600 border-purple-200 ring-purple-500/10',
-      'FINANCIAL': 'bg-emerald-50 text-emerald-600 border-emerald-200 ring-emerald-500/10',
-      'LEGAL': 'bg-blue-50 text-blue-600 border-blue-200 ring-blue-500/10',
-      'RECEIPT': 'bg-amber-50 text-amber-600 border-amber-200 ring-amber-500/10',
-      'OTHER': 'bg-gray-50 text-gray-600 border-gray-200 ring-gray-500/10'
+      'INVOICE': 'bg-rose-50 text-rose-600 border-rose-200',
+      'RESEARCH': 'bg-purple-50 text-purple-600 border-purple-200',
+      'FINANCIAL': 'bg-emerald-50 text-emerald-600 border-emerald-200',
+      'LEGAL': 'bg-blue-50 text-blue-600 border-blue-200',
+      'RECEIPT': 'bg-amber-50 text-amber-600 border-amber-200',
+      'OTHER': 'bg-gray-50 text-gray-600 border-gray-200'
     };
     return colors[tag] || colors['OTHER'];
   };
@@ -90,10 +168,8 @@ export default function Dashboard() {
             fetch(`${BACKEND_URL}/folders`),
             fetch(`${BACKEND_URL}/documents`)
         ]);
-        const dataFolders = await resFolders.json();
-        const dataDocs = await resDocs.json();
-        setFolders(dataFolders.folders || ["General"]);
-        setDocs(dataDocs.documents || []);
+        setFolders((await resFolders.json()).folders || ["General"]);
+        setDocs((await resDocs.json()).documents || []);
     } catch (e) { console.error("Error fetching data", e); }
   };
 
@@ -122,70 +198,38 @@ export default function Dashboard() {
   const handleDeleteFolder = async (folderName: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!confirm(`Delete folder "${folderName}"?`)) return;
-    try {
-        const res = await fetch(`${BACKEND_URL}/folders/${folderName}`, { method: 'DELETE' });
-        if (res.ok) refreshData();
-    } catch (e) { alert("Error"); }
-  };
-
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files) return;
-    setIsUploading(true);
-    const formData = new FormData();
-    formData.append('file', e.target.files[0]);
-    formData.append('folder', currentFolder || "General");
-    try {
-      await fetch(`${BACKEND_URL}/upload`, { method: 'POST', body: formData });
-      await refreshData();
-    } catch (error) { alert("Upload failed."); } 
-    finally { setIsUploading(false); }
+    await fetch(`${BACKEND_URL}/folders/${folderName}`, { method: 'DELETE' });
+    refreshData();
   };
 
   const handleDelete = async (docId: string, e: React.MouseEvent) => {
     e.preventDefault();
     if(!confirm("Delete this file?")) return;
-    try {
-        await fetch(`${BACKEND_URL}/documents/${docId}`, { method: 'DELETE' });
-        refreshData();
-    } catch(e) { alert("Delete failed"); }
+    await fetch(`${BACKEND_URL}/documents/${docId}`, { method: 'DELETE' });
+    refreshData();
   };
 
-  // --- AUDIO RECORDING ---
+  // --- AUDIO ---
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaRecorderRef.current = new MediaRecorder(stream);
       chunksRef.current = [];
-      
-      mediaRecorderRef.current.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
-      };
-
+      mediaRecorderRef.current.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
       mediaRecorderRef.current.onstop = async () => {
         const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm' });
         const formData = new FormData();
         formData.append("file", audioBlob, "recording.webm");
-        
         setChatInput("Transcribing...");
         try {
-          const res = await fetch(`${BACKEND_URL}/transcribe`, {
-            method: "POST",
-            body: formData
-          });
+          const res = await fetch(`${BACKEND_URL}/transcribe`, { method: "POST", body: formData });
           const data = await res.json();
           setChatInput(data.text);
-        } catch (e) {
-          alert("Transcription failed");
-          setChatInput("");
-        }
+        } catch (e) { setChatInput(""); alert("Transcription failed"); }
       };
-
       mediaRecorderRef.current.start();
       setIsRecording(true);
-    } catch (e) {
-      console.error("Microphone access denied", e);
-      alert("Microphone access denied. Please check permissions.");
-    }
+    } catch (e) { alert("Microphone access denied."); }
   };
 
   const stopRecording = () => {
@@ -196,28 +240,19 @@ export default function Dashboard() {
     }
   };
 
-  // --- CHAT LOGIC ---
+  // --- CHAT ---
   const toggleChat = (mode: 'simple' | 'deep') => {
-    if (chatMode === mode) {
-        setChatMode(null); // Toggle off if clicking same button
-    } else {
-        setChatMode(mode);
-        // Clear history if switching modes? Optional. Let's keep context for now or clear it.
-        // setChatMessages([]); // Uncomment to clear chat on mode switch
-    }
+    if (chatMode === mode) setChatMode(null);
+    else setChatMode(mode);
   };
 
   const sendFolderMessage = async () => {
-    if (!chatInput.trim()) return;
-    if (!chatMode) return; // Should not happen
-    
+    if (!chatInput.trim() || !chatMode) return;
     const userMsg = { role: 'user', content: chatInput };
     setChatMessages(prev => [...prev, userMsg]);
-    
     const msgToSend = chatInput;
     setChatInput("");
     setIsChatLoading(true);
-    
     try {
       const res = await fetch(`${BACKEND_URL}/chat`, {
         method: 'POST',
@@ -225,15 +260,9 @@ export default function Dashboard() {
         body: JSON.stringify({ message: msgToSend, folder_name: currentFolder, mode: chatMode }),
       });
       const data = await res.json();
-      
-      setChatMessages(prev => [...prev, { 
-          role: 'ai', 
-          content: data.answer,
-          citations: data.citations || [] 
-      }]);
-    } catch (e) {
-      setChatMessages(prev => [...prev, { role: 'ai', content: "Error reaching backend." }]);
-    } finally { setIsChatLoading(false); }
+      setChatMessages(prev => [...prev, { role: 'ai', content: data.answer, citations: data.citations || [] }]);
+    } catch (e) { setChatMessages(prev => [...prev, { role: 'ai', content: "Error reaching backend." }]); } 
+    finally { setIsChatLoading(false); }
   };
 
   const findDocIdByTitle = (title: string) => {
@@ -252,9 +281,9 @@ export default function Dashboard() {
   );
 
   return (
-    <div className="flex h-screen bg-[#F3F4F6] overflow-hidden font-sans text-gray-900">
+    <div className="flex h-screen bg-[#F3F4F6] overflow-hidden font-sans text-gray-900 relative">
       
-      {/* 1. SIDEBAR NAVIGATION */}
+      {/* 1. SIDEBAR */}
       <aside className="w-20 bg-white border-r border-gray-200 flex flex-col items-center py-8 gap-8 z-20 shrink-0">
         <Link href="/" className="w-10 h-10 bg-black rounded-xl flex items-center justify-center text-white font-serif italic font-bold text-xl shadow-lg">κ</Link>
         <div className="flex flex-col gap-4">
@@ -267,61 +296,53 @@ export default function Dashboard() {
         </div>
       </aside>
 
-      {/* 2. SPLIT VIEW CONTAINER */}
+      {/* 2. MAIN SPLIT VIEW */}
       <div className="flex-1 flex overflow-hidden relative">
-        
-        {/* LEFT PANEL: FILE LIST */}
         <main className={`flex flex-col transition-all duration-500 ease-in-out ${chatMode ? 'w-1/3 min-w-[320px] border-r border-gray-200' : 'w-full'}`}>
             <div className="flex-1 overflow-y-auto p-8">
                 <div className="max-w-7xl mx-auto">
                     
-                    {/* TOP BAR */}
+                    {/* HEADER */}
                     <header className="flex flex-col gap-6 mb-10">
                         <div className="flex justify-between items-center">
                             <div className="flex items-center gap-4">
                                 {currentFolder && (
-                                    <button onClick={() => { setCurrentFolder(null); setChatMode(null); }} className="p-2 bg-white border border-gray-200 text-gray-500 hover:text-black rounded-full shadow-sm">
-                                        <ArrowLeft size={20} />
-                                    </button>
+                                    <button onClick={() => { setCurrentFolder(null); setChatMode(null); }} className="p-2 bg-white border border-gray-200 text-gray-500 hover:text-black rounded-full shadow-sm"><ArrowLeft size={20} /></button>
                                 )}
                                 <div>
-                                    <h1 className="text-3xl font-bold tracking-tight text-gray-900 line-clamp-1">
-                                        {currentFolder || "My Library"}
-                                    </h1>
-                                    <p className="text-xs text-gray-400 font-medium uppercase tracking-wider mt-1">
-                                        {currentFolder ? (chatMode ? "Context View" : "Folder View") : "Dashboard"}
-                                    </p>
+                                    <h1 className="text-3xl font-bold tracking-tight text-gray-900 line-clamp-1">{currentFolder || "My Library"}</h1>
+                                    <p className="text-xs text-gray-400 font-medium uppercase tracking-wider mt-1">{currentFolder ? (chatMode ? "Context View" : "Folder View") : "Dashboard"}</p>
                                 </div>
                             </div>
                             
                             <div className="flex gap-3">
                                 {!currentFolder && (
-                                    <button onClick={() => setShowNewFolderInput(true)} className="flex items-center gap-2 bg-white border border-gray-200 px-5 py-2.5 rounded-full hover:shadow-md transition text-sm font-bold">
-                                        <Plus size={16} /> New Folder
-                                    </button>
+                                    <button onClick={() => setShowNewFolderInput(true)} className="flex items-center gap-2 bg-white border border-gray-200 px-5 py-2.5 rounded-full hover:shadow-md transition text-sm font-bold"><Plus size={16} /> New Folder</button>
                                 )}
                             </div>
                         </div>
 
-                        {/* SEPARATED CHAT OPTIONS & UPLOAD (Only in Folder View) */}
+                        {/* ACTIONS */}
                         {currentFolder && (
                             <div className="flex flex-wrap gap-3">
-                                <button 
-                                    onClick={() => toggleChat('simple')} 
-                                    className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition text-sm font-bold border shadow-sm ${chatMode === 'simple' ? 'bg-black text-white border-black ring-2 ring-black/20' : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-700'}`}
-                                >
+                                <button onClick={() => toggleChat('simple')} className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition text-sm font-bold border shadow-sm ${chatMode === 'simple' ? 'bg-black text-white border-black ring-2 ring-black/20' : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-700'}`}>
                                     <Zap size={16} className={chatMode === 'simple' ? "fill-white" : "fill-none"} /> Fast Chat
                                 </button>
-                                <button 
-                                    onClick={() => toggleChat('deep')} 
-                                    className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition text-sm font-bold border shadow-sm ${chatMode === 'deep' ? 'bg-black text-white border-black ring-2 ring-black/20' : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-700'}`}
-                                >
+                                <button onClick={() => toggleChat('deep')} className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition text-sm font-bold border shadow-sm ${chatMode === 'deep' ? 'bg-black text-white border-black ring-2 ring-black/20' : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-700'}`}>
                                     <BrainCircuit size={16} /> Deep Chat
                                 </button>
                                 
                                 <label className="flex items-center justify-center gap-2 bg-blue-600 text-white px-5 py-3 rounded-xl cursor-pointer hover:bg-blue-700 transition shadow-lg shadow-blue-200 text-sm font-bold relative overflow-hidden min-w-[140px]">
-                                    {isUploading ? <><Loader2 size={16} className="animate-spin" /> Uploading...</> : <><UploadCloud size={16} /> Upload PDF</>}
-                                    <input type="file" className="hidden" accept=".pdf" onChange={handleUpload} disabled={isUploading}/>
+                                    <><UploadCloud size={16} /> Upload PDFs</>
+                                    {/* UPDATED INPUT: MULTIPLE ACCEPTED */}
+                                    <input 
+                                        ref={fileInputRef}
+                                        type="file" 
+                                        className="hidden" 
+                                        accept=".pdf" 
+                                        multiple 
+                                        onChange={handleFileSelect} 
+                                    />
                                 </label>
                             </div>
                         )}
@@ -335,20 +356,15 @@ export default function Dashboard() {
                         </div>
                     )}
 
-                    {/* FOLDER CARDS */}
+                    {/* FOLDERS */}
                     {!currentFolder && (
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                             {folders.map(folder => (
-                                <div key={folder} onClick={() => setCurrentFolder(folder)} 
-                                    className="group bg-white p-6 rounded-[2rem] border border-gray-200 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all cursor-pointer relative overflow-hidden">
+                                <div key={folder} onClick={() => setCurrentFolder(folder)} className="group bg-white p-6 rounded-[2rem] border border-gray-200 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all cursor-pointer relative overflow-hidden">
                                     <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-purple-500 opacity-0 group-hover:opacity-100 transition"></div>
                                     <div className="flex justify-between items-start mb-4">
-                                        <div className="w-12 h-12 bg-gray-50 rounded-2xl flex items-center justify-center text-gray-700 group-hover:bg-blue-50 group-hover:text-blue-600 transition">
-                                            <Folder size={24} fill="currentColor" className="text-gray-300 group-hover:text-blue-200" />
-                                        </div>
-                                        {folder !== "General" && (
-                                            <button onClick={(e) => handleDeleteFolder(folder, e)} className="text-gray-300 hover:text-red-500 transition"><Trash2 size={16}/></button>
-                                        )}
+                                        <div className="w-12 h-12 bg-gray-50 rounded-2xl flex items-center justify-center text-gray-700 group-hover:bg-blue-50 group-hover:text-blue-600 transition"><Folder size={24} fill="currentColor" className="text-gray-300 group-hover:text-blue-200" /></div>
+                                        {folder !== "General" && <button onClick={(e) => handleDeleteFolder(folder, e)} className="text-gray-300 hover:text-red-500 transition"><Trash2 size={16}/></button>}
                                     </div>
                                     <h3 className="font-bold text-lg text-gray-900 mb-1">{folder}</h3>
                                     <p className="text-xs text-gray-400 font-medium">{docs.filter(d => d.folder === folder).length} items</p>
@@ -357,16 +373,14 @@ export default function Dashboard() {
                         </div>
                     )}
 
-                    {/* DOCUMENT LIST */}
+                    {/* FILES */}
                     {currentFolder && (
-                        // Dynamic Grid: 1 column if chat is open, multiple if closed
                         <div className={`grid gap-4 ${chatMode ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'}`}>
                             {docs.filter(doc => doc.folder === currentFolder).map((doc) => {
                                 const { tag, desc } = parseSummary(doc.summary);
                                 return (
                                     <div key={doc.id} className="group bg-white p-5 rounded-3xl border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all flex justify-between items-start relative overflow-hidden">
                                         {doc.status === 'processing' && <div className="absolute top-0 left-0 w-full h-1 bg-blue-100"><div className="h-full bg-blue-500 animate-progress origin-left"></div></div>}
-                                        
                                         <div className="flex gap-4 w-full">
                                             <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${doc.status === 'processing' ? 'bg-amber-50 text-amber-600' : 'bg-gray-50 text-gray-600'}`}>
                                                 {doc.status === 'processing' ? <Loader2 className="animate-spin" size={18} /> : <FileText size={18} />}
@@ -379,19 +393,15 @@ export default function Dashboard() {
                                                 <p className="text-xs text-gray-500 leading-relaxed line-clamp-2">{desc}</p>
                                             </div>
                                         </div>
-
                                         <div className="flex flex-col gap-2 ml-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                             {doc.status !== 'processing' && (
-                                                <Link href={`/chat/${doc.id}`}>
-                                                    <button className="bg-black text-white p-2 rounded-lg shadow-lg hover:bg-gray-800 transition transform hover:scale-105"><ArrowLeft size={14} className="rotate-180"/></button>
-                                                </Link>
+                                                <Link href={`/chat/${doc.id}`}><button className="bg-black text-white p-2 rounded-lg shadow-lg hover:bg-gray-800 transition transform hover:scale-105"><ArrowLeft size={14} className="rotate-180"/></button></Link>
                                             )}
                                             <button onClick={(e) => handleDelete(doc.id, e)} className="p-2 text-gray-300 hover:text-red-500 transition"><Trash2 size={14}/></button>
                                         </div>
                                     </div>
                                 );
                             })}
-                            
                             {docs.filter(doc => doc.folder === currentFolder).length === 0 && (
                                 <div className="col-span-full flex flex-col items-center justify-center py-20 border-2 border-dashed border-gray-200 rounded-3xl text-gray-400">
                                     <UploadCloud size={40} className="mb-4 text-gray-300"/>
@@ -404,7 +414,43 @@ export default function Dashboard() {
             </div>
         </main>
 
-        {/* RIGHT PANEL: CHAT INTERFACE (Takes remaining space) */}
+        {/* 3. UPLOAD QUEUE PANEL (Fixed Bottom Right) */}
+        {uploadQueue.length > 0 && (
+            <div className="absolute bottom-6 right-6 w-80 bg-white rounded-2xl shadow-2xl border border-gray-200 z-50 overflow-hidden animate-in slide-in-from-bottom-10 fade-in duration-300">
+                <div className="bg-black text-white p-3 flex justify-between items-center">
+                    <span className="text-xs font-bold flex items-center gap-2">
+                        {uploadQueue.some(i => i.status === 'uploading') ? <Loader2 size={12} className="animate-spin" /> : <UploadCloud size={12}/>}
+                        Upload Queue ({uploadQueue.filter(i => i.status === 'completed').length}/{uploadQueue.length})
+                    </span>
+                    <div className="flex gap-2">
+                        {uploadQueue.some(i => i.status === 'pending') && 
+                            <button onClick={cancelUploads} className="text-[10px] bg-white/20 hover:bg-white/30 px-2 py-1 rounded transition">Cancel Pending</button>
+                        }
+                        <button onClick={clearCompleted} className="hover:text-gray-300"><X size={14}/></button>
+                    </div>
+                </div>
+                <div className="max-h-48 overflow-y-auto p-2 space-y-1">
+                    {uploadQueue.map((item) => (
+                        <div key={item.id} className="flex items-center justify-between p-2 rounded-lg bg-gray-50 text-xs">
+                            <span className="truncate max-w-[180px] font-medium text-gray-700">{item.file.name}</span>
+                            <span>
+                                {item.status === 'pending' && <Clock size={14} className="text-gray-400" />}
+                                {item.status === 'uploading' && <Loader2 size={14} className="animate-spin text-blue-500" />}
+                                {item.status === 'completed' && <CheckCircle2 size={14} className="text-green-500" />}
+                                {item.status === 'error' && <AlertCircle size={14} className="text-red-500" />}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+                {uploadQueue.some(i => i.status === 'uploading' || i.status === 'pending') && (
+                    <div className="px-3 py-1.5 bg-blue-50 text-[10px] text-blue-600 font-medium text-center border-t border-blue-100">
+                        Processing files sequentially (10s delay to respect rate limits)
+                    </div>
+                )}
+            </div>
+        )}
+
+        {/* 4. CHAT PANEL */}
         {chatMode && (
             <div className="flex-1 bg-white/50 backdrop-blur-xl border-l border-gray-200 shadow-2xl flex flex-col h-full animate-in slide-in-from-right-10 duration-500">
                 <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-white/80">
@@ -433,76 +479,37 @@ export default function Dashboard() {
                             <div className={`p-5 max-w-[85%] rounded-2xl text-sm leading-relaxed shadow-sm ${m.role === 'user' ? 'bg-black text-white rounded-br-none' : 'bg-white border border-gray-100 text-gray-700 rounded-bl-none'}`}>
                                 <div className={`prose prose-sm ${m.role === 'user' ? 'prose-invert' : ''}`}><ReactMarkdown>{m.content}</ReactMarkdown></div>
                             </div>
-
-                            {/* CITATION CARDS */}
                             {m.role === 'ai' && m.citations && m.citations.length > 0 && (
                                 <div className="mt-4 w-[85%] grid grid-cols-1 gap-2">
-                                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1 mb-1">
-                                        <Quote size={10} /> Verified Sources
-                                    </p>
+                                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1 mb-1"><Quote size={10} /> Verified Sources</p>
                                     {m.citations.slice(0, 3).map((cit: any, idx: number) => {
                                         const docId = findDocIdByTitle(cit.source);
                                         const content = (
                                             <div className="bg-white/50 hover:bg-blue-50/50 border border-gray-200 hover:border-blue-200 p-3 rounded-xl transition-all cursor-pointer group shadow-sm hover:shadow-md">
                                                 <div className="flex items-center justify-between mb-2">
-                                                    <span className="font-bold text-[10px] text-blue-600 flex items-center gap-1 bg-blue-50 px-2 py-1 rounded-md border border-blue-100">
-                                                        <FileSearch size={10} /> {cit.source}
-                                                    </span>
+                                                    <span className="font-bold text-[10px] text-blue-600 flex items-center gap-1 bg-blue-50 px-2 py-1 rounded-md border border-blue-100"><FileSearch size={10} /> {cit.source}</span>
                                                     <span className="text-[10px] text-gray-400 font-mono bg-gray-50 px-2 py-1 rounded">Page {cit.page}</span>
                                                 </div>
-                                                <p className="text-xs text-gray-600 italic leading-relaxed pl-2 border-l-2 border-gray-300 group-hover:border-blue-400 transition-colors">
-                                                    "{cit.content}"
-                                                </p>
+                                                <p className="text-xs text-gray-600 italic leading-relaxed pl-2 border-l-2 border-gray-300 group-hover:border-blue-400 transition-colors">"{cit.content}"</p>
                                             </div>
                                         );
-
-                                        if (docId) {
-                                            return (
-                                                <Link 
-                                                    key={idx} 
-                                                    href={`/chat/${docId}#page=${cit.page}&:~:text=${encodeURIComponent(cit.content.substring(0,300))}`}
-                                                    className="block"
-                                                >
-                                                    {content}
-                                                </Link>
-                                            );
-                                        }
+                                        if (docId) return <Link key={idx} href={`/chat/${docId}#page=${cit.page}&:~:text=${encodeURIComponent(cit.content.substring(0,300))}`} className="block">{content}</Link>;
                                         return <div key={idx}>{content}</div>;
                                     })}
                                 </div>
                             )}
                         </div>
                     ))}
-                    
-                    {isChatLoading && (
-                        <div className="flex items-center gap-3 text-sm text-gray-500 animate-pulse">
-                            <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center"><Loader2 size={16} className="animate-spin"/></div>
-                            <span>Analyzing documents...</span>
-                        </div>
-                    )}
+                    {isChatLoading && <div className="flex items-center gap-3 text-sm text-gray-500 animate-pulse"><div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center"><Loader2 size={16} className="animate-spin"/></div><span>Analyzing documents...</span></div>}
                 </div>
 
                 <div className="p-6 bg-white border-t border-gray-100">
                     <div className="flex gap-3 relative items-center max-w-4xl mx-auto">
-                        <button
-                            onMouseDown={startRecording}
-                            onMouseUp={stopRecording}
-                            onMouseLeave={stopRecording}
-                            disabled={isChatLoading}
-                            className={`p-4 rounded-2xl transition-all duration-200 ${isRecording ? 'bg-red-500 text-white scale-110 shadow-lg shadow-red-200 ring-4 ring-red-100' : 'bg-gray-100 text-gray-500 hover:bg-black hover:text-white'}`}
-                        >
+                        <button onMouseDown={startRecording} onMouseUp={stopRecording} onMouseLeave={stopRecording} disabled={isChatLoading} className={`p-4 rounded-2xl transition-all duration-200 ${isRecording ? 'bg-red-500 text-white scale-110 shadow-lg shadow-red-200 ring-4 ring-red-100' : 'bg-gray-100 text-gray-500 hover:bg-black hover:text-white'}`}>
                             {isRecording ? <StopCircle size={20} className="animate-pulse" /> : <Mic size={20} />}
                         </button>
-
                         <div className="flex-1 relative">
-                            <input 
-                                className="w-full bg-gray-100 border-none rounded-2xl py-4 pl-6 pr-14 text-sm focus:outline-none focus:ring-2 focus:ring-black/5 placeholder:text-gray-400 transition-all" 
-                                placeholder={isRecording ? "Listening..." : `Ask ${chatMode === 'simple' ? 'Fast' : 'Deep'} Chat...`}
-                                value={chatInput} 
-                                onChange={e => setChatInput(e.target.value)} 
-                                onKeyDown={e => e.key === 'Enter' && sendFolderMessage()} 
-                                disabled={isRecording}
-                            />
+                            <input className="w-full bg-gray-100 border-none rounded-2xl py-4 pl-6 pr-14 text-sm focus:outline-none focus:ring-2 focus:ring-black/5 placeholder:text-gray-400 transition-all" placeholder={isRecording ? "Listening..." : `Ask ${chatMode === 'simple' ? 'Fast' : 'Deep'} Chat...`} value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendFolderMessage()} disabled={isRecording} />
                             <button onClick={sendFolderMessage} className="absolute right-2 top-2 p-2 bg-white text-black rounded-xl hover:scale-110 shadow-sm transition"><Send size={18}/></button>
                         </div>
                     </div>
