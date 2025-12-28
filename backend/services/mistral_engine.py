@@ -56,8 +56,6 @@ class MistralEngine:
     def search_single_doc(self, query: str, doc_id: str) -> List[dict]:
         query_vector = self.get_embedding(query)
         
-        # 1. Get the "Center" matches (Ranked by similarity)
-        # Note: This relies on your updated SQL function returning 'id'
         params = {
             "query_embedding": query_vector, 
             "match_threshold": 0.01, 
@@ -66,51 +64,38 @@ class MistralEngine:
         }
         
         try:
-            # Check if V2 exists, otherwise fall back to V1. 
-            # If you updated 'match_page_sections' directly, this works fine.
+            # 1. Run the Search
             res = self.supabase.rpc("match_page_sections_v2", params).execute()
-            
             if not res.data: return []
 
-            # 2. Collect IDs and Calculate "Window" IDs (Previous and Next chunks)
-            # We want [ID-1, ID, ID+1] to give the AI full paragraphs.
-            center_ids = [row['id'] for row in res.data]
-            neighbor_ids = []
-            for cid in center_ids:
-                neighbor_ids.extend([cid - 1, cid, cid + 1])
-            
-            # Remove duplicates and filter invalid IDs (e.g. -1)
-            unique_ids_to_fetch = sorted(list(set([i for i in neighbor_ids if i > 0])))
+            # 2. Strategy: "Whole Page Context"
+            # Since IDs are UUIDs, we can't calculate 'ID - 1'.
+            # Instead, we find which PAGES matched, and fetch ALL text from those pages.
+            relevant_pages = set()
+            for row in res.data:
+                relevant_pages.add(row['page_number'])
 
-            # 3. Fetch the content for this expanded window
-            context_res = self.supabase.table("document_pages")\
-                .select("id, content, page_number")\
-                .in_("id", unique_ids_to_fetch)\
-                .order("id")\
-                .execute()
-            
-            # 4. Group them back into "Extended Chunks"
             extended_chunks = []
-            rows_by_id = {r['id']: r for r in context_res.data}
             
-            for cid in center_ids:
-                # Reconstruct the window: Prev + Center + Next
-                prev_chunk = rows_by_id.get(cid - 1, {}).get('content', '')
-                center_chunk = rows_by_id.get(cid, {}).get('content', '')
-                next_chunk = rows_by_id.get(cid + 1, {}).get('content', '')
+            # Fetch full content for each relevant page
+            for p_num in sorted(list(relevant_pages)):
+                # Get all chunks for this specific page
+                page_res = self.supabase.table("document_pages")\
+                    .select("content")\
+                    .eq("document_id", doc_id)\
+                    .eq("page_number", p_num)\
+                    .execute()
                 
-                # Merge them nicely with newlines to form a coherent passage
-                combined_text = f"{prev_chunk}\n{center_chunk}\n{next_chunk}".strip()
-                
-                # Get the metadata from the CENTER chunk
-                center_meta = rows_by_id.get(cid, {})
-                
-                extended_chunks.append({
-                    "content": combined_text, # NOW CONTAINS ~3x MORE CONTEXT
-                    "page": center_meta.get('page_number', 1),
-                    "id": cid,
-                    "similarity": 0 # We prioritize context over raw score here
-                })
+                if page_res.data:
+                    # Combine chunks into one clean readable block
+                    full_page_text = "\n\n".join([c['content'] for c in page_res.data])
+                    
+                    extended_chunks.append({
+                        "content": full_page_text, # Contains full page context!
+                        "page": p_num,
+                        "id": str(uuid.uuid4()), # Dummy ID (not used for logic anymore)
+                        "similarity": 0
+                    })
 
             return extended_chunks
 
