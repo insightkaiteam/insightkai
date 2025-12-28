@@ -9,6 +9,7 @@ from openai import OpenAI
 from supabase import create_client, Client
 from pydantic import BaseModel, Field
 
+# --- SCHEMA DEFINITION ---
 class VisualContext(BaseModel):
     image_description: str = Field(..., description="Detailed description of the image visual content.")
     data_extraction: str = Field(..., description="If this is a chart/table, transcribe the key numbers, axis labels, and trends. If a diagram, describe the flow.")
@@ -51,27 +52,68 @@ class MistralEngine:
             print(f"Error getting folder files: {e}")
             return []
 
-    # --- SOTA UPGRADE: Broad Retrieval (30 Chunks) ---
+    # --- SOTA UPGRADE: Sliding Window Retrieval ---
     def search_single_doc(self, query: str, doc_id: str) -> List[dict]:
         query_vector = self.get_embedding(query)
-        # Increased match_count to 30 to allow the Re-ranker to find the best needles in the haystack
-        params = {"query_embedding": query_vector, "match_threshold": 0.01, "match_count": 30, "filter_doc_id": doc_id}
+        
+        # 1. Get the "Center" matches (Ranked by similarity)
+        # Note: This relies on your updated SQL function returning 'id'
+        params = {
+            "query_embedding": query_vector, 
+            "match_threshold": 0.01, 
+            "match_count": 5, 
+            "filter_doc_id": doc_id
+        }
         
         try:
-            res = self.supabase.rpc("match_page_sections", params).execute()
-            chunks = []
-            if res.data:
-                for row in res.data:
-                    content = row.get('content')
-                    if not content: continue
-                    chunks.append({
-                        "content": content,
-                        "page": row.get('page_number', 1),
-                        "similarity": row.get('similarity', 0),
-                        # Store ID to help with deduplication if needed
-                        "id": row.get('id', uuid.uuid4().hex) 
-                    })
-            return chunks
+            # Check if V2 exists, otherwise fall back to V1. 
+            # If you updated 'match_page_sections' directly, this works fine.
+            res = self.supabase.rpc("match_page_sections_v2", params).execute()
+            
+            if not res.data: return []
+
+            # 2. Collect IDs and Calculate "Window" IDs (Previous and Next chunks)
+            # We want [ID-1, ID, ID+1] to give the AI full paragraphs.
+            center_ids = [row['id'] for row in res.data]
+            neighbor_ids = []
+            for cid in center_ids:
+                neighbor_ids.extend([cid - 1, cid, cid + 1])
+            
+            # Remove duplicates and filter invalid IDs (e.g. -1)
+            unique_ids_to_fetch = sorted(list(set([i for i in neighbor_ids if i > 0])))
+
+            # 3. Fetch the content for this expanded window
+            context_res = self.supabase.table("document_pages")\
+                .select("id, content, page_number")\
+                .in_("id", unique_ids_to_fetch)\
+                .order("id")\
+                .execute()
+            
+            # 4. Group them back into "Extended Chunks"
+            extended_chunks = []
+            rows_by_id = {r['id']: r for r in context_res.data}
+            
+            for cid in center_ids:
+                # Reconstruct the window: Prev + Center + Next
+                prev_chunk = rows_by_id.get(cid - 1, {}).get('content', '')
+                center_chunk = rows_by_id.get(cid, {}).get('content', '')
+                next_chunk = rows_by_id.get(cid + 1, {}).get('content', '')
+                
+                # Merge them nicely with newlines to form a coherent passage
+                combined_text = f"{prev_chunk}\n{center_chunk}\n{next_chunk}".strip()
+                
+                # Get the metadata from the CENTER chunk
+                center_meta = rows_by_id.get(cid, {})
+                
+                extended_chunks.append({
+                    "content": combined_text, # NOW CONTAINS ~3x MORE CONTEXT
+                    "page": center_meta.get('page_number', 1),
+                    "id": cid,
+                    "similarity": 0 # We prioritize context over raw score here
+                })
+
+            return extended_chunks
+
         except Exception as e:
             print(f"Search Error: {e}")
             return []
@@ -93,7 +135,7 @@ class MistralEngine:
             preview_text = full_text[:8000]
             system_prompt = (
                 "You are a sophisticated document analyzer. Analyze the text and return a summary in EXACTLY this format:\n\n"
-                "[TAG]: <Classify into one: INVOICE, RESEARCH, FINANCIAL, LEGAL, RECEIPT, OTHER>\n"
+                "[TAG]: <Classify into one: INVOICE, RESEARCH, FINANCIAL, LEGAL, RECEIPT, RESUME, OTHER>\n"
                 "[DESC]: <A single, concise sentence describing the file (e.g. 'August 2023 Power Bill for $150')>\n"
                 "[DETAILED]: <A dense, 5-10 line summary containing specific entities (company names, authors), dates, key outcomes, core themes, and numerical data. This will be used for search retrieval, so be specific.>"
             )
