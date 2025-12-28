@@ -10,6 +10,33 @@ import Link from 'next/link';
 // ⚠️ REPLACE WITH YOUR RENDER URL
 const BACKEND_URL = "https://insightkai.onrender.com"; 
 
+// --- TYPEWRITER COMPONENT ---
+const Typewriter = ({ content, animate = false }: { content: string, animate?: boolean }) => {
+  const [displayedContent, setDisplayedContent] = useState(animate ? "" : content);
+  const hasAnimated = useRef(!animate);
+
+  useEffect(() => {
+    if (hasAnimated.current) {
+      setDisplayedContent(content);
+      return;
+    }
+    let i = -1;
+    const speed = 5; 
+    const timer = setInterval(() => {
+      i++;
+      if (i <= content.length) setDisplayedContent(content.slice(0, i));
+      else { clearInterval(timer); hasAnimated.current = true; }
+    }, speed);
+    return () => clearInterval(timer);
+  }, [content, animate]);
+
+  return (
+    <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+        {displayedContent}
+    </ReactMarkdown>
+  );
+};
+
 export default function ChatPage({ params }: { params: Promise<{ docId: string }> }) {
   const { docId } = use(params);
   const [messages, setMessages] = useState<{role: string, content: string, citations?: any[]}[]>([]);
@@ -26,41 +53,30 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
 
   useEffect(() => {
     setPdfUrl(`${BACKEND_URL}/documents/${docId}/download`);
-    const fetchHistory = async () => {
-       // Optional: Fetch previous chat history if you implement persistence later
-    };
-    fetchHistory();
   }, [docId]);
 
-  // --- UPDATED SEND MESSAGE FUNCTION ---
-  // Fix: Accepts an optional 'textOverride' string
   const sendMessage = async (textOverride?: string) => {
-    // Determine the message to send: use the override if provided, otherwise use input state
     const messageToSend = typeof textOverride === 'string' ? textOverride : input;
-
     if (!messageToSend.trim()) return;
 
-    // 1. Add User Message to UI
     const userMsg = { role: 'user', content: messageToSend };
     const newHistory = [...messages, userMsg];
     setMessages(newHistory);
     
-    setInput(''); // Clear the input box
+    setInput(''); 
     setIsLoading(true);
 
     try {
-      // 2. Prepare History Payload
       const historyPayload = messages.map(m => ({
         role: m.role === 'user' ? 'user' : 'assistant',
         content: m.content
       }));
 
-      // 3. Send to Backend
       const response = await fetch(`${BACKEND_URL}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-            message: messageToSend, // Use the local variable, not state
+            message: messageToSend, 
             document_id: docId,
             history: historyPayload 
         }),
@@ -69,7 +85,6 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
       if (!response.ok) throw new Error('Network error');
       const data = await response.json();
 
-      // 4. Add AI Response
       setMessages(prev => [...prev, { 
           role: 'ai', 
           content: data.answer,
@@ -84,39 +99,27 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
     }
   };
 
-  // --- AUDIO RECORDING ---
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaRecorderRef.current = new MediaRecorder(stream);
       chunksRef.current = [];
-      
-      mediaRecorderRef.current.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
-      };
-
+      mediaRecorderRef.current.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
       mediaRecorderRef.current.onstop = async () => {
         const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm' });
         const formData = new FormData();
         formData.append("file", audioBlob, "recording.webm");
-        
         setIsLoading(true);
         try {
           const res = await fetch(`${BACKEND_URL}/transcribe`, { method: 'POST', body: formData });
           const data = await res.json();
-          
-          // Now this line works because we updated sendMessage signature
           if (data.text) sendMessage(data.text); 
-          
         } catch (error) { console.error("Error", error); } 
         finally { setIsLoading(false); }
       };
-
       mediaRecorderRef.current.start();
       setIsRecording(true);
-    } catch (e) {
-      alert("Microphone access denied");
-    }
+    } catch (e) { alert("Microphone access denied"); }
   };
 
   const stopRecording = () => {
@@ -179,16 +182,23 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
                         ? 'bg-black text-white rounded-br-none' 
                         : 'bg-white border border-gray-200 text-gray-800 rounded-bl-none'
                     }`}>
-                        <div className={`prose prose-sm ${m.role === 'user' ? 'prose-invert' : ''}`}>
-                            <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-                                {m.content}
-                            </ReactMarkdown>
-                        </div>
+                        {/* TYPEWRITER */}
+                        {m.role === 'ai' ? (
+                            <div className="prose prose-sm">
+                                <Typewriter content={m.content} animate={i === messages.length - 1} />
+                            </div>
+                        ) : (
+                            <div className="prose prose-sm prose-invert">
+                                <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                                    {m.content}
+                                </ReactMarkdown>
+                            </div>
+                        )}
                     </div>
 
                     {/* Citations */}
                     {m.role === 'ai' && m.citations && m.citations.length > 0 && (
-                        <div className="mt-3 space-y-2 w-[85%]">
+                        <div className="mt-3 space-y-2 w-[85%] animate-in fade-in slide-in-from-top-2 duration-500">
                             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1">
                                 <MapPin size={10} /> Source Highlights
                             </p>

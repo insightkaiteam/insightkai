@@ -28,6 +28,37 @@ interface UploadItem {
   status: 'pending' | 'uploading' | 'completed' | 'error';
 }
 
+// --- TYPEWRITER COMPONENT ---
+const Typewriter = ({ content, animate = false }: { content: string, animate?: boolean }) => {
+  const [displayedContent, setDisplayedContent] = useState(animate ? "" : content);
+  const hasAnimated = useRef(!animate);
+
+  useEffect(() => {
+    if (hasAnimated.current) {
+      setDisplayedContent(content);
+      return;
+    }
+
+    let i = -1;
+    // Faster speed (5ms) to make it feel responsive but smooth
+    const speed = 5; 
+    
+    const timer = setInterval(() => {
+      i++;
+      if (i <= content.length) {
+        setDisplayedContent(content.slice(0, i));
+      } else {
+        clearInterval(timer);
+        hasAnimated.current = true;
+      }
+    }, speed);
+
+    return () => clearInterval(timer);
+  }, [content, animate]);
+
+  return <ReactMarkdown>{displayedContent}</ReactMarkdown>;
+};
+
 export default function Dashboard() {
   const [folders, setFolders] = useState<string[]>([]);
   const [docs, setDocs] = useState<Doc[]>([]);
@@ -41,7 +72,7 @@ export default function Dashboard() {
   const [newFolderName, setNewFolderName] = useState("");
   const [showNewFolderInput, setShowNewFolderInput] = useState(false);
   
-  // Chat State (Tri-state: null, simple, deep)
+  // Chat State
   const [chatMode, setChatMode] = useState<'simple' | 'deep' | null>(null);
   const [chatMessages, setChatMessages] = useState<{role: string, content: string, citations?: any[]}[]>([]);
   const [chatInput, setChatInput] = useState("");
@@ -220,25 +251,23 @@ export default function Dashboard() {
   };
 
   // --- CHAT LOGIC ---
- const toggleChat = (mode: 'simple' | 'deep') => {
+  const toggleChat = (mode: 'simple' | 'deep') => {
     if (chatMode === mode) setChatMode(null);
     else setChatMode(mode);
   };
 
- const sendFolderMessage = async () => {
+  const sendFolderMessage = async () => {
     if (!chatInput.trim() || !chatMode) return;
     
     const userMsg = { role: 'user', content: chatInput };
-    // Create optimistic update
-    const newHistory = [...chatMessages, userMsg];
-    setChatMessages(newHistory);
+    setChatMessages(prev => [...prev, userMsg]);
     
     const msgToSend = chatInput;
     setChatInput("");
     setIsChatLoading(true);
     
     try {
-      // Prepare history for backend (map 'ai' to 'assistant')
+      // Pass History
       const historyPayload = chatMessages.map(m => ({
         role: m.role === 'user' ? 'user' : 'assistant',
         content: m.content
@@ -251,14 +280,14 @@ export default function Dashboard() {
             message: msgToSend, 
             folder_name: currentFolder, 
             mode: chatMode,
-            history: historyPayload // NEW: Send history
+            history: historyPayload
         }),
       });
       const data = await res.json();
       
       setChatMessages(prev => [...prev, { 
           role: 'ai', 
-          content: data.answer, 
+          content: data.answer,
           citations: data.citations || [] 
       }]);
     } catch (e) {
@@ -297,7 +326,7 @@ export default function Dashboard() {
         </div>
       </aside>
 
-      {/* 2. MAIN CONTENT AREA */}
+      {/* 2. MAIN CONTENT */}
       <div className={`flex-1 p-8 overflow-y-auto transition-all duration-500 ${chatMode ? 'mr-[400px]' : ''}`}>
         <div className="max-w-7xl mx-auto">
             
@@ -364,7 +393,7 @@ export default function Dashboard() {
                 </div>
             )}
 
-            {/* FILES - IMPROVED LAYOUT */}
+            {/* FILES */}
             {currentFolder && (
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                     {docs.filter(doc => doc.folder === currentFolder).map((doc) => {
@@ -373,7 +402,7 @@ export default function Dashboard() {
                             <div key={doc.id} className="group bg-white p-5 rounded-3xl border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all flex items-start gap-4 relative overflow-hidden h-full">
                                 {doc.status === 'processing' && <div className="absolute top-0 left-0 w-full h-1 bg-blue-100"><div className="h-full bg-blue-500 animate-progress origin-left"></div></div>}
                                 
-                                {/* 1. ACTIONS COLUMN (Left, Always Visible) */}
+                                {/* ACTIONS COLUMN */}
                                 <div className="flex flex-col gap-3 shrink-0 pt-1">
                                     {doc.status !== 'processing' ? (
                                         <Link href={`/chat/${doc.id}`} title="Chat with document">
@@ -392,14 +421,13 @@ export default function Dashboard() {
                                     </button>
                                 </div>
 
-                                {/* 2. CONTENT COLUMN (Full Width) */}
+                                {/* CONTENT COLUMN */}
                                 <div className="min-w-0 flex-1 border-l border-gray-100 pl-4 py-1">
                                     <div className="flex items-start gap-2 mb-2 flex-wrap">
                                         <h3 className="font-bold text-gray-900 text-sm leading-snug break-words">{doc.title}</h3>
                                         {tag && <span className={`shrink-0 px-2 py-0.5 rounded-lg text-[10px] font-extrabold border uppercase tracking-wider ${getTagColor(tag)}`}>{tag}</span>}
                                     </div>
                                     
-                                    {/* Description - Full Text (No Truncate) */}
                                     <p className="text-xs text-gray-500 leading-relaxed whitespace-normal break-words">
                                         {desc}
                                     </p>
@@ -423,7 +451,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* 3. UPLOAD QUEUE PANEL */}
+      {/* 3. UPLOAD QUEUE */}
       {uploadQueue.length > 0 && (
           <div className="fixed bottom-6 right-6 w-80 bg-white rounded-2xl shadow-2xl border border-gray-200 z-50 overflow-hidden animate-in slide-in-from-bottom-10 fade-in duration-300">
               <div className="bg-black text-white p-3 flex justify-between items-center">
@@ -485,12 +513,19 @@ export default function Dashboard() {
             {chatMessages.map((m, i) => (
                 <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
                     <div className={`p-5 max-w-[85%] rounded-2xl text-sm leading-relaxed shadow-sm ${m.role === 'user' ? 'bg-black text-white rounded-br-none' : 'bg-white border border-gray-100 text-gray-700 rounded-bl-none'}`}>
-                        <div className={`prose prose-sm ${m.role === 'user' ? 'prose-invert' : ''}`}><ReactMarkdown>{m.content}</ReactMarkdown></div>
+                        {/* TYPEWRITER FOR AI */}
+                        {m.role === 'ai' ? (
+                            <div className="prose prose-sm">
+                                <Typewriter content={m.content} animate={i === chatMessages.length - 1} />
+                            </div>
+                        ) : (
+                            <div className="prose prose-sm prose-invert"><ReactMarkdown>{m.content}</ReactMarkdown></div>
+                        )}
                     </div>
                     {m.role === 'ai' && m.citations && m.citations.length > 0 && (
-                        <div className="mt-4 w-[85%] grid grid-cols-1 gap-2">
+                        <div className="mt-4 w-[85%] grid grid-cols-1 gap-2 animate-in fade-in slide-in-from-top-2 duration-500">
                             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1 mb-1"><Quote size={10} /> Verified Sources</p>
-                            {m.citations.slice(0, 3).map((cit: any, idx: number) => {
+                            {m.citations.slice(0, 5).map((cit: any, idx: number) => {
                                 const docId = findDocIdByTitle(cit.source);
                                 const content = (
                                     <div className="bg-white/50 hover:bg-blue-50/50 border border-gray-200 hover:border-blue-200 p-3 rounded-xl transition-all cursor-pointer group shadow-sm hover:shadow-md">

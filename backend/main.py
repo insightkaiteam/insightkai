@@ -2,10 +2,9 @@ from fastapi import FastAPI, UploadFile, File, HTTPException, Form, BackgroundTa
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from fastapi.responses import Response
-from typing import List, Optional, Dict # Added Dict
+from typing import List, Optional, Dict
 import io
 import uuid
-# Import services
 from services.pdf_engine import PDFEngine
 from services.openai_service import OpenAIService
 from services.mistral_engine import MistralEngine
@@ -23,29 +22,24 @@ pdf_engine = PDFEngine()
 ai_service = OpenAIService()
 ocr_engine = MistralEngine()
 
-# --- UPDATED REQUEST MODEL ---
 class ChatRequest(BaseModel):
     message: str
     document_id: Optional[str] = None 
     folder_name: Optional[str] = None
     mode: Optional[str] = "simple"
-    # NEW: History field (List of {role: 'user'|'assistant', content: '...'})
     history: Optional[List[Dict[str, str]]] = [] 
 
 class FolderRequest(BaseModel):
     name: str
 
 @app.get("/")
-def read_root():
-    return {"status": "Backend is running", "message": "Ready"}
+def read_root(): return {"status": "Backend is running", "message": "Ready"}
 
 @app.get("/documents")
-def get_documents():
-    return {"documents": ocr_engine.get_documents()}
+def get_documents(): return {"documents": ocr_engine.get_documents()}
 
 @app.get("/folders")
-def get_folders():
-    return {"folders": pdf_engine.get_folders()}
+def get_folders(): return {"folders": pdf_engine.get_folders()}
 
 @app.post("/folders")
 def create_folder(req: FolderRequest):
@@ -57,8 +51,7 @@ def delete_folder(folder_name: str):
     try:
         pdf_engine.delete_folder(folder_name)
         return {"status": "success", "folders": pdf_engine.get_folders()}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e: raise HTTPException(status_code=400, detail=str(e))
 
 @app.delete("/documents/{doc_id}")
 def delete_document(doc_id: str):
@@ -66,79 +59,57 @@ def delete_document(doc_id: str):
     return {"status": "success"}
 
 @app.get("/documents/{doc_id}/debug_search")
-def debug_search_endpoint(doc_id: str, query: str):
-    return ocr_engine.debug_search(doc_id, query)
+def debug_search_endpoint(doc_id: str, query: str): return ocr_engine.debug_search(doc_id, query)
 
 @app.get("/documents/{doc_id}/debug")
-def debug_document(doc_id: str):
-    return ocr_engine.debug_document(doc_id)
+def debug_document(doc_id: str): return ocr_engine.debug_document(doc_id)
 
 @app.post("/upload")
-async def upload_document(
-    background_tasks: BackgroundTasks, 
-    file: UploadFile = File(...),
-    folder: str = Form("General")
-):
-    if not file.filename.endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="File must be a PDF")
-    
+async def upload_document(background_tasks: BackgroundTasks, file: UploadFile = File(...), folder: str = Form("General")):
+    if not file.filename.endswith(".pdf"): raise HTTPException(status_code=400, detail="File must be a PDF")
     file_bytes = await file.read()
     doc_id = str(uuid.uuid4())
-    
     try:
-        ocr_engine.supabase.table("documents").insert({
-            "id": doc_id,
-            "title": file.filename,
-            "folder": folder,
-            "status": "processing"
-        }).execute()
-        
-        background_tasks.add_task(
-            ocr_engine.process_pdf_background, 
-            doc_id, 
-            file_bytes, 
-            file.filename, 
-            folder
-        )
-        
+        ocr_engine.supabase.table("documents").insert({"id": doc_id, "title": file.filename, "folder": folder, "status": "processing"}).execute()
+        background_tasks.add_task(ocr_engine.process_pdf_background, doc_id, file_bytes, file.filename, folder)
         return {"status": "processing", "doc_id": doc_id}
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/documents/{doc_id}/status")
 def get_document_status(doc_id: str):
     res = ocr_engine.supabase.table("documents").select("status, summary").eq("id", doc_id).execute()
-    if not res.data:
-        raise HTTPException(status_code=404, detail="Document not found")
+    if not res.data: raise HTTPException(status_code=404, detail="Document not found")
     return res.data[0]
 
-# --- UPDATED CHAT ENDPOINT ---
+# --- SOTA CHAT ENDPOINT ---
 @app.post("/chat")
 async def chat(request: ChatRequest):
     relevant_chunks = []
     mode_arg = "single_doc"
 
-    # 1. INDIVIDUAL DOCUMENT CHAT
+    # 1. CONTEXTUAL REWRITING (Fixes "What is the image on page 48?" -> "Summarize it")
+    # We always refine the query based on history before searching
+    refined_query = ai_service.generate_refined_query(request.history, request.message)
+
+    # 2. INDIVIDUAL DOCUMENT CHAT
     if request.document_id:
-        relevant_chunks = ocr_engine.search_single_doc(request.message, request.document_id)
+        # Search with the REFINED query
+        relevant_chunks = ocr_engine.search_single_doc(refined_query, request.document_id)
         mode_arg = "single_doc"
 
-    # 2. FOLDER CHAT
+    # 3. FOLDER CHAT
     elif request.folder_name:
         if request.mode == "deep":
-            # DEEP MODE: Select -> Fetch -> Synthesize
             mode_arg = "folder_deep"
-            
             all_files = ocr_engine.get_folder_files(request.folder_name)
             
-            # NOTE: We can optionally pass history to select_relevant_files too, 
-            # but for now let's keep selection simple based on the current query
-            selected_ids = ai_service.select_relevant_files(all_files, request.message)
+            # Select files based on original or refined query (refined is safer)
+            selected_ids = ai_service.select_relevant_files(all_files, refined_query)
             
             for doc_id in selected_ids:
                 title = next((f['title'] for f in all_files if f['id'] == doc_id), "Unknown")
-                doc_chunks = ocr_engine.search_single_doc(request.message, doc_id)
+                # Broad Search (30 chunks per file handled in engine)
+                doc_chunks = ocr_engine.search_single_doc(refined_query, doc_id)
                 for chunk in doc_chunks:
                     chunk['source'] = title 
                     relevant_chunks.append(chunk)
@@ -146,13 +117,12 @@ async def chat(request: ChatRequest):
             # Fallback
             if not relevant_chunks and all_files:
                  for f in all_files[:3]:
-                     doc_chunks = ocr_engine.search_single_doc(request.message, f['id'])
+                     doc_chunks = ocr_engine.search_single_doc(refined_query, f['id'])
                      for chunk in doc_chunks:
                          chunk['source'] = f['title']
                          relevant_chunks.append(chunk)
 
         else:
-            # FAST MODE
             mode_arg = "folder_fast"
             raw_files = ocr_engine.get_folder_files(request.folder_name)
             for f in raw_files:
@@ -163,12 +133,12 @@ async def chat(request: ChatRequest):
                     "type": "summary"
                 })
 
-    # 3. GENERATE ANSWER (Pass History)
+    # 4. GENERATE ANSWER (Chunks are filtered inside get_answer)
     result = ai_service.get_answer(
         relevant_chunks, 
-        request.message, 
+        request.message, # We pass the original user question to the final prompt for naturalness
         mode=mode_arg,
-        history=request.history # Pass history to service
+        history=request.history
     )
     
     return result
@@ -176,9 +146,7 @@ async def chat(request: ChatRequest):
 @app.get("/documents/{doc_id}/download")
 def download_pdf(doc_id: str):
     pdf_bytes = pdf_engine.get_pdf_bytes(doc_id)
-    if not pdf_bytes:
-        raise HTTPException(status_code=404, detail="PDF not found")
-    
+    if not pdf_bytes: raise HTTPException(status_code=404, detail="PDF not found")
     return Response(content=pdf_bytes, media_type="application/pdf")
 
 @app.post("/transcribe")

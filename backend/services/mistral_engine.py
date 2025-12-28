@@ -9,7 +9,6 @@ from openai import OpenAI
 from supabase import create_client, Client
 from pydantic import BaseModel, Field
 
-# --- SCHEMA DEFINITION (Unchanged) ---
 class VisualContext(BaseModel):
     image_description: str = Field(..., description="Detailed description of the image visual content.")
     data_extraction: str = Field(..., description="If this is a chart/table, transcribe the key numbers, axis labels, and trends. If a diagram, describe the flow.")
@@ -30,7 +29,6 @@ class MistralEngine:
         text = text.replace("\n", " ")
         return self.openai.embeddings.create(input=[text], model="text-embedding-3-small").data[0].embedding
 
-    # --- NEW: Get File Summaries for Selection ---
     def get_folder_files(self, folder_name: str) -> List[dict]:
         try:
             res = self.supabase.table("documents")\
@@ -53,11 +51,11 @@ class MistralEngine:
             print(f"Error getting folder files: {e}")
             return []
 
-    # --- UPDATED: Increased match_count to 12 for more references ---
+    # --- SOTA UPGRADE: Broad Retrieval (30 Chunks) ---
     def search_single_doc(self, query: str, doc_id: str) -> List[dict]:
         query_vector = self.get_embedding(query)
-        # Increased limit from 8 to 12
-        params = {"query_embedding": query_vector, "match_threshold": 0.01, "match_count": 12, "filter_doc_id": doc_id}
+        # Increased match_count to 30 to allow the Re-ranker to find the best needles in the haystack
+        params = {"query_embedding": query_vector, "match_threshold": 0.01, "match_count": 30, "filter_doc_id": doc_id}
         
         try:
             res = self.supabase.rpc("match_page_sections", params).execute()
@@ -69,24 +67,14 @@ class MistralEngine:
                     chunks.append({
                         "content": content,
                         "page": row.get('page_number', 1),
-                        "similarity": row.get('similarity', 0)
+                        "similarity": row.get('similarity', 0),
+                        # Store ID to help with deduplication if needed
+                        "id": row.get('id', uuid.uuid4().hex) 
                     })
             return chunks
         except Exception as e:
             print(f"Search Error: {e}")
             return []
-
-    # --- HELPERS (Unchanged) ---
-    def get_folder_manifest(self, folder_name: str) -> str:
-        try:
-            res = self.supabase.table("documents").select("title, summary").eq("folder", folder_name).execute()
-            if not res.data: return "This folder is empty."
-            manifest = f"### 📂 FOLDER: {folder_name}\n"
-            for doc in res.data:
-                s = doc.get('summary', '').split("---_SEPARATOR_---")[0].replace("**Content Summary:**", "").strip()
-                manifest += f"- **{doc['title']}**: {s}\n"
-            return manifest
-        except: return ""
 
     def _chunk_markdown(self, text: str) -> List[str]:
         chunks = []
