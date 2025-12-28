@@ -2,7 +2,7 @@ from fastapi import FastAPI, UploadFile, File, HTTPException, Form, BackgroundTa
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from fastapi.responses import Response
-from typing import List, Optional
+from typing import List, Optional, Dict # Added Dict
 import io
 import uuid
 # Import services
@@ -23,11 +23,14 @@ pdf_engine = PDFEngine()
 ai_service = OpenAIService()
 ocr_engine = MistralEngine()
 
+# --- UPDATED REQUEST MODEL ---
 class ChatRequest(BaseModel):
     message: str
     document_id: Optional[str] = None 
     folder_name: Optional[str] = None
-    mode: Optional[str] = "simple" 
+    mode: Optional[str] = "simple"
+    # NEW: History field (List of {role: 'user'|'assistant', content: '...'})
+    history: Optional[List[Dict[str, str]]] = [] 
 
 class FolderRequest(BaseModel):
     name: str
@@ -114,27 +117,25 @@ def get_document_status(doc_id: str):
 @app.post("/chat")
 async def chat(request: ChatRequest):
     relevant_chunks = []
-    mode_arg = "single_doc" # Default safety
+    mode_arg = "single_doc"
 
-    # 1. INDIVIDUAL DOCUMENT CHAT (High Priority)
+    # 1. INDIVIDUAL DOCUMENT CHAT
     if request.document_id:
         relevant_chunks = ocr_engine.search_single_doc(request.message, request.document_id)
         mode_arg = "single_doc"
 
     # 2. FOLDER CHAT
     elif request.folder_name:
-        
         if request.mode == "deep":
-            # --- DEEP MODE: Select -> Fetch -> Synthesize ---
+            # DEEP MODE: Select -> Fetch -> Synthesize
             mode_arg = "folder_deep"
             
-            # A. Get all file summaries
             all_files = ocr_engine.get_folder_files(request.folder_name)
             
-            # B. AI selects the top relevant files
+            # NOTE: We can optionally pass history to select_relevant_files too, 
+            # but for now let's keep selection simple based on the current query
             selected_ids = ai_service.select_relevant_files(all_files, request.message)
             
-            # C. Fetch chunks for selected files using working logic
             for doc_id in selected_ids:
                 title = next((f['title'] for f in all_files if f['id'] == doc_id), "Unknown")
                 doc_chunks = ocr_engine.search_single_doc(request.message, doc_id)
@@ -151,7 +152,7 @@ async def chat(request: ChatRequest):
                          relevant_chunks.append(chunk)
 
         else:
-            # --- FAST MODE: Summaries Only ---
+            # FAST MODE
             mode_arg = "folder_fast"
             raw_files = ocr_engine.get_folder_files(request.folder_name)
             for f in raw_files:
@@ -162,11 +163,12 @@ async def chat(request: ChatRequest):
                     "type": "summary"
                 })
 
-    # 3. GENERATE ANSWER
+    # 3. GENERATE ANSWER (Pass History)
     result = ai_service.get_answer(
         relevant_chunks, 
         request.message, 
-        mode=mode_arg
+        mode=mode_arg,
+        history=request.history # Pass history to service
     )
     
     return result

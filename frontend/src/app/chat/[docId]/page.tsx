@@ -60,38 +60,48 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
     setPdfUrl(newUrl);
   };
 
-  const sendMessage = async (textOverride?: string) => {
-    const messageToSend = textOverride || input;
-    if (!messageToSend.trim()) return;
+ const sendMessage = async () => {
+    if (!input.trim()) return;
+
+    const userMsg = { role: 'user', content: input };
+    const newHistory = [...messages, userMsg];
+    setMessages(newHistory);
     
-    const userMsg = { role: 'user', content: messageToSend };
-    setMessages(prev => [...prev, userMsg]);
+    const msgToSend = input;
     setInput('');
     setIsLoading(true);
-    
+
     try {
-      const res = await fetch(`${BACKEND_URL}/chat`, {
+      // Prepare history
+      const historyPayload = messages.map(m => ({
+        role: m.role === 'user' ? 'user' : 'assistant',
+        content: m.content
+      }));
+
+      const response = await fetch(`${BACKEND_URL}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: messageToSend, document_id: docId }),
+        body: JSON.stringify({ 
+            message: msgToSend, 
+            document_id: docId,
+            history: historyPayload // NEW: Send history
+        }),
       });
-      const data = await res.json();
-      
+
+      if (!response.ok) throw new Error('Network error');
+      const data = await response.json();
+
       setMessages(prev => [...prev, { 
-        role: 'ai', 
-        content: data.answer, 
-        citations: data.citations || [] 
+          role: 'ai', 
+          content: data.answer,
+          citations: data.citations
       }]);
 
-      // Auto-highlight first evidence
-      if (data.citations && data.citations.length > 0) {
-          applyHighlight(data.citations[0].page, data.citations[0].content);
-      }
-
-    } catch (e) { 
-        setMessages(prev => [...prev, { role: 'ai', content: "Error connecting to analysis engine." }]); 
-    } finally { 
-        setIsLoading(false); 
+    } catch (error) {
+      console.error(error);
+      setMessages(prev => [...prev, { role: 'ai', content: "Sorry, something went wrong." }]);
+    } finally {
+      setIsLoading(false);
     }
   };
 

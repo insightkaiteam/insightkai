@@ -15,7 +15,6 @@ class OpenAIService:
         if json_mode: kwargs["response_format"] = {"type": "json_object"}
         return self.client.chat.completions.create(**kwargs)
 
-    # --- AI SELECTION FOR DEEP CHAT ---
     def select_relevant_files(self, file_summaries: List[dict], question: str) -> List[str]:
         if not file_summaries: return []
         context = "AVAILABLE FILES:\n"
@@ -37,18 +36,32 @@ class OpenAIService:
             return data.get("selected_ids", [])
         except: return []
 
+    def _extract_best_sentence(self, full_text: str, query: str) -> str:
+        clean_text = full_text.replace('\n', ' ')
+        sentences = re.split(r'(?<=[.!?])\s+', clean_text)
+        if not sentences: return clean_text[:150]
+        query_words = set(query.lower().split())
+        best_sent = sentences[0]
+        max_overlap = 0
+        for sent in sentences:
+            sent_words = set(sent.lower().split())
+            overlap = len(query_words.intersection(sent_words))
+            if overlap > max_overlap:
+                max_overlap = overlap
+                best_sent = sent
+        return best_sent.strip()
+
     def _normalize(self, text: str) -> str:
-        # Helper to normalize text for fuzzy matching citations
         return re.sub(r'\s+', ' ', text).strip().lower()
 
-    # --- MAIN ANSWER FUNCTION ---
-    def get_answer(self, context_chunks: List[dict], question: str, mode: str = "single_doc", system_message_override: Optional[str] = None) -> Dict[str, Any]:
+    # --- UPDATED: Added history parameter ---
+    def get_answer(self, context_chunks: List[dict], question: str, mode: str = "single_doc", history: List[Dict[str, str]] = []) -> Dict[str, Any]:
         
-        # ====================================================
-        # MODE 1: SINGLE DOCUMENT (UNCHANGED)
-        # ====================================================
+        # 1. Build Persona & System Prompt
+        context_text = ""
+        system_prompt = ""
+
         if mode == "single_doc":
-            context_text = ""
             if context_chunks:
                 for i, chunk in enumerate(context_chunks):
                     context_text += f"\n[ID:{i}] [Page {chunk.get('page', '?')}] {chunk['content']}\n"
@@ -59,41 +72,12 @@ class OpenAIService:
                 "You are a Senior Financial Analyst. Answer the user question based ONLY on the provided context.\n"
                 "You must return a JSON object with two keys:\n"
                 "1. 'answer': A precise, professional answer. Do not mention 'the provided text'—just state the facts.\n"
-                "2. 'quotes': An array of strings. Copy the EXACT sentences from the context that support your answer.\n"
+                "2. 'quotes': An array of strings. Copy the EXACT sentences from the context that support your answer. These will be used for highlighting.\n"
                 "   - If you combine multiple facts, include multiple quotes.\n"
                 "   - Do NOT modify the quotes. They must match the source text exactly for the highlighter to work.\n"
             )
 
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Context:\n{context_text}\n\nQuestion: {question}"}
-            ]
-
-            try:
-                response = self.get_answer_with_backoff(messages=messages)
-                content = response.choices[0].message.content
-                data = json.loads(content)
-                
-                raw_quotes = data.get("quotes", [])
-                formatted_citations = []
-                for q in raw_quotes:
-                    page_num = 1
-                    for c in context_chunks:
-                        if q in c['content']:
-                            page_num = c.get('page', 1)
-                            break
-                    formatted_citations.append({"content": q, "page": page_num, "source": "Document"})
-
-                return {"answer": data.get("answer", ""), "citations": formatted_citations}
-            except Exception as e:
-                print(f"AI Error: {e}")
-                return {"answer": "Error generating response.", "citations": []}
-
-        # ====================================================
-        # MODE 2: FAST FOLDER CHAT (UNCHANGED)
-        # ====================================================
         elif mode == "folder_fast" or mode == "simple":
-            context_text = ""
             if context_chunks:
                 context_text += "--- FILE SUMMARIES ---\n"
                 for i, chunk in enumerate(context_chunks):
@@ -109,23 +93,7 @@ class OpenAIService:
                 "Return JSON: { 'answer': '...', 'quotes': [] }"
             )
 
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Context:\n{context_text}\n\nQuestion: {question}"}
-            ]
-
-            try:
-                response = self.get_answer_with_backoff(messages=messages)
-                data = json.loads(response.choices[0].message.content)
-                return {"answer": data.get("answer", ""), "citations": []}
-            except:
-                return {"answer": "Error in fast search.", "citations": []}
-
-        # ====================================================
-        # MODE 3: DEEP FOLDER CHAT (IMPROVED MATCHING)
-        # ====================================================
         elif mode == "folder_deep":
-            context_text = ""
             if context_chunks:
                 context_text += "--- SELECTED FILE CONTENTS ---\n"
                 for i, chunk in enumerate(context_chunks):
@@ -135,7 +103,6 @@ class OpenAIService:
             else:
                 context_text = "No documents found."
 
-            # Updated Prompt for More Citations
             system_prompt = (
                 "You are a Senior Research Analyst. You are analyzing excerpts from MULTIPLE selected files.\n"
                 "You must return a JSON object with two keys:\n"
@@ -146,27 +113,38 @@ class OpenAIService:
                 "   - Do NOT paraphrase. Exact substrings only.\n"
             )
 
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Context:\n{context_text}\n\nQuestion: {question}"}
-            ]
+        # 2. CONSTRUCT MESSAGES WITH HISTORY
+        messages = [{"role": "system", "content": system_prompt}]
 
-            try:
-                response = self.get_answer_with_backoff(messages=messages)
-                data = json.loads(response.choices[0].message.content)
-                
-                raw_quotes = data.get("quotes", [])
-                formatted_citations = []
-                
+        # Inject History (Last 6 turns to keep context window manageable)
+        if history:
+            for msg in history[-6:]:
+                # Ensure roles are strictly 'user' or 'assistant'
+                role = "user" if msg.get("role") == "user" else "assistant"
+                messages.append({"role": role, "content": msg.get("content", "")})
+
+        # Add current user prompt with RAG context
+        messages.append({"role": "user", "content": f"Context:\n{context_text}\n\nQuestion: {question}"})
+
+        try:
+            response = self.get_answer_with_backoff(messages=messages)
+            content = response.choices[0].message.content
+            data = json.loads(content)
+            
+            # --- CITATION PROCESSING (Logic remains same) ---
+            raw_quotes = data.get("quotes", [])
+            formatted_citations = []
+            
+            # Only process citations for Doc and Deep modes
+            if mode != "folder_fast":
                 for q in raw_quotes:
                     best_match = None
-                    # 1. Try Exact Match First
+                    # 1. Exact Match
                     for c in context_chunks:
                         if q in c['content']:
                             best_match = c
                             break
-                    
-                    # 2. Try Fuzzy Match (Normalized) if exact fails
+                    # 2. Fuzzy Match
                     if not best_match:
                         norm_q = self._normalize(q)
                         for c in context_chunks:
@@ -181,12 +159,10 @@ class OpenAIService:
                         "id": best_match.get('id', 0) if best_match else 0
                     })
 
-                return {"answer": data.get("answer", ""), "citations": formatted_citations}
-            except Exception as e:
-                print(f"Deep Chat Error: {e}")
-                return {"answer": "Error generating deep analysis.", "citations": []}
-
-        return {"answer": f"Invalid Mode: {mode}", "citations": []}
+            return {"answer": data.get("answer", ""), "citations": formatted_citations}
+        except Exception as e:
+            print(f"AI Error: {e}")
+            return {"answer": "Error generating response.", "citations": []}
 
     def transcribe_audio(self, audio_file):
         try:

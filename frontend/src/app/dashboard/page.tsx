@@ -220,28 +220,50 @@ export default function Dashboard() {
   };
 
   // --- CHAT LOGIC ---
-  const toggleChat = (mode: 'simple' | 'deep') => {
+ const toggleChat = (mode: 'simple' | 'deep') => {
     if (chatMode === mode) setChatMode(null);
     else setChatMode(mode);
   };
 
-  const sendFolderMessage = async () => {
+ const sendFolderMessage = async () => {
     if (!chatInput.trim() || !chatMode) return;
+    
     const userMsg = { role: 'user', content: chatInput };
-    setChatMessages(prev => [...prev, userMsg]);
+    // Create optimistic update
+    const newHistory = [...chatMessages, userMsg];
+    setChatMessages(newHistory);
+    
     const msgToSend = chatInput;
     setChatInput("");
     setIsChatLoading(true);
+    
     try {
+      // Prepare history for backend (map 'ai' to 'assistant')
+      const historyPayload = chatMessages.map(m => ({
+        role: m.role === 'user' ? 'user' : 'assistant',
+        content: m.content
+      }));
+
       const res = await fetch(`${BACKEND_URL}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: msgToSend, folder_name: currentFolder, mode: chatMode }),
+        body: JSON.stringify({ 
+            message: msgToSend, 
+            folder_name: currentFolder, 
+            mode: chatMode,
+            history: historyPayload // NEW: Send history
+        }),
       });
       const data = await res.json();
-      setChatMessages(prev => [...prev, { role: 'ai', content: data.answer, citations: data.citations || [] }]);
-    } catch (e) { setChatMessages(prev => [...prev, { role: 'ai', content: "Error reaching backend." }]); } 
-    finally { setIsChatLoading(false); }
+      
+      setChatMessages(prev => [...prev, { 
+          role: 'ai', 
+          content: data.answer, 
+          citations: data.citations || [] 
+      }]);
+    } catch (e) {
+      setChatMessages(prev => [...prev, { role: 'ai', content: "Error reaching backend." }]);
+    } finally { setIsChatLoading(false); }
   };
 
   const findDocIdByTitle = (title: string) => {
