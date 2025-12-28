@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { 
-  Folder, FileText, Trash2, Plus, ArrowLeft, 
+  Folder, FileText, Trash2, Plus, ArrowLeft, ArrowRight,
   X, Send, Loader2, FileClock, BrainCircuit, UploadCloud, 
   LayoutGrid, LogOut, Quote, FileSearch, Mic, StopCircle, Zap,
   CheckCircle2, AlertCircle, Clock
@@ -22,7 +22,7 @@ interface Doc {
   upload_date: string;
 }
 
-// NEW: Upload Item Interface
+// Upload Item Interface
 interface UploadItem {
   id: string;
   file: File;
@@ -58,21 +58,16 @@ export default function Dashboard() {
   // --- 1. QUEUE PROCESSOR ---
   useEffect(() => {
     const processNext = async () => {
-      // If already busy or nothing to do, stop.
       if (isProcessingQueue) return;
-      
-      // Find the next pending item
       const nextItemIndex = uploadQueue.findIndex(item => item.status === 'pending');
-      if (nextItemIndex === -1) return; // All done
+      if (nextItemIndex === -1) return;
 
       setIsProcessingQueue(true);
       const item = uploadQueue[nextItemIndex];
 
-      // 1. Mark as Uploading
       setUploadQueue(prev => prev.map((i, idx) => idx === nextItemIndex ? { ...i, status: 'uploading' } : i));
 
       try {
-        // 2. Perform Upload
         const formData = new FormData();
         formData.append('file', item.file);
         formData.append('folder', currentFolder || "General");
@@ -80,21 +75,16 @@ export default function Dashboard() {
         const res = await fetch(`${BACKEND_URL}/upload`, { method: 'POST', body: formData });
         if (!res.ok) throw new Error("Upload failed");
 
-        // 3. Mark as Completed
         setUploadQueue(prev => prev.map((i, idx) => idx === nextItemIndex ? { ...i, status: 'completed' } : i));
-        refreshData(); // Refresh list immediately to show new file
+        refreshData();
       } catch (e) {
         setUploadQueue(prev => prev.map((i, idx) => idx === nextItemIndex ? { ...i, status: 'error' } : i));
       }
 
-      // 4. RATE LIMIT DELAY (10 Seconds)
-      // Check if there are more items pending before waiting
       const remaining = uploadQueue.filter(i => i.status === 'pending').length;
-      if (remaining > 1) { // Current one is still counted as pending in this scope logic, so check count
-         await new Promise(resolve => setTimeout(resolve, 10000));
-      }
+      if (remaining > 1) await new Promise(resolve => setTimeout(resolve, 10000));
 
-      setIsProcessingQueue(false); // Trigger useEffect again for next item
+      setIsProcessingQueue(false);
     };
 
     processNext();
@@ -103,26 +93,17 @@ export default function Dashboard() {
   // --- 2. UPLOAD HANDLERS ---
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
-    
     const newItems: UploadItem[] = Array.from(e.target.files).map(file => ({
       id: Math.random().toString(36).substr(2, 9),
       file,
       status: 'pending'
     }));
-
     setUploadQueue(prev => [...prev, ...newItems]);
-    // Reset input so same files can be selected again if needed
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const cancelUploads = () => {
-    // Keeps completed/error/uploading, removes pending
-    setUploadQueue(prev => prev.filter(i => i.status !== 'pending'));
-  };
-
-  const clearCompleted = () => {
-    setUploadQueue([]);
-  };
+  const cancelUploads = () => setUploadQueue(prev => prev.filter(i => i.status !== 'pending'));
+  const clearCompleted = () => setUploadQueue([]);
 
   // --- UTILS ---
   const parseSummary = (rawSummary: string) => {
@@ -203,7 +184,7 @@ export default function Dashboard() {
   };
 
   const handleDelete = async (docId: string, e: React.MouseEvent) => {
-    e.preventDefault();
+    e.stopPropagation(); // Stop click from triggering parent
     if(!confirm("Delete this file?")) return;
     await fetch(`${BACKEND_URL}/documents/${docId}`, { method: 'DELETE' });
     refreshData();
@@ -334,15 +315,7 @@ export default function Dashboard() {
                                 
                                 <label className="flex items-center justify-center gap-2 bg-blue-600 text-white px-5 py-3 rounded-xl cursor-pointer hover:bg-blue-700 transition shadow-lg shadow-blue-200 text-sm font-bold relative overflow-hidden min-w-[140px]">
                                     <><UploadCloud size={16} /> Upload PDFs</>
-                                    {/* UPDATED INPUT: MULTIPLE ACCEPTED */}
-                                    <input 
-                                        ref={fileInputRef}
-                                        type="file" 
-                                        className="hidden" 
-                                        accept=".pdf" 
-                                        multiple 
-                                        onChange={handleFileSelect} 
-                                    />
+                                    <input ref={fileInputRef} type="file" className="hidden" accept=".pdf" multiple onChange={handleFileSelect} />
                                 </label>
                             </div>
                         )}
@@ -373,35 +346,54 @@ export default function Dashboard() {
                         </div>
                     )}
 
-                    {/* FILES */}
+                    {/* FILES - UPDATED CARD LAYOUT */}
                     {currentFolder && (
                         <div className={`grid gap-4 ${chatMode ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'}`}>
                             {docs.filter(doc => doc.folder === currentFolder).map((doc) => {
                                 const { tag, desc } = parseSummary(doc.summary);
                                 return (
-                                    <div key={doc.id} className="group bg-white p-5 rounded-3xl border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all flex justify-between items-start relative overflow-hidden">
+                                    <div key={doc.id} className="group bg-white p-4 rounded-2xl border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all flex items-center gap-4 relative overflow-hidden">
                                         {doc.status === 'processing' && <div className="absolute top-0 left-0 w-full h-1 bg-blue-100"><div className="h-full bg-blue-500 animate-progress origin-left"></div></div>}
-                                        <div className="flex gap-4 w-full">
-                                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${doc.status === 'processing' ? 'bg-amber-50 text-amber-600' : 'bg-gray-50 text-gray-600'}`}>
-                                                {doc.status === 'processing' ? <Loader2 className="animate-spin" size={18} /> : <FileText size={18} />}
-                                            </div>
-                                            <div className="min-w-0 flex-1">
-                                                <div className="flex items-center gap-2 mb-1 flex-wrap">
-                                                    <h3 className="font-bold text-gray-900 truncate">{doc.title}</h3>
-                                                    {tag && <span className={`px-1.5 py-0.5 rounded text-[9px] font-extrabold border uppercase tracking-wider ${getTagColor(tag)}`}>{tag}</span>}
+                                        
+                                        {/* NEW: Left Side Actions (Always Visible) */}
+                                        <div className="flex gap-2 shrink-0 items-center">
+                                            {doc.status !== 'processing' ? (
+                                                <Link href={`/chat/${doc.id}`} title="Chat with document">
+                                                    <button className="w-10 h-10 bg-black text-white rounded-xl flex items-center justify-center shadow-md hover:bg-gray-800 hover:scale-105 transition">
+                                                        <ArrowRight size={18} className="-rotate-45" />
+                                                    </button>
+                                                </Link>
+                                            ) : (
+                                                <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center">
+                                                    <Loader2 size={18} className="animate-spin text-gray-400"/>
                                                 </div>
-                                                <p className="text-xs text-gray-500 leading-relaxed line-clamp-2">{desc}</p>
-                                            </div>
-                                        </div>
-                                        <div className="flex flex-col gap-2 ml-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                            {doc.status !== 'processing' && (
-                                                <Link href={`/chat/${doc.id}`}><button className="bg-black text-white p-2 rounded-lg shadow-lg hover:bg-gray-800 transition transform hover:scale-105"><ArrowLeft size={14} className="rotate-180"/></button></Link>
                                             )}
-                                            <button onClick={(e) => handleDelete(doc.id, e)} className="p-2 text-gray-300 hover:text-red-500 transition"><Trash2 size={14}/></button>
+                                            
+                                            <button onClick={(e) => handleDelete(doc.id, e)} className="w-10 h-10 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl flex items-center justify-center transition" title="Delete">
+                                                <Trash2 size={18} />
+                                            </button>
+                                        </div>
+
+                                        {/* Divider */}
+                                        <div className="w-px h-8 bg-gray-100 shrink-0 hidden sm:block"></div>
+
+                                        {/* Icon */}
+                                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${doc.status === 'processing' ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}>
+                                            <FileText size={20} />
+                                        </div>
+
+                                        {/* Content */}
+                                        <div className="min-w-0 flex-1">
+                                            <div className="flex items-center gap-2 mb-0.5">
+                                                <h3 className="font-bold text-gray-900 truncate text-sm">{doc.title}</h3>
+                                                {tag && <span className={`px-1.5 py-0.5 rounded text-[9px] font-extrabold border uppercase tracking-wider ${getTagColor(tag)}`}>{tag}</span>}
+                                            </div>
+                                            <p className="text-[11px] text-gray-500 leading-snug line-clamp-1">{desc}</p>
                                         </div>
                                     </div>
                                 );
                             })}
+                            
                             {docs.filter(doc => doc.folder === currentFolder).length === 0 && (
                                 <div className="col-span-full flex flex-col items-center justify-center py-20 border-2 border-dashed border-gray-200 rounded-3xl text-gray-400">
                                     <UploadCloud size={40} className="mb-4 text-gray-300"/>
@@ -414,7 +406,7 @@ export default function Dashboard() {
             </div>
         </main>
 
-        {/* 3. UPLOAD QUEUE PANEL (Fixed Bottom Right) */}
+        {/* 3. UPLOAD QUEUE PANEL */}
         {uploadQueue.length > 0 && (
             <div className="absolute bottom-6 right-6 w-80 bg-white rounded-2xl shadow-2xl border border-gray-200 z-50 overflow-hidden animate-in slide-in-from-bottom-10 fade-in duration-300">
                 <div className="bg-black text-white p-3 flex justify-between items-center">
