@@ -10,8 +10,11 @@ import Link from 'next/link';
 // PDF VIEWER IMPORTS
 import { Worker, Viewer } from '@react-pdf-viewer/core';
 import { highlightPlugin, RenderHighlightsProps } from '@react-pdf-viewer/highlight';
+import { pageNavigationPlugin } from '@react-pdf-viewer/page-navigation'; // NEW
+
 import '@react-pdf-viewer/core/lib/styles/index.css';
 import '@react-pdf-viewer/highlight/lib/styles/index.css';
+import '@react-pdf-viewer/page-navigation/lib/styles/index.css'; // NEW
 
 const BACKEND_URL = "https://insightkai.onrender.com"; 
 
@@ -43,7 +46,11 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
   const messagesEndRef = useRef<HTMLDivElement>(null);
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
-  // 1. HIGHLIGHT PLUGIN SETUP
+  // 1. INITIALIZE PLUGINS
+  // Fix: jumpToPage comes from pageNavigationPluginInstance
+  const pageNavigationPluginInstance = pageNavigationPlugin();
+  const { jumpToPage } = pageNavigationPluginInstance;
+
   const highlightPluginInstance = highlightPlugin({
     renderHighlights: (props: RenderHighlightsProps) => (
       <div>
@@ -67,16 +74,14 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
     ),
   });
 
-  const { jumpToPage } = highlightPluginInstance;
-
-  // 2. CITATION CLICK HANDLER
+  // 2. HANDLE CITATION CLICK
   const handleCitationClick = (cit: any) => {
     if (!cit.page) return;
     
-    // Scroll to page (0-indexed)
+    // Jump to page (0-indexed)
     jumpToPage(cit.page - 1);
 
-    // Map Mistral coordinates [ymin, xmin, ymax, xmax] to percentages
+    // Map Mistral coordinates [ymin, xmin, ymax, xmax] to percentages (0-1000 -> 0-100%)
     if (cit.coords && cit.coords.length === 4) {
       const [ymin, xmin, ymax, xmax] = cit.coords;
       setActiveHighlight({
@@ -109,7 +114,9 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
     finally { setIsLoading(false); }
   };
 
-  // ... (startRecording/stopRecording remain the same)
+  // Recording logic (unchanged)
+  const startRecording = async () => { /* ... existing logic ... */ };
+  const stopRecording = () => { /* ... existing logic ... */ };
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden font-sans">
@@ -119,7 +126,7 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
         <Worker workerUrl="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js">
           <Viewer
             fileUrl={`${BACKEND_URL}/documents/${docId}/download`}
-            plugins={[highlightPluginInstance]}
+            plugins={[highlightPluginInstance, pageNavigationPluginInstance]}
           />
         </Worker>
         <div className="absolute top-4 left-4 z-20">
@@ -159,11 +166,23 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
                 </div>
             ))}
             <div ref={messagesEndRef} />
+            {isLoading && <div className="flex items-center gap-2 text-xs text-gray-400 px-4 animate-pulse"><Loader2 size={12} className="animate-spin" /> Analyzing document...</div>}
         </div>
 
+        {/* Input Bar */}
         <div className="p-5 border-t border-gray-100 bg-white">
-            <div className="flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-2xl p-2 focus-within:ring-4 focus-within:ring-blue-50">
-                {/* ... (Mic, Textarea, Send button remain the same) */}
+            <div className={`flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-2xl p-2 focus-within:ring-4 focus-within:ring-blue-50`}>
+                <textarea 
+                    className="flex-1 bg-transparent border-none focus:ring-0 p-3 text-sm resize-none max-h-32 placeholder:text-gray-400 focus:outline-none" 
+                    rows={1}
+                    value={input} 
+                    onChange={e=>setInput(e.target.value)} 
+                    onKeyDown={e=>{ if(e.key==='Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+                    placeholder="Ask a question..."
+                />
+                <button onClick={() => sendMessage()} className="w-12 h-12 bg-black text-white rounded-xl hover:scale-105 active:scale-95 transition shadow-lg flex items-center justify-center">
+                    <Send size={18} />
+                </button>
             </div>
         </div>
       </div>
