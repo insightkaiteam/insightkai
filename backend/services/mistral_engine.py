@@ -9,6 +9,7 @@ from openai import OpenAI
 from supabase import create_client, Client
 from pydantic import BaseModel, Field
 
+# --- SCHEMA DEFINITION ---
 class VisualContext(BaseModel):
     image_description: str = Field(..., description="Detailed description of the image visual content.")
     data_extraction: str = Field(..., description="If this is a chart/table, transcribe the key numbers, axis labels, and trends. If a diagram, describe the flow.")
@@ -51,11 +52,9 @@ class MistralEngine:
             print(f"Error getting folder files: {e}")
             return []
 
-    # --- SOTA UPGRADE: V2 Function + 45 Chunks ---
+    # --- SOTA UPGRADE: V2 Function + Coord Retrieval ---
     def search_single_doc(self, query: str, doc_id: str) -> List[dict]:
         query_vector = self.get_embedding(query)
-        
-        # 1. We fetch 45 chunks (Recall) to let the Re-ranker filter them later (Precision)
         params = {
             "query_embedding": query_vector, 
             "match_threshold": 0.01, 
@@ -64,7 +63,7 @@ class MistralEngine:
         }
         
         try:
-            # UPDATED: Using 'match_page_sections_v2'
+            # Calling the updated V2 function
             res = self.supabase.rpc("match_page_sections_v2", params).execute()
             chunks = []
             if res.data:
@@ -75,7 +74,7 @@ class MistralEngine:
                         "content": content,
                         "page": row.get('page_number', 1),
                         "similarity": row.get('similarity', 0),
-                        "bboxes": row.get('bboxes', []), # NEW: Retrieve coordinates
+                        "bboxes": row.get('bboxes', []), # Retrieve coordinates (default empty)
                         "id": row.get('id', uuid.uuid4().hex) 
                     })
             return chunks
@@ -88,6 +87,7 @@ class MistralEngine:
         current_chunk = ""
         lines = text.split('\n')
         for line in lines:
+            # Simple chunking by header or length
             if line.strip().startswith("#") and len(current_chunk) > 600:
                 chunks.append(current_chunk.strip()); current_chunk = line + "\n"
             else: current_chunk += line + "\n"
@@ -97,6 +97,9 @@ class MistralEngine:
 
     def _generate_summary(self, full_text: str) -> str:
         try:
+            if not full_text.strip():
+                return "No content could be extracted from this document."
+                
             preview_text = full_text[:8000]
             system_prompt = (
                 "You are a sophisticated document analyzer. Analyze the text and return a summary in EXACTLY this format:\n\n"
@@ -118,50 +121,59 @@ class MistralEngine:
 
     async def process_pdf_background(self, doc_id: str, file_bytes: bytes, filename: str, folder: str):
         try:
-            # 1. Upload and OCR process (same as before)
-            self.supabase.storage.from_("document-pages").upload(file=file_bytes, path=f"{doc_id}/source.pdf")
+            # 1. Upload file
+            self.supabase.storage.from_("document-pages").upload(file=file_bytes, path=f"{doc_id}/source.pdf", file_options={"content-type": "application/pdf"})
+            
+            # 2. Get Signed URL for Mistral
             uploaded_file = self.client.files.upload(file={"file_name": filename, "content": file_bytes}, purpose="ocr")
             signed_url = self.client.files.get_signed_url(file_id=uploaded_file.id, expiry=1)
             
-            # Mistral returns coordinates in the 'pages' property
+            # 3. Process with Mistral OCR
             ocr_response = self.client.ocr.process(
                 document={"type": "document_url", "document_url": signed_url.url}, 
-                model="mistral-ocr-latest"
+                model="mistral-ocr-latest", 
+                include_image_base64=True
             )
             
             full_document_text = ""
+            
+            # 4. Iterate over pages and extract MARKDOWN (Reliable)
             for i, page in enumerate(ocr_response.pages):
                 page_num = i + 1
+                markdown = page.markdown # Use the reliable markdown field
                 
-                # If Mistral returns structured blocks, we can get exact coordinates
-                # Most Mistral OCR responses provide 'blocks' with coordinates
-                for block in getattr(page, 'blocks', []):
-                    chunk_text = block.get('content', '')
-                    # Coordinates are usually normalized [0, 1000]
-                    coords = block.get('box2d', []) 
+                if not markdown.strip(): continue
+                
+                full_document_text += markdown + "\n"
+                
+                # Chunk the markdown
+                chunks = self._chunk_markdown(markdown)
+                
+                for chunk in chunks:
+                    if not chunk.strip(): continue
+                    vector = self.get_embedding(chunk)
                     
-                    if not chunk_text.strip(): continue
-                    
-                    full_document_text += chunk_text + "\n"
-                    vector = self.get_embedding(chunk_text)
-                    
-                    # 2. SAVE TEXT + BBOXES
+                    # Insert into DB (bboxes is empty [] for now as Mistral Markdown doesn't provide them directly)
                     self.supabase.table("document_pages").insert({
                         "document_id": doc_id, 
                         "page_number": page_num, 
                         "folder": folder,
-                        "content": chunk_text, 
+                        "content": chunk, 
                         "embedding": vector, 
-                        "title": filename,
-                        "bboxes": coords  # Store as JSON
+                        "title": filename, 
+                        "image_url": "",
+                        "bboxes": [] # Safe empty list to satisfy the schema
                     }).execute()
             
+            # 5. Generate Summary
             summary = self._generate_summary(full_document_text)
             final_summary = f"**Content Summary:** {summary}\n\n---_SEPARATOR_---\n\nVerified."
             self.supabase.table("documents").update({"status": "ready", "summary": final_summary}).eq("id", doc_id).execute()
+            
         except Exception as e:
             print(f"Ingestion Error: {e}")
             self.supabase.table("documents").update({"status": "failed"}).eq("id", doc_id).execute()
+
     def get_documents(self):
         try:
             res = self.supabase.table("documents").select("*").order("created_at", desc=True).execute()
