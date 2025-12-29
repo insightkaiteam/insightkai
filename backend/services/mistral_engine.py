@@ -117,31 +117,50 @@ class MistralEngine:
 
     async def process_pdf_background(self, doc_id: str, file_bytes: bytes, filename: str, folder: str):
         try:
-            self.supabase.storage.from_("document-pages").upload(file=file_bytes, path=f"{doc_id}/source.pdf", file_options={"content-type": "application/pdf"})
+            # 1. Upload and OCR process (same as before)
+            self.supabase.storage.from_("document-pages").upload(file=file_bytes, path=f"{doc_id}/source.pdf")
             uploaded_file = self.client.files.upload(file={"file_name": filename, "content": file_bytes}, purpose="ocr")
             signed_url = self.client.files.get_signed_url(file_id=uploaded_file.id, expiry=1)
-            ocr_response = self.client.ocr.process(document={"type": "document_url", "document_url": signed_url.url}, model="mistral-ocr-latest", include_image_base64=True, bbox_annotation_format=response_format_from_pydantic_model(VisualContext))
+            
+            # Mistral returns coordinates in the 'pages' property
+            ocr_response = self.client.ocr.process(
+                document={"type": "document_url", "document_url": signed_url.url}, 
+                model="mistral-ocr-latest"
+            )
             
             full_document_text = ""
             for i, page in enumerate(ocr_response.pages):
                 page_num = i + 1
-                markdown = page.markdown
-                if len(full_document_text) < 15000: full_document_text += markdown + "\n"
-                chunks = self._chunk_markdown(markdown)
-                for chunk in chunks:
-                    if not chunk.strip(): continue
-                    vector = self.get_embedding(chunk)
+                
+                # If Mistral returns structured blocks, we can get exact coordinates
+                # Most Mistral OCR responses provide 'blocks' with coordinates
+                for block in getattr(page, 'blocks', []):
+                    chunk_text = block.get('content', '')
+                    # Coordinates are usually normalized [0, 1000]
+                    coords = block.get('box2d', []) 
+                    
+                    if not chunk_text.strip(): continue
+                    
+                    full_document_text += chunk_text + "\n"
+                    vector = self.get_embedding(chunk_text)
+                    
+                    # 2. SAVE TEXT + BBOXES
                     self.supabase.table("document_pages").insert({
-                        "document_id": doc_id, "page_number": page_num, "folder": folder,
-                        "content": chunk, "embedding": vector, "title": filename, "image_url": ""
+                        "document_id": doc_id, 
+                        "page_number": page_num, 
+                        "folder": folder,
+                        "content": chunk_text, 
+                        "embedding": vector, 
+                        "title": filename,
+                        "bboxes": coords  # Store as JSON
                     }).execute()
             
             summary = self._generate_summary(full_document_text)
             final_summary = f"**Content Summary:** {summary}\n\n---_SEPARATOR_---\n\nVerified."
             self.supabase.table("documents").update({"status": "ready", "summary": final_summary}).eq("id", doc_id).execute()
         except Exception as e:
+            print(f"Ingestion Error: {e}")
             self.supabase.table("documents").update({"status": "failed"}).eq("id", doc_id).execute()
-
     def get_documents(self):
         try:
             res = self.supabase.table("documents").select("*").order("created_at", desc=True).execute()
