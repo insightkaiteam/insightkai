@@ -8,13 +8,13 @@ import { Mic, Send, ArrowLeft, StopCircle, Loader2, Quote, MapPin } from 'lucide
 import Link from 'next/link';
 
 // PDF VIEWER IMPORTS
-import { Worker, Viewer } from '@react-pdf-viewer/core';
-import { highlightPlugin, RenderHighlightsProps } from '@react-pdf-viewer/highlight';
+import { Worker, Viewer, DocumentLoadEvent } from '@react-pdf-viewer/core';
 import { pageNavigationPlugin } from '@react-pdf-viewer/page-navigation';
+import { searchPlugin } from '@react-pdf-viewer/search';
 
 import '@react-pdf-viewer/core/lib/styles/index.css';
-import '@react-pdf-viewer/highlight/lib/styles/index.css';
 import '@react-pdf-viewer/page-navigation/lib/styles/index.css';
+import '@react-pdf-viewer/search/lib/styles/index.css';
 
 // ⚠️ REPLACE WITH YOUR RENDER URL
 const BACKEND_URL = "https://insightkai.onrender.com"; 
@@ -41,65 +41,79 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
   const [messages, setMessages] = useState<{role: string, content: string, citations?: any[]}[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
-  const [activeHighlight, setActiveHighlight] = useState<any>(null);
   
+  // PDF State
+  const [pdfDocument, setPdfDocument] = useState<any>(null); 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
   // 1. INITIALIZE PLUGINS
   const pageNavigationPluginInstance = pageNavigationPlugin();
   const { jumpToPage } = pageNavigationPluginInstance;
 
-  const highlightPluginInstance = highlightPlugin({
-    renderHighlights: (props: RenderHighlightsProps) => (
-      <div>
-        {activeHighlight && activeHighlight.pageIndex === props.pageIndex && (
-          <div
-            style={{
-              background: 'rgba(255, 255, 0, 0.4)',
-              position: 'absolute',
-              left: `${activeHighlight.left}%`,
-              top: `${activeHighlight.top}%`,
-              width: `${activeHighlight.width}%`,
-              height: `${activeHighlight.height}%`,
-              pointerEvents: 'none',
-              zIndex: 10,
-              borderRadius: '2px',
-              border: '1px solid rgba(255, 215, 0, 0.5)'
-            }}
-          />
-        )}
-      </div>
-    ),
-  });
+  const searchPluginInstance = searchPlugin();
+  const { highlight, clearHighlights } = searchPluginInstance;
 
-  // 2. HANDLE CITATION CLICK (WITH SMART SCALING)
-  const handleCitationClick = (cit: any) => {
+  // 2. CAPTURE PDF DOCUMENT ON LOAD
+  const handleDocumentLoad = (e: DocumentLoadEvent) => {
+      setPdfDocument(e.doc);
+  };
+
+  // 3. SMART CITATION HANDLER (The "Shrink Loop")
+  const handleCitationClick = async (cit: any) => {
     if (!cit.page) return;
     
-    // Jump to page (0-indexed)
+    // A. Jump to the page first
     jumpToPage(cit.page - 1);
 
-    if (cit.coords && cit.coords.length === 4) {
-      const [ymin, xmin, ymax, xmax] = cit.coords;
-      
-      // --- SMART SCALE DETECTION ---
-      // Mistral sometimes returns 0-1 (normalized) and sometimes 0-1000.
-      // We detect the scale by checking if values are > 2.
-      let scaleFactor = 100; // Default: assume 0-1, so multiply by 100 to get %
-      
-      if (Math.max(ymin, xmin, ymax, xmax) > 2) {
-          scaleFactor = 0.1; // It's 0-1000, so divide by 10 to get %
-      }
+    // B. If we have the PDF loaded, find the BEST matching text
+    if (pdfDocument && cit.content) {
+        try {
+            // 1. Get the actual text of that page
+            const page = await pdfDocument.getPage(cit.page);
+            const textContent = await page.getTextContent();
+            // Join items with a space to normalize
+            const pageText = textContent.items.map((item: any) => item.str).join(' ');
 
-      setActiveHighlight({
-        pageIndex: cit.page - 1,
-        top: ymin * scaleFactor,
-        left: xmin * scaleFactor,
-        width: (xmax - xmin) * scaleFactor,
-        height: (ymax - ymin) * scaleFactor,
-      });
+            // 2. The "Shrink Loop"
+            let searchPhrase = cit.content.trim();
+            const words = searchPhrase.split(' ');
+            
+            // Try matching. If fail, remove last word. Repeat.
+            // Stop if phrase is too short (< 3 words) to avoid highlighting random "The" or "And"
+            while (words.length > 3) {
+                // Normalize spaces for comparison
+                const currentPhrase = words.join(' ');
+                
+                // Simple inclusion check (ignoring case/whitespace differences)
+                // We strip all spaces for the check to be robust against PDF formatting
+                const cleanPage = pageText.replace(/\s+/g, '').toLowerCase();
+                const cleanPhrase = currentPhrase.replace(/\s+/g, '').toLowerCase();
+
+                if (cleanPage.includes(cleanPhrase)) {
+                    // FOUND IT!
+                    // Clear old highlights first
+                    clearHighlights();
+                    
+                    // Highlight this phrase
+                    highlight({
+                        keyword: currentPhrase,
+                        matchCase: false,
+                    });
+                    return; // Exit once found
+                }
+
+                // Remove last word and try again
+                words.pop();
+            }
+
+            // Fallback: If loop finishes without match, highlight original (might fail but worth a shot)
+            highlight({ keyword: cit.content, matchCase: false });
+
+        } catch (err) {
+            console.error("Error finding text match:", err);
+        }
     }
   };
 
@@ -123,15 +137,6 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
     finally { setIsLoading(false); }
   };
 
-  const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
-      // ... (Implementation same as previous version)
-    } catch (e) { alert("Microphone access denied"); }
-  };
-  const stopRecording = () => { /* ... */ };
-
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden font-sans">
       
@@ -140,7 +145,8 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
         <Worker workerUrl="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js">
           <Viewer
             fileUrl={`${BACKEND_URL}/documents/${docId}/download`}
-            plugins={[highlightPluginInstance, pageNavigationPluginInstance]}
+            plugins={[pageNavigationPluginInstance, searchPluginInstance]}
+            onDocumentLoad={handleDocumentLoad} // Capture the doc here
           />
         </Worker>
         <div className="absolute top-4 left-4 z-20">
