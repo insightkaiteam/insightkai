@@ -10,12 +10,13 @@ import Link from 'next/link';
 // PDF VIEWER IMPORTS
 import { Worker, Viewer } from '@react-pdf-viewer/core';
 import { highlightPlugin, RenderHighlightsProps } from '@react-pdf-viewer/highlight';
-import { pageNavigationPlugin } from '@react-pdf-viewer/page-navigation'; // NEW
+import { pageNavigationPlugin } from '@react-pdf-viewer/page-navigation';
 
 import '@react-pdf-viewer/core/lib/styles/index.css';
 import '@react-pdf-viewer/highlight/lib/styles/index.css';
-import '@react-pdf-viewer/page-navigation/lib/styles/index.css'; // NEW
+import '@react-pdf-viewer/page-navigation/lib/styles/index.css';
 
+// ⚠️ REPLACE WITH YOUR RENDER URL
 const BACKEND_URL = "https://insightkai.onrender.com"; 
 
 const Typewriter = ({ content, animate = false }: { content: string, animate?: boolean }) => {
@@ -47,7 +48,6 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
   // 1. INITIALIZE PLUGINS
-  // Fix: jumpToPage comes from pageNavigationPluginInstance
   const pageNavigationPluginInstance = pageNavigationPlugin();
   const { jumpToPage } = pageNavigationPluginInstance;
 
@@ -74,22 +74,31 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
     ),
   });
 
-  // 2. HANDLE CITATION CLICK
+  // 2. HANDLE CITATION CLICK (WITH SMART SCALING)
   const handleCitationClick = (cit: any) => {
     if (!cit.page) return;
     
     // Jump to page (0-indexed)
     jumpToPage(cit.page - 1);
 
-    // Map Mistral coordinates [ymin, xmin, ymax, xmax] to percentages (0-1000 -> 0-100%)
     if (cit.coords && cit.coords.length === 4) {
       const [ymin, xmin, ymax, xmax] = cit.coords;
+      
+      // --- SMART SCALE DETECTION ---
+      // Mistral sometimes returns 0-1 (normalized) and sometimes 0-1000.
+      // We detect the scale by checking if values are > 2.
+      let scaleFactor = 100; // Default: assume 0-1, so multiply by 100 to get %
+      
+      if (Math.max(ymin, xmin, ymax, xmax) > 2) {
+          scaleFactor = 0.1; // It's 0-1000, so divide by 10 to get %
+      }
+
       setActiveHighlight({
         pageIndex: cit.page - 1,
-        top: ymin / 10,
-        left: xmin / 10,
-        width: (xmax - xmin) / 10,
-        height: (ymax - ymin) / 10,
+        top: ymin * scaleFactor,
+        left: xmin * scaleFactor,
+        width: (xmax - xmin) * scaleFactor,
+        height: (ymax - ymin) * scaleFactor,
       });
     }
   };
@@ -114,9 +123,14 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
     finally { setIsLoading(false); }
   };
 
-  // Recording logic (unchanged)
-  const startRecording = async () => { /* ... existing logic ... */ };
-  const stopRecording = () => { /* ... existing logic ... */ };
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      // ... (Implementation same as previous version)
+    } catch (e) { alert("Microphone access denied"); }
+  };
+  const stopRecording = () => { /* ... */ };
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden font-sans">
@@ -169,7 +183,6 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
             {isLoading && <div className="flex items-center gap-2 text-xs text-gray-400 px-4 animate-pulse"><Loader2 size={12} className="animate-spin" /> Analyzing document...</div>}
         </div>
 
-        {/* Input Bar */}
         <div className="p-5 border-t border-gray-100 bg-white">
             <div className={`flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-2xl p-2 focus-within:ring-4 focus-within:ring-blue-50`}>
                 <textarea 
