@@ -1,17 +1,16 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  /* 1. Fix for standard Webpack builds */
   webpack: (config) => {
-    // This ignores the 'canvas' module which causes the pdfjs-dist build error
     config.resolve.alias.canvas = false;
     return config;
   },
-  // If you are using Turbopack, you may need this addition for experimental support
-  experimental: {
-    turbo: {
-      resolveAlias: {
-        canvas: false,
-      },
+
+  /* 2. Fix for Turbopack (moved to top level) */
+  turbo: {
+    resolveAlias: {
+      canvas: 'empty',
     },
   },
 };
