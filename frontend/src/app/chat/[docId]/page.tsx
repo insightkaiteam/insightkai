@@ -60,56 +60,72 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
       setPdfDocument(e.doc);
   };
 
-  // 3. SMART CITATION HANDLER (The "Shrink Loop")
+  // 3. SOTA SLIDING WINDOW HIGHLIGHTER
   const handleCitationClick = async (cit: any) => {
     if (!cit.page) return;
     
     // A. Jump to the page first
     jumpToPage(cit.page - 1);
 
-    // B. If we have the PDF loaded, find the BEST matching text
+    // B. Smart Matching Logic
     if (pdfDocument && cit.content) {
         try {
-            // 1. Get the actual text of that page
+            // 1. Get raw text of the target page
             const page = await pdfDocument.getPage(cit.page);
             const textContent = await page.getTextContent();
-            // Join items with a space to normalize
+            // Join items to get a single string of the page text
             const pageText = textContent.items.map((item: any) => item.str).join(' ');
+            
+            // Normalize page text for comparison (remove spaces, lowercase)
+            const cleanPageText = pageText.replace(/\s+/g, '').toLowerCase();
 
-            // 2. The "Shrink Loop"
-            let searchPhrase = cit.content.trim();
+            // 2. Prepare the quote
+            const searchPhrase = cit.content.trim();
             const words = searchPhrase.split(' ');
             
-            // Try matching. If fail, remove last word. Repeat.
-            // Stop if phrase is too short (< 3 words) to avoid highlighting random "The" or "And"
-            while (words.length > 3) {
-                // Normalize spaces for comparison
-                const currentPhrase = words.join(' ');
-                
-                // Simple inclusion check (ignoring case/whitespace differences)
-                // We strip all spaces for the check to be robust against PDF formatting
-                const cleanPage = pageText.replace(/\s+/g, '').toLowerCase();
-                const cleanPhrase = currentPhrase.replace(/\s+/g, '').toLowerCase();
+            // 3. The Decreasing Sliding Window Loop
+            // We start checking the FULL string. If fail, we check all substrings of Length - 1.
+            // We stop if length < 3 words (too vague).
+            
+            let foundMatch = false;
 
-                if (cleanPage.includes(cleanPhrase)) {
-                    // FOUND IT!
-                    // Clear old highlights first
-                    clearHighlights();
+            // Outer Loop: Window Length (Largest -> Smallest)
+            for (let length = words.length; length >= 3; length--) {
+                if (foundMatch) break;
+
+                // Inner Loop: Sliding the window across the quote
+                // Example: "A B C D E" (Len 4) -> Check "A B C D", then "B C D E"
+                for (let start = 0; start <= words.length - length; start++) {
                     
-                    // Highlight this phrase
-                    highlight({
-                        keyword: currentPhrase,
-                        matchCase: false,
-                    });
-                    return; // Exit once found
-                }
+                    // Construct candidate phrase
+                    const candidateWords = words.slice(start, start + length);
+                    const candidatePhrase = candidateWords.join(' ');
+                    
+                    // Normalize candidate
+                    const cleanCandidate = candidatePhrase.replace(/\s+/g, '').toLowerCase();
 
-                // Remove last word and try again
-                words.pop();
+                    // CHECK MATCH
+                    if (cleanPageText.includes(cleanCandidate)) {
+                        // Found the longest possible match!
+                        clearHighlights();
+                        
+                        // Highlight this specific phrase
+                        highlight({
+                            keyword: candidatePhrase,
+                            matchCase: false,
+                        });
+                        
+                        foundMatch = true;
+                        break; // Exit inner loop
+                    }
+                }
             }
 
-            // Fallback: If loop finishes without match, highlight original (might fail but worth a shot)
-            highlight({ keyword: cit.content, matchCase: false });
+            // Fallback: If absolutely nothing matched (rare), try the original
+            if (!foundMatch) {
+                clearHighlights();
+                highlight({ keyword: cit.content, matchCase: false });
+            }
 
         } catch (err) {
             console.error("Error finding text match:", err);
@@ -146,7 +162,7 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
           <Viewer
             fileUrl={`${BACKEND_URL}/documents/${docId}/download`}
             plugins={[pageNavigationPluginInstance, searchPluginInstance]}
-            onDocumentLoad={handleDocumentLoad} // Capture the doc here
+            onDocumentLoad={handleDocumentLoad} // Capture doc reference
           />
         </Worker>
         <div className="absolute top-4 left-4 z-20">
