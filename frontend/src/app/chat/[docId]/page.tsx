@@ -76,11 +76,13 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
             // Join items to get a single string of the page text
             const pageText = textContent.items.map((item: any) => item.str).join(' ');
             
-            // Normalize page text for comparison (remove spaces, lowercase)
+            // Normalize page text for comparison (remove ALL spaces, lowercase)
+            // This allows us to find "Japan" even if the PDF has "J a p a n" or "Japan\n"
             const cleanPageText = pageText.replace(/\s+/g, '').toLowerCase();
 
             // 2. Prepare the quote
-            const searchPhrase = cit.content.trim();
+            // Clean up the AI quote to remove artifacts (Quotes, special chars)
+            const searchPhrase = cit.content.replace(/["“”]/g, "").trim(); 
             const words = searchPhrase.split(' ');
             
             // 3. The Decreasing Sliding Window Loop
@@ -90,6 +92,7 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
             let foundMatch = false;
 
             // Outer Loop: Window Length (Largest -> Smallest)
+            // We stop at 3 words to avoid highlighting random common phrases like "is that the"
             for (let length = words.length; length >= 3; length--) {
                 if (foundMatch) break;
 
@@ -101,7 +104,7 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
                     const candidateWords = words.slice(start, start + length);
                     const candidatePhrase = candidateWords.join(' ');
                     
-                    // Normalize candidate
+                    // Normalize candidate to match the cleanPageText format
                     const cleanCandidate = candidatePhrase.replace(/\s+/g, '').toLowerCase();
 
                     // CHECK MATCH
