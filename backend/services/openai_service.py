@@ -11,7 +11,8 @@ class OpenAIService:
 
     @retry(wait=wait_random_exponential(min=1, max=60), stop=stop_after_attempt(6))
     def get_answer_with_backoff(self, messages, model="gpt-4o-mini", json_mode=True):
-        kwargs = {"model": model, "messages": messages, "max_tokens": 1500} # Increased tokens for longer answers
+        # Increased max_tokens to 1500 to allow for detailed bullet points
+        kwargs = {"model": model, "messages": messages, "max_tokens": 1500}
         if json_mode: kwargs["response_format"] = {"type": "json_object"}
         return self.client.chat.completions.create(**kwargs)
 
@@ -44,7 +45,7 @@ class OpenAIService:
         
         chunk_text = ""
         for i, c in enumerate(chunks):
-            # Give 300 chars preview per chunk
+            # 300 char preview for re-ranker
             preview = c['content'][:300].replace("\n", " ")
             chunk_text += f"[ID:{i}] {preview}...\n"
 
@@ -62,6 +63,8 @@ class OpenAIService:
             data = json.loads(response.choices[0].message.content)
             indices = data.get("selected_indices", [])
             selected_chunks = [chunks[i] for i in indices if 0 <= i < len(chunks)]
+            
+            # Fallback if AI returns empty list
             return selected_chunks if selected_chunks else chunks[:10]
         except: return chunks[:15]
 
@@ -72,7 +75,7 @@ class OpenAIService:
             context += f"- [ID: {f['id']}] Title: {f['title']}\n  Summary: {f['summary'][:300]}...\n\n"
 
         prompt = (
-            "You are a Research Assistant. Select the top 3-4 documents relevant to the user's question.\n"
+            "You are a Research Assistant. Select the top 3-4 documents that are most likely to contain the answer.\n"
             "Return JSON: { \"selected_ids\": [\"id_1\", \"id_2\"] }"
         )
         try:
@@ -83,28 +86,13 @@ class OpenAIService:
             return json.loads(res.choices[0].message.content).get("selected_ids", [])
         except: return []
 
-    def _extract_best_sentence(self, full_text: str, query: str) -> str:
-        clean_text = full_text.replace('\n', ' ')
-        sentences = re.split(r'(?<=[.!?])\s+', clean_text)
-        if not sentences: return clean_text[:150]
-        query_words = set(query.lower().split())
-        best_sent = sentences[0]
-        max_overlap = 0
-        for sent in sentences:
-            sent_words = set(sent.lower().split())
-            overlap = len(query_words.intersection(sent_words))
-            if overlap > max_overlap:
-                max_overlap = overlap
-                best_sent = sent
-        return best_sent.strip()
-
     def _normalize(self, text: str) -> str:
         return re.sub(r'\s+', ' ', text).strip().lower()
 
     # --- MAIN ANSWER FUNCTION (Analyst Mode) ---
     def get_answer(self, context_chunks: List[dict], question: str, mode: str = "single_doc", history: List[Dict[str, str]] = []) -> Dict[str, Any]:
         
-        # 1. Reranking Step
+        # 1. Reranking Step (For Deep/Doc modes)
         final_chunks = context_chunks
         if mode in ["folder_deep", "single_doc"] and len(context_chunks) > 0:
             final_chunks = self.rerank_chunks(context_chunks, question)
@@ -112,12 +100,11 @@ class OpenAIService:
         context_text = ""
         system_prompt = ""
 
-        # 2. Build Context String
+        # 2. Build Context
         if mode in ["single_doc", "folder_deep"]:
             if final_chunks:
                 context_text += "--- SOURCE MATERIAL ---\n"
                 for i, chunk in enumerate(final_chunks):
-                    # Including source file title if available
                     source_label = chunk.get('source', 'Document')
                     context_text += f"[ID:{i}] [Source: {source_label} | Page {chunk.get('page', '?')}] {chunk['content']}\n\n"
             else:
@@ -155,7 +142,7 @@ class OpenAIService:
                 "Return JSON: { 'answer': '...', 'quotes': [] }"
             )
 
-        # 3. Construct Messages
+        # 3. Messages & Response
         messages = [{"role": "system", "content": system_prompt}]
         if history:
             for msg in history[-6:]:
@@ -174,7 +161,7 @@ class OpenAIService:
             if mode != "folder_fast":
                 for q in raw_quotes:
                     best_match = None
-                    # Exact search
+                    # Search within our filtered chunks first
                     for c in final_chunks:
                         if q in c['content']:
                             best_match = c

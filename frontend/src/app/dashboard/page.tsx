@@ -40,7 +40,6 @@ const Typewriter = ({ content, animate = false }: { content: string, animate?: b
     }
 
     let i = -1;
-    // Faster speed (5ms) to make it feel responsive but smooth
     const speed = 5; 
     
     const timer = setInterval(() => {
@@ -287,7 +286,7 @@ export default function Dashboard() {
       
       setChatMessages(prev => [...prev, { 
           role: 'ai', 
-          content: data.answer,
+          content: data.answer, 
           citations: data.citations || [] 
       }]);
     } catch (e) {
@@ -525,7 +524,8 @@ export default function Dashboard() {
                     {m.role === 'ai' && m.citations && m.citations.length > 0 && (
                         <div className="mt-4 w-[85%] grid grid-cols-1 gap-2 animate-in fade-in slide-in-from-top-2 duration-500">
                             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1 mb-1"><Quote size={10} /> Verified Sources</p>
-                            {m.citations.slice(0, 5).map((cit: any, idx: number) => {
+                            {/* UPDATED: INCREASED SLICE TO 20 */}
+                            {m.citations.slice(0, 20).map((cit: any, idx: number) => {
                                 const docId = findDocIdByTitle(cit.source);
                                 const content = (
                                     <div className="bg-white/50 hover:bg-blue-50/50 border border-gray-200 hover:border-blue-200 p-3 rounded-xl transition-all cursor-pointer group shadow-sm hover:shadow-md">

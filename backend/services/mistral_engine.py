@@ -9,7 +9,6 @@ from openai import OpenAI
 from supabase import create_client, Client
 from pydantic import BaseModel, Field
 
-# --- SCHEMA DEFINITION ---
 class VisualContext(BaseModel):
     image_description: str = Field(..., description="Detailed description of the image visual content.")
     data_extraction: str = Field(..., description="If this is a chart/table, transcribe the key numbers, axis labels, and trends. If a diagram, describe the flow.")
@@ -52,15 +51,21 @@ class MistralEngine:
             print(f"Error getting folder files: {e}")
             return []
 
-    # --- SOTA UPGRADE: Massive Retrieval (45 Chunks) ---
+    # --- SOTA UPGRADE: V2 Function + 45 Chunks ---
     def search_single_doc(self, query: str, doc_id: str) -> List[dict]:
         query_vector = self.get_embedding(query)
-        # UPDATED: Increased to 45 to ensure high recall. 
-        # The Re-ranker in OpenAI service will filter these down.
-        params = {"query_embedding": query_vector, "match_threshold": 0.01, "match_count": 45, "filter_doc_id": doc_id}
+        
+        # 1. We fetch 45 chunks (Recall) to let the Re-ranker filter them later (Precision)
+        params = {
+            "query_embedding": query_vector, 
+            "match_threshold": 0.01, 
+            "match_count": 45, 
+            "filter_doc_id": doc_id
+        }
         
         try:
-            res = self.supabase.rpc("match_page_sections", params).execute()
+            # UPDATED: Using 'match_page_sections_v2'
+            res = self.supabase.rpc("match_page_sections_v2", params).execute()
             chunks = []
             if res.data:
                 for row in res.data:
@@ -68,7 +73,7 @@ class MistralEngine:
                     if not content: continue
                     chunks.append({
                         "content": content,
-                        "page": row.get('page_number', 1),
+                        "page": row.get('page_number', 1), # V2 returns page_number now
                         "similarity": row.get('similarity', 0),
                         "id": row.get('id', uuid.uuid4().hex) 
                     })
