@@ -152,33 +152,26 @@ class OpenAIService:
 
         try:
             response = self.get_answer_with_backoff(messages=messages)
-            content = response.choices[0].message.content
-            data = json.loads(content)
+            data = json.loads(response.choices[0].message.content)
             
             raw_quotes = data.get("quotes", [])
             formatted_citations = []
             
-            if mode != "folder_fast":
-                for q in raw_quotes:
-                    best_match = None
-                    # Search within our filtered chunks first
-                    for c in final_chunks:
-                        if q in c['content']:
-                            best_match = c
-                            break
-                    # Fuzzy fallback
-                    if not best_match:
-                        norm_q = self._normalize(q)
-                        for c in final_chunks:
-                            if norm_q in self._normalize(c['content']):
-                                best_match = c
-                                break
-
+            for ai_quote in raw_quotes:
+                best_match = None
+                # Match the AI's quote to our source chunks to find the coordinates
+                for c in final_chunks:
+                    if ai_quote[:30].lower() in c['content'].lower():
+                        best_match = c
+                        break
+                
+                if best_match:
                     formatted_citations.append({
-                        "content": q,
-                        "page": best_match.get('page', 1) if best_match else 1,
-                        "source": best_match.get('source', 'Unknown') if best_match else "Folder",
-                        "id": best_match.get('id', 0) if best_match else 0
+                        "content": ai_quote,
+                        "page": best_match.get('page', 1),
+                        "source": best_match.get('source', 'Document'),
+                        "coords": best_match.get('bboxes', []), # NEW: Include coordinates
+                        "id": best_match.get('id', 0)
                     })
 
             return {"answer": data.get("answer", ""), "citations": formatted_citations}

@@ -73,8 +73,9 @@ class MistralEngine:
                     if not content: continue
                     chunks.append({
                         "content": content,
-                        "page": row.get('page_number', 1), # V2 returns page_number now
+                        "page": row.get('page_number', 1),
                         "similarity": row.get('similarity', 0),
+                        "bboxes": row.get('bboxes', []), # NEW: Retrieve coordinates
                         "id": row.get('id', uuid.uuid4().hex) 
                     })
             return chunks
