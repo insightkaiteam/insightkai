@@ -52,53 +52,27 @@ class MistralEngine:
             print(f"Error getting folder files: {e}")
             return []
 
-    # --- SOTA UPGRADE: Sliding Window Retrieval ---
+    # --- SOTA UPGRADE: Massive Retrieval (45 Chunks) ---
     def search_single_doc(self, query: str, doc_id: str) -> List[dict]:
         query_vector = self.get_embedding(query)
-        
-        params = {
-            "query_embedding": query_vector, 
-            "match_threshold": 0.01, 
-            "match_count": 5, 
-            "filter_doc_id": doc_id
-        }
+        # UPDATED: Increased to 45 to ensure high recall. 
+        # The Re-ranker in OpenAI service will filter these down.
+        params = {"query_embedding": query_vector, "match_threshold": 0.01, "match_count": 45, "filter_doc_id": doc_id}
         
         try:
-            # 1. Run the Search
-            res = self.supabase.rpc("match_page_sections_v2", params).execute()
-            if not res.data: return []
-
-            # 2. Strategy: "Whole Page Context"
-            # Since IDs are UUIDs, we can't calculate 'ID - 1'.
-            # Instead, we find which PAGES matched, and fetch ALL text from those pages.
-            relevant_pages = set()
-            for row in res.data:
-                relevant_pages.add(row['page_number'])
-
-            extended_chunks = []
-            
-            # Fetch full content for each relevant page
-            for p_num in sorted(list(relevant_pages)):
-                # Get all chunks for this specific page
-                page_res = self.supabase.table("document_pages")\
-                    .select("content")\
-                    .eq("document_id", doc_id)\
-                    .eq("page_number", p_num)\
-                    .execute()
-                
-                if page_res.data:
-                    # Combine chunks into one clean readable block
-                    full_page_text = "\n\n".join([c['content'] for c in page_res.data])
-                    
-                    extended_chunks.append({
-                        "content": full_page_text, # Contains full page context!
-                        "page": p_num,
-                        "id": str(uuid.uuid4()), # Dummy ID (not used for logic anymore)
-                        "similarity": 0
+            res = self.supabase.rpc("match_page_sections", params).execute()
+            chunks = []
+            if res.data:
+                for row in res.data:
+                    content = row.get('content')
+                    if not content: continue
+                    chunks.append({
+                        "content": content,
+                        "page": row.get('page_number', 1),
+                        "similarity": row.get('similarity', 0),
+                        "id": row.get('id', uuid.uuid4().hex) 
                     })
-
-            return extended_chunks
-
+            return chunks
         except Exception as e:
             print(f"Search Error: {e}")
             return []
@@ -120,7 +94,7 @@ class MistralEngine:
             preview_text = full_text[:8000]
             system_prompt = (
                 "You are a sophisticated document analyzer. Analyze the text and return a summary in EXACTLY this format:\n\n"
-                "[TAG]: <Classify into one: INVOICE, RESEARCH, FINANCIAL, LEGAL, RECEIPT, RESUME, OTHER>\n"
+                "[TAG]: <Classify into one: INVOICE, RESEARCH, FINANCIAL, LEGAL, RECEIPT, OTHER>\n"
                 "[DESC]: <A single, concise sentence describing the file (e.g. 'August 2023 Power Bill for $150')>\n"
                 "[DETAILED]: <A dense, 5-10 line summary containing specific entities (company names, authors), dates, key outcomes, core themes, and numerical data. This will be used for search retrieval, so be specific.>"
             )

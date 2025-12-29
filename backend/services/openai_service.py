@@ -4,7 +4,6 @@ import json
 import re
 from typing import List, Dict, Any, Optional
 from tenacity import retry, stop_after_attempt, wait_random_exponential
-import difflib
 
 class OpenAIService:
     def __init__(self):
@@ -12,83 +11,59 @@ class OpenAIService:
 
     @retry(wait=wait_random_exponential(min=1, max=60), stop=stop_after_attempt(6))
     def get_answer_with_backoff(self, messages, model="gpt-4o-mini", json_mode=True):
-        kwargs = {"model": model, "messages": messages, "max_tokens": 1000}
+        kwargs = {"model": model, "messages": messages, "max_tokens": 1500} # Increased tokens for longer answers
         if json_mode: kwargs["response_format"] = {"type": "json_object"}
         return self.client.chat.completions.create(**kwargs)
 
-    # --- SOTA STEP 1: CONTEXTUAL QUERY REWRITING ---
+    # --- 1. REFINED QUERY GENERATION ---
     def generate_refined_query(self, history: List[Dict[str, str]], current_question: str) -> str:
-        if not history:
-            return current_question
+        if not history: return current_question
         
         short_history = history[-3:] 
-        
         prompt = (
-            "You are a search query optimizer. The user is asking a question in a chat context.\n"
-            "Your goal: Rewrite the 'Current Question' into a standalone, specific search query that includes necessary context from the 'Chat History'.\n"
-            "If the question is already specific, return it unchanged.\n"
+            "You are a query optimizer. Rewrite the 'Current Question' into a specific, standalone search query using the 'Chat History'.\n"
+            "Example: History=['The revenue is $5M'], Current='Why is it low?' -> Output='Why is $5M revenue considered low?'\n"
             "Return JSON: { \"refined_query\": \"...\" }"
         )
         
         history_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in short_history])
         
-        messages = [
-            {"role": "system", "content": prompt},
-            {"role": "user", "content": f"Chat History:\n{history_text}\n\nCurrent Question: {current_question}"}
-        ]
-        
         try:
-            response = self.get_answer_with_backoff(messages)
+            response = self.get_answer_with_backoff([
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": f"Chat History:\n{history_text}\n\nCurrent Question: {current_question}"}
+            ])
             data = json.loads(response.choices[0].message.content)
             return data.get("refined_query", current_question)
-        except:
-            return current_question
-        
-    def _find_best_match(self, source_text, quote):
-        # 1. Try exact match first
-        if quote in source_text:
-            return quote
-            
-        # 2. Fuzzy match finding (Handles missed punctuation/spaces)
-        matcher = difflib.SequenceMatcher(None, source_text, quote)
-        match = matcher.find_longest_match(0, len(source_text), 0, len(quote))
-        
-        # If we found a decent match (>30 chars), return the real text from source
-        if match.size > 30:
-            return source_text[match.a : match.a + match.size]
-            
-        return quote # Fallback to AI's version if retrieval fails
+        except: return current_question
 
-    # --- SOTA STEP 2: LLM RE-RANKING ---
+    # --- 2. RE-RANKING (Filter 45 -> Top 20) ---
     def rerank_chunks(self, chunks: List[dict], query: str) -> List[dict]:
         if not chunks: return []
         if len(chunks) <= 5: return chunks 
         
         chunk_text = ""
         for i, c in enumerate(chunks):
-            # Preview for reranker
+            # Give 300 chars preview per chunk
             preview = c['content'][:300].replace("\n", " ")
             chunk_text += f"[ID:{i}] {preview}...\n"
 
         prompt = (
-            "You are a Relevance Judge. Select the Top 10 chunks most likely to contain the answer.\n"
-            "Return JSON: { \"selected_indices\": [0, 4, 12] }"
+            "You are a Relevance Judge. Select the Top 20 chunks that help answer the query.\n"
+            "Prioritize chunks with: specific numbers, dates, names, or explanations.\n"
+            "Return JSON: { \"selected_indices\": [0, 4, 12, ...] }"
         )
 
-        messages = [
-            {"role": "system", "content": prompt},
-            {"role": "user", "content": f"Query: {query}\n\nChunks:\n{chunk_text}"}
-        ]
-
         try:
-            response = self.get_answer_with_backoff(messages)
+            response = self.get_answer_with_backoff([
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": f"Query: {query}\n\nChunks:\n{chunk_text}"}
+            ])
             data = json.loads(response.choices[0].message.content)
             indices = data.get("selected_indices", [])
             selected_chunks = [chunks[i] for i in indices if 0 <= i < len(chunks)]
-            if not selected_chunks: return chunks[:5]
-            return selected_chunks
-        except Exception:
-            return chunks[:8]
+            return selected_chunks if selected_chunks else chunks[:10]
+        except: return chunks[:15]
 
     def select_relevant_files(self, file_summaries: List[dict], question: str) -> List[str]:
         if not file_summaries: return []
@@ -97,17 +72,15 @@ class OpenAIService:
             context += f"- [ID: {f['id']}] Title: {f['title']}\n  Summary: {f['summary'][:300]}...\n\n"
 
         prompt = (
-            "You are a Research Assistant. Select the top 3-4 documents relevant to the question.\n"
+            "You are a Research Assistant. Select the top 3-4 documents relevant to the user's question.\n"
             "Return JSON: { \"selected_ids\": [\"id_1\", \"id_2\"] }"
         )
-        messages = [
-            {"role": "system", "content": prompt},
-            {"role": "user", "content": f"{context}\n\nQuestion: {question}"}
-        ]
         try:
-            res = self.get_answer_with_backoff(messages=messages)
-            data = json.loads(res.choices[0].message.content)
-            return data.get("selected_ids", [])
+            res = self.get_answer_with_backoff([
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": f"{context}\n\nQuestion: {question}"}
+            ])
+            return json.loads(res.choices[0].message.content).get("selected_ids", [])
         except: return []
 
     def _extract_best_sentence(self, full_text: str, query: str) -> str:
@@ -128,53 +101,61 @@ class OpenAIService:
     def _normalize(self, text: str) -> str:
         return re.sub(r'\s+', ' ', text).strip().lower()
 
-    # --- MAIN ANSWER FUNCTION (SOTA UPGRADE) ---
+    # --- MAIN ANSWER FUNCTION (Analyst Mode) ---
     def get_answer(self, context_chunks: List[dict], question: str, mode: str = "single_doc", history: List[Dict[str, str]] = []) -> Dict[str, Any]:
         
-        # 1. Reranking
+        # 1. Reranking Step
         final_chunks = context_chunks
         if mode in ["folder_deep", "single_doc"] and len(context_chunks) > 0:
             final_chunks = self.rerank_chunks(context_chunks, question)
 
-        # 2. Build Context String with Explicit IDs
         context_text = ""
         system_prompt = ""
 
-        if mode == "single_doc" or mode == "folder_deep":
+        # 2. Build Context String
+        if mode in ["single_doc", "folder_deep"]:
             if final_chunks:
+                context_text += "--- SOURCE MATERIAL ---\n"
                 for i, chunk in enumerate(final_chunks):
-                    # We inject the LIST INDEX [ID:0], [ID:1] so the LLM can reference it easily
-                    page = chunk.get('page', '?')
-                    src = chunk.get('source', 'Document')
-                    context_text += f"\n[ID: {i}] [Page {page} of {src}] {chunk['content']}\n"
+                    # Including source file title if available
+                    source_label = chunk.get('source', 'Document')
+                    context_text += f"[ID:{i}] [Source: {source_label} | Page {chunk.get('page', '?')}] {chunk['content']}\n\n"
             else:
                 context_text = "No specific document context found."
 
+            # --- SOTA ANALYST PROMPT ---
             system_prompt = (
-                "You are a Senior Financial Analyst. Answer the user question based ONLY on the provided context.\n"
+                "You are a Senior Financial Analyst. Answer based ONLY on the provided context.\n"
                 "You must return a JSON object with two keys:\n"
-                "1. 'answer': A precise, professional answer. Do not mention 'the provided text'—just state the facts.\n"
-                "2. 'citations': An array of objects, where each object has:\n"
-                "   - 'source_id': The integer ID from the context (e.g. 0, 1) that supports this statement.\n"
-                "   - 'quote': A verbatim, 2-3 sentence passage from that chunk. Do not edit the text.\n"
+                "1. 'answer': A markdown string formatted strictly as follows:\n"
+                "   **Executive Summary**\n"
+                "   [A 2-3 sentence high-level summary of the findings]\n\n"
+                "   **Key Insights**\n"
+                "   - **[Insight Title]:** [Detailed explanation of 2-3 sentences. Explain WHY this matters.]\n"
+                "   - **[Insight Title]:** [Detailed explanation...]\n\n"
+                "2. 'quotes': An array of strings. Copy the EXACT sentences used to derive the answer.\n"
+                "   - Rule: Use CONTEXTUAL QUOTING. Do not just quote a number. Quote the full sentence containing the number so it is verifiable.\n"
+                "   - Aim for 5-7 distinct citations if the text supports it.\n"
+                "   - Do NOT modify the text inside the quotes."
             )
 
         elif mode == "folder_fast" or mode == "simple":
-            # Fast mode logic (Summaries) - simplified
             if final_chunks:
                 context_text += "--- FILE SUMMARIES ---\n"
                 for i, chunk in enumerate(final_chunks):
                     filename = chunk.get('source', 'Unknown File')
-                    context_text += f"[ID: {i}] [File: {filename}] {chunk['content']}\n\n"
+                    context_text += f"[ID:{i}] [File: {filename}] {chunk['content']}\n\n"
             else:
                 context_text = "No file summaries found."
 
             system_prompt = (
-                "You are a Digital Librarian. Use the summaries to answer.\n"
-                "Return JSON: { 'answer': '...', 'citations': [] }"
+                "You are a Digital Librarian. You have access to high-level SUMMARIES of files.\n"
+                "Goal: Identify which file contains specific info or extract metadata.\n"
+                "Rules: Be concise. Use the summaries to answer.\n"
+                "Return JSON: { 'answer': '...', 'quotes': [] }"
             )
 
-        # 3. Chat
+        # 3. Construct Messages
         messages = [{"role": "system", "content": system_prompt}]
         if history:
             for msg in history[-6:]:
@@ -187,35 +168,31 @@ class OpenAIService:
             content = response.choices[0].message.content
             data = json.loads(content)
             
-            raw_citations = data.get("citations", [])
+            raw_quotes = data.get("quotes", [])
             formatted_citations = []
             
-            # 4. Verify Citations (The "SOTA" Part)
             if mode != "folder_fast":
-                for cit in raw_citations:
-                    try:
-                        source_id = int(cit.get('source_id', -1))
-                        ai_quote = cit.get('quote', '')
-                        
-                        # Validate ID
-                        if source_id < 0 or source_id >= len(final_chunks):
-                            continue # invalid hallucinated ID
-                            
-                        # Get the actual text chunk the AI claimed to use
-                        target_chunk = final_chunks[source_id]
-                        
-                        # Fuzzy Match the quote against the REAL text
-                        # This fixes "near miss" quotes
-                        real_quote = self._find_best_match(target_chunk['content'], ai_quote)
-                        
-                        formatted_citations.append({
-                            "content": real_quote, # The REAL text from DB, not AI hallucination
-                            "page": target_chunk.get('page', 1),
-                            "source": target_chunk.get('source', 'Document'),
-                            "id": target_chunk.get('id', 0)
-                        })
-                    except Exception as e:
-                        continue # Skip bad citations
+                for q in raw_quotes:
+                    best_match = None
+                    # Exact search
+                    for c in final_chunks:
+                        if q in c['content']:
+                            best_match = c
+                            break
+                    # Fuzzy fallback
+                    if not best_match:
+                        norm_q = self._normalize(q)
+                        for c in final_chunks:
+                            if norm_q in self._normalize(c['content']):
+                                best_match = c
+                                break
+
+                    formatted_citations.append({
+                        "content": q,
+                        "page": best_match.get('page', 1) if best_match else 1,
+                        "source": best_match.get('source', 'Unknown') if best_match else "Folder",
+                        "id": best_match.get('id', 0) if best_match else 0
+                    })
 
             return {"answer": data.get("answer", ""), "citations": formatted_citations}
         except Exception as e:
