@@ -67,129 +67,215 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
 
   // 3. SOTA NORMALIZATION MAPPING HIGHLIGHTER
   const handleCitationClick = async (clickedCit: any) => {
-    if (!clickedCit.page) return;
+  if (!clickedCit.page) return;
+  
+  // A. Jump to page (existing logic - don't change)
+  jumpToPage(clickedCit.page - 1);
+
+  // B. Batch citations on same page (existing logic - don't change)
+  const lastAiMsg = messages.slice().reverse().find(m => m.role === 'ai');
+  const citationsOnPage = lastAiMsg?.citations?.filter(
+    (c: any) => c.page === clickedCit.page
+  ) || [clickedCit];
+
+  if (!pdfDocument || citationsOnPage.length === 0) return;
+
+  try {
+    // 1. Extract page text (PDF.js getPage is 1-based)
+    const page = await pdfDocument.getPage(clickedCit.page);
+    const textContent = await page.getTextContent();
     
-    // A. Jump to the page first
-    jumpToPage(clickedCit.page - 1);
+    // 2. Build full page text with item tracking
+    let fullPageText = "";
+    textContent.items.forEach((item: any) => {
+      fullPageText += item.str + " ";
+    });
 
-    // B. Find ALL citations on this page (Auto-Batching)
-    const lastAiMsg = messages.slice().reverse().find(m => m.role === 'ai');
-    const citationsOnPage = lastAiMsg?.citations?.filter((c: any) => c.page === clickedCit.page) || [clickedCit];
+    // 3. Normalization function (aggressive cleaning)
+    const normalize = (text: string): string => {
+      return text
+        .toLowerCase()
+        .replace(/[""'']/g, '"')      // Smart quotes
+        .replace(/[\u00AD\u200B]/g, '') // Soft hyphens, zero-width spaces
+        .replace(/\s+/g, ' ')          // Multiple spaces to single
+        .replace(/[^\w\s]/g, '')       // Remove punctuation
+        .trim();
+    };
 
-    if (pdfDocument && citationsOnPage.length > 0) {
-        try {
-            // 1. Get RAW text items from the page
-            const page = await pdfDocument.getPage(clickedCit.page); // Note: getPage uses 0-based index internally often, but let's assume cit.page is 1-based.
-            // Actually, pdfjs getPage is 1-based usually, or check documentation. 
-            // BUT: pdfDocument.getPage(i) often expects index (0..N). 
-            // If cit.page is 1-based, we might need (clickedCit.page - 1).
-            // Let's rely on the previous logic which worked for page navigation.
+    const normalizedPage = normalize(fullPageText);
+    const keywordsToHighlight: any[] = [];
+
+    // 4. Process each citation with cascading thresholds
+    citationsOnPage.forEach((cit: any) => {
+      const rawCitation = cit.content;
+      const normalizedCitation = normalize(rawCitation);
+      
+      // Skip if citation is too short
+      if (normalizedCitation.length < 10) {
+        console.warn(`Citation too short (${normalizedCitation.length} chars), skipping`);
+        return;
+      }
+
+      let matched = false;
+      const words = normalizedCitation.split(' ').filter(w => w.length > 0);
+      
+      // CASCADING THRESHOLD STRATEGY: 100% → 80% → 60% → 40% → 20%
+      const thresholds = [1.0, 0.8, 0.6, 0.4, 0.2];
+      
+      for (const threshold of thresholds) {
+        if (matched) break;
+        
+        const minWords = Math.max(3, Math.ceil(words.length * threshold));
+        
+        // Try sliding windows of different sizes at this threshold
+        for (let windowSize = words.length; windowSize >= minWords; windowSize--) {
+          if (matched) break;
+          
+          // Slide the window across the citation (ANYWHERE in citation)
+          for (let start = 0; start <= words.length - windowSize; start++) {
+            const windowWords = words.slice(start, start + windowSize);
+            const windowText = windowWords.join(' ');
             
-            const textContent = await page.getTextContent();
-            
-            // 2. Build the "Normalization Map"
-            // We construct a 'skeleton' string (normText) and map every character index back to the fullText.
-            let fullText = "";
-            let normText = "";
-            const indexMap: number[] = [];
-
-            for (const item of textContent.items) {
-                const str = item.str; 
-                for (let i = 0; i < str.length; i++) {
-                    const char = str[i];
-                    // If it's a letter/number, add to skeleton and record index
-                    if (/[a-zA-Z0-9]/.test(char)) {
-                        normText += char.toLowerCase();
-                        indexMap.push(fullText.length);
-                    }
-                    fullText += char;
-                }
-                // PDF text items are often individual words or lines. We add a space for safety in the full text.
-                fullText += " "; 
+            // Check if this window exists in the page
+            if (normalizedPage.includes(windowText)) {
+              // FOUND A MATCH! Now find it in the original text
+              const matchPosition = normalizedPage.indexOf(windowText);
+              
+              // Map back to original text position
+              const originalMatch = findOriginalTextAtPosition(
+                fullPageText,
+                normalizedPage,
+                matchPosition,
+                windowText.length
+              );
+              
+              if (originalMatch) {
+                // Create flexible regex that handles spacing/hyphenation
+                const pattern = createFlexiblePattern(originalMatch);
+                keywordsToHighlight.push({
+                  keyword: new RegExp(pattern, 'gi'),
+                  matchCase: false
+                });
+                
+                console.log(`✅ Match found at ${Math.round(threshold * 100)}% threshold: "${originalMatch.substring(0, 50)}..."`);
+                matched = true;
+                break;
+              }
             }
-
-            // We use 'any[]' to bypass strict TypeScript checks
-            const keywordsToHighlight: any[] = [];
-
-            // 3. Process Citations
-            citationsOnPage.forEach((cit: any) => {
-                // Clean the citation to be a skeleton too
-                const cleanCit = cit.content.replace(/["“”]/g, ""); // Remove quotes
-                const normCit = cleanCit.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
-
-                if (!normCit) return;
-
-                // 4. Find the match in the SKELETON text
-                // We search for the normalized quote in the normalized page text
-                const matchIndex = normText.indexOf(normCit);
-
-                if (matchIndex !== -1) {
-                    // FOUND IT!
-                    // 5. Map back to Original Text
-                    const startIndex = indexMap[matchIndex];
-                    const endIndex = indexMap[matchIndex + normCit.length - 1] + 1; // +1 to include last char
-                    
-                    // Extract the messy, original string from the PDF
-                    const originalString = fullText.substring(startIndex, endIndex);
-
-                    // 6. Create a Flexible Regex from the Original String
-                    // Even though we extracted it, the viewer's rendering might differ slightly (e.g. whitespace handling).
-                    // So we replace all whitespace in our extracted string with a flexible regex pattern.
-                    const flexiblePattern = originalString.split('').map(char => {
-                        // If the char is whitespace in our extraction, allow any whitespace in the viewer
-                        if (/\s/.test(char)) return '[\\s\\n\\r\\u00AD\\u200B\\-]*';
-                        return escapeRegExp(char);
-                    }).join('');
-
-                    keywordsToHighlight.push({
-                        keyword: new RegExp(flexiblePattern, 'gi'),
-                        matchCase: false
-                    });
-                } else {
-                    // Fallback: If exact match fails (maybe OCR typo?), try Shingling (Overlapping Chunks)
-                    // We grab chunks of the normalized citation
-                    const chunkSize = 20; // 20 chars
-                    if (normCit.length > chunkSize) {
-                        for (let i = 0; i < normCit.length - chunkSize; i += 10) {
-                            const chunk = normCit.substring(i, i + chunkSize);
-                            const chunkIdx = normText.indexOf(chunk);
-                            if (chunkIdx !== -1) {
-                                const start = indexMap[chunkIdx];
-                                const end = indexMap[chunkIdx + chunk.length - 1] + 1;
-                                const chunkOriginal = fullText.substring(start, end);
-                                
-                                // Create regex for this chunk
-                                const chunkPattern = chunkOriginal.split('').map(c => 
-                                    /\s/.test(c) ? '[\\s\\n\\r\\u00AD\\u200B\\-]*' : escapeRegExp(c)
-                                ).join('');
-
-                                keywordsToHighlight.push({
-                                    keyword: new RegExp(chunkPattern, 'gi'),
-                                    matchCase: false
-                                });
-                            }
-                        }
-                    }
-                }
-            });
-
-            // E. Execute Batch Highlight
-            clearHighlights();
-            if (keywordsToHighlight.length > 0) {
-                highlight(keywordsToHighlight);
-            } else {
-                // Last Resort: Just try the literal text if all advanced matching failed
-                highlight(citationsOnPage.map((c: any) => ({
-                    keyword: c.content,
-                    matchCase: false
-                })));
-            }
-
-        } catch (err) {
-            console.error("Error finding text match:", err);
+          }
         }
+      }
+      
+      // Fallback: Try key phrases if nothing matched
+      if (!matched && words.length >= 3) {
+        console.warn(`⚠️ No match found, trying key phrase fallback...`);
+        
+        // Extract most distinctive 3-word phrases
+        for (let i = 0; i <= words.length - 3; i++) {
+          const phrase = words.slice(i, i + 3).join(' ');
+          if (normalizedPage.includes(phrase)) {
+            const pos = normalizedPage.indexOf(phrase);
+            const orig = findOriginalTextAtPosition(fullPageText, normalizedPage, pos, phrase.length);
+            
+            if (orig) {
+              keywordsToHighlight.push({
+                keyword: escapeRegExp(orig),
+                matchCase: false
+              });
+              console.log(`✅ Key phrase match: "${orig}"`);
+              matched = true;
+              break;
+            }
+          }
+        }
+      }
+      
+      if (!matched) {
+        console.error(`❌ Failed to find any match for citation on page ${cit.page}`);
+      }
+    });
+
+    // 5. Execute highlight (with delay for render)
+    clearHighlights();
+    
+    if (keywordsToHighlight.length > 0) {
+      setTimeout(() => {
+        highlight(keywordsToHighlight);
+        console.log(`🎯 Highlighted ${keywordsToHighlight.length} citation(s)`);
+      }, 150);
+    } else {
+      console.warn('⚠️ No highlights to display');
     }
-  };
+
+  } catch (err) {
+    console.error("❌ Citation highlighting error:", err);
+  }
+};
+
+// HELPER: Map normalized position back to original text
+function findOriginalTextAtPosition(
+  originalText: string,
+  normalizedText: string,
+  normalizedPos: number,
+  normalizedLength: number
+): string | null {
+  let origIdx = 0;
+  let normIdx = 0;
+  let startOrigIdx = -1;
+  
+  // Find start position
+  while (origIdx < originalText.length && normIdx < normalizedPos) {
+    const char = originalText[origIdx];
+    const normChar = char.toLowerCase().replace(/[^\w\s]/g, '');
+    
+    if (normChar && normChar !== ' ') {
+      normIdx++;
+    } else if (char === ' ') {
+      // Count spaces in normalized text
+      const nextNormChar = normalizedText[normIdx];
+      if (nextNormChar === ' ') normIdx++;
+    }
+    origIdx++;
+  }
+  
+  startOrigIdx = origIdx;
+  
+  // Find end position
+  let normCount = 0;
+  while (origIdx < originalText.length && normCount < normalizedLength) {
+    const char = originalText[origIdx];
+    const normChar = char.toLowerCase().replace(/[^\w\s]/g, '');
+    
+    if (normChar && normChar !== ' ') {
+      normCount++;
+    } else if (char === ' ') {
+      const nextNormChar = normalizedText[normalizedPos + normCount];
+      if (nextNormChar === ' ') normCount++;
+    }
+    origIdx++;
+  }
+  
+  const result = originalText.substring(startOrigIdx, origIdx).trim();
+  return result.length > 0 ? result : null;
+}
+
+// HELPER: Create regex pattern that handles hyphenation and spacing
+function createFlexiblePattern(text: string): string {
+  // Split into words and allow flexible spacing/hyphens between them
+  const words = text.split(/\s+/).filter(w => w.length > 0);
+  
+  if (words.length === 1) {
+    // Single word - just escape it
+    return escapeRegExp(text);
+  }
+  
+  // Multiple words - allow flexible spacing/hyphens between
+  const pattern = words
+    .map(word => escapeRegExp(word))
+    .join('[\\s\\-\\u00AD\\u200B]*'); // Allow space, hyphen, soft hyphen, zero-width space
+  
+  return pattern;
+}
 
   const sendMessage = async (textOverride?: string) => {
     const messageToSend = typeof textOverride === 'string' ? textOverride : input;
