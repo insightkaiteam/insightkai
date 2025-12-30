@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, use } from "react";
+import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 
 import ReactMarkdown from "react-markdown";
 import remarkMath from "remark-math";
@@ -8,9 +10,7 @@ import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 
 import { Send, ArrowLeft, Loader2, MapPin } from "lucide-react";
-import Link from "next/link";
 
-// PDF VIEWER IMPORTS
 import { Worker, Viewer, DocumentLoadEvent } from "@react-pdf-viewer/core";
 import { pageNavigationPlugin } from "@react-pdf-viewer/page-navigation";
 import { searchPlugin } from "@react-pdf-viewer/search";
@@ -34,8 +34,7 @@ function escapeRegExp(str: string) {
     return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// Builds a tolerant regex that matches across PDF line breaks/hyphenation/odd whitespace.
-// This is intentionally permissive because PDF text layers often insert breaks.
+// Tolerant regex that matches across PDF line breaks/hyphenation/odd whitespace.
 function buildFlexibleRegexFromText(raw: string) {
     const cleaned = (raw ?? "")
         .replace(/[“”"]/g, "")
@@ -47,9 +46,7 @@ function buildFlexibleRegexFromText(raw: string) {
     const pattern = cleaned
         .split("")
         .map((ch) => {
-            if (/\s/.test(ch)) {
-                return "[\\s\\n\\r\\u00AD\\u200B\\-]*";
-            }
+            if (/\s/.test(ch)) return "[\\s\\n\\r\\u00AD\\u200B\\-]*";
             return escapeRegExp(ch);
         })
         .join("");
@@ -57,8 +54,7 @@ function buildFlexibleRegexFromText(raw: string) {
     return new RegExp(pattern, "gi");
 }
 
-// Shingles: pick a few word windows so partial matches still highlight.
-// This avoids needing pdfjs page text extraction and works with the viewer’s text layer.
+// Partial matching via a few word-windows (start/mid/end).
 function makeShingles(raw: string, wordsPerShingle = 12) {
     const cleaned = (raw ?? "")
         .replace(/[“”"]/g, "")
@@ -67,8 +63,6 @@ function makeShingles(raw: string, wordsPerShingle = 12) {
 
     const words = cleaned.split(" ").filter(Boolean);
     if (words.length === 0) return [];
-
-    // If short, just return the whole thing
     if (words.length <= wordsPerShingle) return [cleaned];
 
     const windows: string[] = [];
@@ -85,130 +79,160 @@ function makeShingles(raw: string, wordsPerShingle = 12) {
     pushWindow(mid);
     pushWindow(end);
 
-    // De-dup
     return Array.from(new Set(windows));
 }
 
-const MarkdownBlock = ({ content }: { content: string }) => {
-    return (
-        <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-            {content}
-        </ReactMarkdown>
-    );
-};
+const MarkdownBlock = ({ content }: { content: string }) => (
+    <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+        {content}
+    </ReactMarkdown>
+);
 
-const TypewriterMarkdown = ({ content, animate = false }: { content: string; animate?: boolean }) => {
-    const [displayedContent, setDisplayedContent] = useState(animate ? "" : content);
+const TypewriterMarkdown = ({
+    content,
+    animate = false,
+}: {
+    content: string;
+    animate?: boolean;
+}) => {
+    const [displayed, setDisplayed] = useState(animate ? "" : content);
     const hasAnimated = useRef(!animate);
 
     useEffect(() => {
         if (!animate) {
-            setDisplayedContent(content);
+            setDisplayed(content);
             return;
         }
-
         if (hasAnimated.current) {
-            setDisplayedContent(content);
+            setDisplayed(content);
             return;
         }
 
         let i = -1;
-        const speed = 5;
-
         const timer = setInterval(() => {
             i++;
-            if (i <= content.length) setDisplayedContent(content.slice(0, i));
+            if (i <= content.length) setDisplayed(content.slice(0, i));
             else {
                 clearInterval(timer);
                 hasAnimated.current = true;
             }
-        }, speed);
+        }, 5);
 
         return () => clearInterval(timer);
     }, [content, animate]);
 
-    return <MarkdownBlock content={displayedContent} />;
+    return <MarkdownBlock content={displayed} />;
 };
 
 export default function ChatPage({ params }: { params: Promise<{ docId: string }> }) {
     const { docId } = use(params);
+    const searchParams = useSearchParams();
 
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [input, setInput] = useState("");
     const [isLoading, setIsLoading] = useState(false);
 
-    // Keep doc reference if you later want bbox/highlight-plugin style highlighting
     const [pdfDocument, setPdfDocument] = useState<any>(null);
-
     const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages]);
 
-    // 1) Initialize plugins ONCE (important: avoid recreating stores on rerender)
+    // Plugins must be stable across rerenders
     const pageNavigationPluginInstance = useMemo(() => pageNavigationPlugin(), []);
     const searchPluginInstance = useMemo(() => searchPlugin(), []);
 
     const { jumpToPage } = pageNavigationPluginInstance;
     const { highlight, clearHighlights } = searchPluginInstance;
 
-    // 2) Capture PDF document on load
     const handleDocumentLoad = (e: DocumentLoadEvent) => {
         setPdfDocument(e.doc);
     };
 
-    // 3) Citation click -> jump + highlight
+    const runHighlight = async (page1Based: number, text: string) => {
+        clearHighlights();
+
+        // Jump is 0-based
+        jumpToPage(Math.max(0, page1Based - 1));
+
+        // Wait for render/text-layer; do a couple retries for robustness
+        await sleep(250);
+
+        const regexes: RegExp[] = [];
+        const full = buildFlexibleRegexFromText(text);
+        if (full) regexes.push(full);
+
+        for (const shingle of makeShingles(text, 12)) {
+            const r = buildFlexibleRegexFromText(shingle);
+            if (r) regexes.push(r);
+        }
+
+        const uniqueRegexes = Array.from(new Map(regexes.map((r) => [r.source, r])).values());
+
+        if (uniqueRegexes.length > 0) {
+            // IMPORTANT: pass RegExp directly
+            highlight(uniqueRegexes);
+        } else if (text?.trim()) {
+            highlight([text.trim()]);
+        } else {
+            return;
+        }
+
+        // Second-pass highlight in case the text layer was late
+        await sleep(500);
+        clearHighlights();
+        if (uniqueRegexes.length > 0) highlight(uniqueRegexes);
+        else highlight([text.trim()]);
+    };
+
     const handleCitationClick = async (clickedCit: any) => {
         if (!clickedCit?.page) return;
 
-        // Clear existing highlights first so repeats feel deterministic
-        clearHighlights();
+        const pageNum = Number(clickedCit.page);
+        const content = typeof clickedCit.content === "string" ? clickedCit.content : "";
+        if (!Number.isFinite(pageNum) || pageNum <= 0) return;
+        if (!content.trim()) return;
 
-        // Jump to the page (react-pdf-viewer uses 0-based page index for navigation plugin)
-        jumpToPage(Math.max(0, Number(clickedCit.page) - 1));
-
-        // Give the viewer a moment to render the page + text layer
-        await sleep(250);
-
+        // If you want batching: highlight all citations on this page from the latest AI msg
         const lastAiMsg = [...messages].reverse().find((m) => m.role === "ai");
         const citationsOnPage =
             lastAiMsg?.citations?.filter((c: any) => c.page === clickedCit.page) ?? [clickedCit];
 
-        // Build a robust set of regexes:
-        // - Try the full citation text
-        // - Also try a few shingles (start/mid/end) for partial matching
-        const regexes: RegExp[] = [];
+        // Highlight the clicked one first (fast feedback)
+        await runHighlight(pageNum, content);
 
-        for (const cit of citationsOnPage) {
-            const full = buildFlexibleRegexFromText(cit?.content ?? "");
-            if (full) regexes.push(full);
-
-            for (const shingle of makeShingles(cit?.content ?? "", 12)) {
-                const r = buildFlexibleRegexFromText(shingle);
-                if (r) regexes.push(r);
+        // Optional: also highlight a few more on same page
+        // (comment this out if you prefer single highlight)
+        for (const cit of citationsOnPage.slice(0, 3)) {
+            const t = typeof cit?.content === "string" ? cit.content : "";
+            if (t.trim()) {
+                await runHighlight(pageNum, t);
+                break;
             }
-        }
-
-        // De-dup regexes by their source pattern
-        const uniqueRegexes = Array.from(new Map(regexes.map((r) => [r.source, r])).values());
-
-        // IMPORTANT: pass RegExp directly (not `{ keyword: /.../ }`)
-        if (uniqueRegexes.length > 0) {
-            highlight(uniqueRegexes);
-        } else if (citationsOnPage.length > 0) {
-            // Last resort: try literal strings (less robust but better than nothing)
-            highlight(
-                citationsOnPage
-                    .map((c: any) => (typeof c?.content === "string" ? c.content.trim() : ""))
-                    .filter(Boolean)
-            );
         }
     };
 
-    const sendMessage = async (textOverride?: string) => {
-        const messageToSend = typeof textOverride === "string" ? textOverride : input;
-        if (!messageToSend.trim()) return;
+    // AUTO-HIGHLIGHT WHEN OPENED FROM DASHBOARD LINK:
+    // /chat/<docId>?page=12&text=....
+    useEffect(() => {
+        if (!pdfDocument) return;
+
+        const p = searchParams.get("page");
+        const t = searchParams.get("text");
+
+        if (!p || !t) return;
+
+        const pageNum = Number(p);
+        if (!Number.isFinite(pageNum) || pageNum <= 0) return;
+
+        runHighlight(pageNum, t);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [pdfDocument]);
+
+    const sendMessage = async () => {
+        const messageToSend = input.trim();
+        if (!messageToSend) return;
 
         const userMsg: ChatMessage = { role: "user", content: messageToSend };
         setMessages((prev) => [...prev, userMsg]);
@@ -233,11 +257,8 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
             });
 
             const data = await response.json();
-            setMessages((prev) => [
-                ...prev,
-                { role: "ai", content: data.answer, citations: data.citations },
-            ]);
-        } catch (error) {
+            setMessages((prev) => [...prev, { role: "ai", content: data.answer, citations: data.citations }]);
+        } catch {
             setMessages((prev) => [...prev, { role: "ai", content: "Sorry, something went wrong." }]);
         } finally {
             setIsLoading(false);
@@ -276,7 +297,6 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
                 <div className="flex-1 overflow-y-auto p-6 space-y-6 scroll-smooth bg-[#fafafa]">
                     {messages.map((m, i) => {
                         const isLast = i === messages.length - 1;
-
                         return (
                             <div
                                 key={i}
@@ -355,7 +375,7 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
                         />
 
                         <button
-                            onClick={() => sendMessage()}
+                            onClick={sendMessage}
                             className="w-12 h-12 bg-black text-white rounded-xl hover:scale-105 active:scale-95 transition shadow-lg flex items-center justify-center"
                         >
                             <Send size={18} />
