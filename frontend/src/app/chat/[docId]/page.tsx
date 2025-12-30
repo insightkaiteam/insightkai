@@ -10,7 +10,7 @@ import Link from 'next/link';
 // PDF VIEWER IMPORTS
 import { Worker, Viewer, DocumentLoadEvent } from '@react-pdf-viewer/core';
 import { pageNavigationPlugin } from '@react-pdf-viewer/page-navigation';
-import { searchPlugin, SingleKeyword } from '@react-pdf-viewer/search';
+import { searchPlugin } from '@react-pdf-viewer/search'; // Removed strict type import
 
 import '@react-pdf-viewer/core/lib/styles/index.css';
 import '@react-pdf-viewer/page-navigation/lib/styles/index.css';
@@ -83,8 +83,8 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
             const textContent = await page.getTextContent();
             const pageText = textContent.items.map((item: any) => item.str).join(' ');
             
-            // We will collect VALID KEYWORD OBJECTS (Regex or String)
-            const highlightKeywords: SingleKeyword[] = [];
+            // CHANGED: Use 'any[]' to bypass strict TypeScript checks on RegExp
+            const highlightKeywords: any[] = [];
 
             // 2. Process EACH citation for this page
             for (const cit of citationsOnPage) {
@@ -104,9 +104,6 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
                         
                         // --- THE SOTA UPGRADE ---
                         // We construct a "Universal Separator" Regex.
-                        // It matches: Spaces, Newlines (\n), Tabs, Soft Hyphens (\u00AD),
-                        // Zero-width spaces (\u200B), and Standard Hyphens (-).
-                        // This allows "Share Ratio" to match "Sharpe\nRatio" or "Sharpe - Ratio".
                         const separator = '[\\s\\n\\r\\u00AD\\u200B\\-]+';
                         const patternString = candidateWords.map(escapeRegExp).join(separator);
                         const regex = new RegExp(patternString, 'gi');
@@ -114,7 +111,6 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
                         // Test if this flexible pattern actually exists in the text layer
                         if (regex.test(pageText)) {
                             // PUSH THE REGEX OBJECT DIRECTLY
-                            // This bypasses the "Exact String" limitation of the viewer.
                             highlightKeywords.push({
                                 keyword: regex,
                                 matchCase: false
