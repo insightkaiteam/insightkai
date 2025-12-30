@@ -10,7 +10,7 @@ import Link from 'next/link';
 // PDF VIEWER IMPORTS
 import { Worker, Viewer, DocumentLoadEvent } from '@react-pdf-viewer/core';
 import { pageNavigationPlugin } from '@react-pdf-viewer/page-navigation';
-import { searchPlugin } from '@react-pdf-viewer/search';
+import { searchPlugin, SingleKeyword } from '@react-pdf-viewer/search';
 
 import '@react-pdf-viewer/core/lib/styles/index.css';
 import '@react-pdf-viewer/page-navigation/lib/styles/index.css';
@@ -36,11 +36,6 @@ const Typewriter = ({ content, animate = false }: { content: string, animate?: b
   return <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{displayedContent}</ReactMarkdown>;
 };
 
-// --- HELPER: Escape Regex Characters ---
-function escapeRegExp(string: string) {
-  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); 
-}
-
 export default function ChatPage({ params }: { params: Promise<{ docId: string }> }) {
   const { docId } = use(params);
   const [messages, setMessages] = useState<{role: string, content: string, citations?: any[]}[]>([]);
@@ -59,71 +54,65 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
   const searchPluginInstance = searchPlugin();
   const { highlight, clearHighlights } = searchPluginInstance;
 
-  // 2. TRIPLE-ANCHOR STRATEGY
+  // 2. RADICAL SIMPLE STRATEGY (Literal Anchor Swarm)
   const handleCitationClick = (clickedCit: any) => {
     if (!clickedCit.page) return;
     
-    // A. Jump to the page
+    // A. Jump to the page first
     jumpToPage(clickedCit.page - 1);
 
-    // B. Prepare Search Targets
-    const text = clickedCit.content.trim();
+    // B. Construct Targets
+    const text = clickedCit.content.replace(/["“”]/g, "").trim(); // Remove quotes, keep spaces
     const words = text.split(/\s+/);
     
-    // We will bypass TypeScript's strict type checking for the keyword array
-    const keywordsToHighlight: any[] = [];
-    
-    // Helper to create a "Flexible Space" Regex from a list of words
-    // Input: ["In", "fact,"] -> /In[\s\n]+fact,/gi
-    const createFlexiblePattern = (wordList: string[]) => {
-        if (wordList.length === 0) return null;
-        // Escape special chars in words (like brackets or question marks)
-        const escapedWords = wordList.map(escapeRegExp);
-        // Join with pattern matching any whitespace (space, tab, newline)
-        const pattern = escapedWords.join('[\\s\\n]+');
-        return new RegExp(pattern, 'gi');
-    };
+    // We will collect multiple "Plain String" keywords
+    const targets: string[] = [];
 
-    // --- STRATEGY: HEAD, MIDDLE, TAIL ---
+    // 1. FULL TEXT (The obvious choice)
+    targets.push(text);
 
-    // 1. HEAD (First 3 words)
-    if (words.length >= 3) {
-        const headPattern = createFlexiblePattern(words.slice(0, 3));
-        if (headPattern) keywordsToHighlight.push({ keyword: headPattern, matchCase: false });
-    }
+    // 2. ANCHORS (The "As Is" Fragments)
+    if (words.length > 6) {
+        // Head: First 3 words
+        const head = words.slice(0, 3).join(" ");
+        targets.push(head);
 
-    // 2. TAIL (Last 3 words)
-    if (words.length >= 6) {
-        const tailPattern = createFlexiblePattern(words.slice(-3));
-        if (tailPattern) keywordsToHighlight.push({ keyword: tailPattern, matchCase: false });
-    }
+        // Tail: Last 3 words
+        const tail = words.slice(-3).join(" ");
+        targets.push(tail);
 
-    // 3. MIDDLE (Middle 3 words)
-    // Only if sentence is long enough to have a distinct middle
-    if (words.length >= 9) {
+        // Middle: Middle 3 words
         const midIndex = Math.floor(words.length / 2);
-        const middleWords = words.slice(midIndex - 1, midIndex + 2);
-        const midPattern = createFlexiblePattern(middleWords);
-        if (midPattern) keywordsToHighlight.push({ keyword: midPattern, matchCase: false });
+        const middle = words.slice(midIndex - 1, midIndex + 2).join(" ");
+        targets.push(middle);
     }
 
-    // 4. FALLBACK: If quote is very short (< 3 words), just search the whole thing
-    if (words.length < 3) {
-        const fullPattern = createFlexiblePattern(words);
-        if (fullPattern) keywordsToHighlight.push({ keyword: fullPattern, matchCase: false });
+    // 3. Fallback for strange spacing (First 5 chars + Last 5 chars)
+    // If words fail, maybe these unique strings will catch
+    if (text.length > 20) {
+        targets.push(text.substring(0, 8)); // First 8 chars
+        targets.push(text.substring(text.length - 8)); // Last 8 chars
     }
 
-    // C. EXECUTE HIGHLIGHT (With Retry for Render Delay)
-    const tryHighlight = () => {
-        clearHighlights();
-        if (keywordsToHighlight.length > 0) {
-            highlight(keywordsToHighlight);
-        }
+    // C. HIGHLIGHT EXECUTION
+    // We pass an array of simple strings. The viewer handles the rest.
+    // We use a retry mechanism to handle the PDF rendering delay.
+    
+    const keywords: SingleKeyword[] = targets.map(t => ({
+        keyword: t,
+        matchCase: false
+    }));
+
+    // Clear previous, then try highlighting 3 times
+    clearHighlights();
+    
+    const attemptHighlight = () => {
+        if (keywords.length > 0) highlight(keywords);
     };
 
-    tryHighlight(); // Immediate
-    setTimeout(tryHighlight, 500); // After render
-    setTimeout(tryHighlight, 1000); // Just in case
+    attemptHighlight(); // Immediate
+    setTimeout(attemptHighlight, 500); // After 500ms
+    setTimeout(attemptHighlight, 1500); // After 1.5s (Aggressive fallback)
   };
 
   const sendMessage = async (textOverride?: string) => {
