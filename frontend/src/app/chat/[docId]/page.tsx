@@ -10,7 +10,7 @@ import Link from 'next/link';
 // PDF VIEWER IMPORTS
 import { Worker, Viewer, DocumentLoadEvent } from '@react-pdf-viewer/core';
 import { pageNavigationPlugin } from '@react-pdf-viewer/page-navigation';
-import { searchPlugin, SingleKeyword } from '@react-pdf-viewer/search'; // Import types
+import { searchPlugin, SingleKeyword } from '@react-pdf-viewer/search';
 
 import '@react-pdf-viewer/core/lib/styles/index.css';
 import '@react-pdf-viewer/page-navigation/lib/styles/index.css';
@@ -65,36 +65,36 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
       setPdfDocument(e.doc);
   };
 
-  // 3. SOTA BATCH HIGHLIGHTER (With Flexible Regex Resolution)
+  // 3. SOTA ROBUST HIGHLIGHTER (Regex Pattern Injection)
   const handleCitationClick = async (clickedCit: any) => {
     if (!clickedCit.page) return;
     
     // A. Jump to the page first
     jumpToPage(clickedCit.page - 1);
 
-    // B. Find ALL citations on this page from the latest AI message
+    // B. Find ALL citations on this page (Auto-Batching)
     const lastAiMsg = messages.slice().reverse().find(m => m.role === 'ai');
     const citationsOnPage = lastAiMsg?.citations?.filter((c: any) => c.page === clickedCit.page) || [clickedCit];
 
     if (pdfDocument && citationsOnPage.length > 0) {
         try {
-            // 1. Get raw text of the target page
+            // 1. Get raw text of the target page for verification
             const page = await pdfDocument.getPage(clickedCit.page);
             const textContent = await page.getTextContent();
-            // Join items with a single space to create a "normal" text layer representation
             const pageText = textContent.items.map((item: any) => item.str).join(' ');
             
-            // We will collect the ACTUAL STRINGS found on the page here
-            const validMatches: string[] = [];
+            // We will collect VALID KEYWORD OBJECTS (Regex or String)
+            const highlightKeywords: SingleKeyword[] = [];
 
             // 2. Process EACH citation for this page
             for (const cit of citationsOnPage) {
+                // Clean input: remove quotes and extra spaces
                 const searchPhrase = cit.content.replace(/["“”]/g, "").trim(); 
                 const words = searchPhrase.split(/\s+/); 
                 
                 let foundMatchForCit = false;
 
-                // 3. Sliding Window Loop (Shrink until we find a match)
+                // 3. Sliding Window Loop (Largest -> Smallest)
                 for (let length = words.length; length >= 3; length--) {
                     if (foundMatchForCit) break;
 
@@ -102,37 +102,43 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
                     for (let start = 0; start <= words.length - length; start++) {
                         const candidateWords = words.slice(start, start + length);
                         
-                        // Create Flexible Regex: "In fact" -> /In\s+fact/gi
-                        const patternString = candidateWords.map(escapeRegExp).join('[\\s\\n]+');
+                        // --- THE SOTA UPGRADE ---
+                        // We construct a "Universal Separator" Regex.
+                        // It matches: Spaces, Newlines (\n), Tabs, Soft Hyphens (\u00AD),
+                        // Zero-width spaces (\u200B), and Standard Hyphens (-).
+                        // This allows "Share Ratio" to match "Sharpe\nRatio" or "Sharpe - Ratio".
+                        const separator = '[\\s\\n\\r\\u00AD\\u200B\\-]+';
+                        const patternString = candidateWords.map(escapeRegExp).join(separator);
                         const regex = new RegExp(patternString, 'gi');
 
-                        // EXECUTE REGEX to find the ACTUAL string on the page
-                        const match = regex.exec(pageText);
-
-                        if (match) {
-                            // We found it! Add the EXACT matched string (e.g. "In  fact") to our list
-                            validMatches.push(match[0]);
+                        // Test if this flexible pattern actually exists in the text layer
+                        if (regex.test(pageText)) {
+                            // PUSH THE REGEX OBJECT DIRECTLY
+                            // This bypasses the "Exact String" limitation of the viewer.
+                            highlightKeywords.push({
+                                keyword: regex,
+                                matchCase: false
+                            });
                             foundMatchForCit = true;
                             break; 
                         }
                     }
                 }
                 
-                // Fallback: If absolutely nothing matched, try the literal content
+                // Fallback: If strict matching failed, try the literal string as a last resort
                 if (!foundMatchForCit) {
-                    validMatches.push(cit.content);
+                    highlightKeywords.push({
+                        keyword: cit.content,
+                        matchCase: false
+                    });
                 }
             }
 
             // 4. EXECUTE BATCH HIGHLIGHT
             clearHighlights();
-            if (validMatches.length > 0) {
-                // Now we pass valid STRINGS, which TypeScript allows
-                const keywords: SingleKeyword[] = validMatches.map(str => ({
-                    keyword: str,
-                    matchCase: false
-                }));
-                highlight(keywords);
+            if (highlightKeywords.length > 0) {
+                // We pass the array of Keyword Objects directly to the plugin
+                highlight(highlightKeywords);
             }
 
         } catch (err) {
