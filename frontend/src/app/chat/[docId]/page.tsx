@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, use } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+// 1. Changed: Import useParams for stable route access
+import { useParams } from "next/navigation";
 
 import ReactMarkdown from "react-markdown";
 import remarkMath from "remark-math";
@@ -32,51 +34,39 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // --- ROBUST HIGHLIGHTING HELPERS ---
 
-// 1. CLEANER: Normalizes text to match how PDFs usually store it (removes smart quotes, extra spaces)
 function cleanTextForSearch(text: string) {
     return (text || "")
-        .replace(/[“”"''`]/g, "") // Remove smart quotes/ticks
-        .replace(/\s+/g, " ")     // Collapse multiple spaces/newlines into one space
+        .replace(/[“”"''`]/g, "") 
+        .replace(/\s+/g, " ")     
         .trim();
 }
 
-// 2. ROBUST REGEX: Matches words with flexible whitespace/newlines in between
-// Example: "Hello World" -> /Hello[\s\n\r\u00A0]+World/gi
 function createWordRegex(phrase: string) {
     const words = cleanTextForSearch(phrase).split(" ").filter(w => w.length > 0);
     if (words.length === 0) return null;
 
-    // Escape special regex chars in words (like $ or .)
     const escapedWords = words.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
     
-    // Join words with a pattern that matches ANY whitespace (spaces, tabs, newlines, non-breaking spaces)
-    // \u00A0 is non-breaking space, often found in PDFs
+    // Matches words with any whitespace/newline/nbsp in between
     const pattern = escapedWords.join("[\\s\\n\\r\\u00A0]+");
     
     return new RegExp(pattern, "gi");
 }
 
-// 3. SMART SHINGLES: Creates overlapping 5-word chunks (Head, Middle, Tail)
-// This ensures that even if one part of the sentence is garbled in the PDF text layer,
-// the other parts will still highlight, guiding the user to the right spot.
 function generateRobustShingles(text: string) {
     const cleaned = cleanTextForSearch(text);
     const words = cleaned.split(" ");
     
-    // If short, just return the whole thing
     if (words.length < 6) return [cleaned];
 
     const shingles: string[] = [];
-    const shingleSize = 5; // 5 words is specific enough to be unique, but short enough to survive OCR errors
+    const shingleSize = 5; 
     
-    // Get the first 5 words (Head)
     shingles.push(words.slice(0, shingleSize).join(" "));
     
-    // Get the middle 5 words
     const mid = Math.floor(words.length / 2);
     shingles.push(words.slice(mid, mid + shingleSize).join(" "));
     
-    // Get the last 5 words (Tail)
     shingles.push(words.slice(words.length - shingleSize, words.length).join(" "));
 
     return shingles;
@@ -125,8 +115,11 @@ const TypewriterMarkdown = ({ content, animate = false }: { content: string; ani
     return <MarkdownBlock content={displayedContent} />;
 };
 
-export default function ChatPage({ params }: { params: Promise<{ docId: string }> }) {
-    const { docId } = use(params);
+// 2. Changed: Removed prop destructuring for params
+export default function ChatPage() {
+    // 3. Changed: Use stable hook to get docId
+    const params = useParams();
+    const docId = params?.docId as string;
 
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [input, setInput] = useState("");
@@ -141,50 +134,39 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages]);
 
-    // 1) Initialize plugins ONCE
+    // Initialize plugins ONCE
     const pageNavigationPluginInstance = useMemo(() => pageNavigationPlugin(), []);
     const searchPluginInstance = useMemo(() => searchPlugin(), []);
 
     const { jumpToPage } = pageNavigationPluginInstance;
     const { highlight, clearHighlights } = searchPluginInstance;
 
-    // 2) Capture PDF document on load
     const handleDocumentLoad = (e: DocumentLoadEvent) => {
         setPdfDocument(e.doc);
     };
 
-    // 3) Citation click -> jump + Robust Highlight
     const handleCitationClick = async (clickedCit: any) => {
         if (!clickedCit?.page) return;
 
-        // A. Clear existing highlights so the new one pops
         clearHighlights();
 
-        // B. Jump to the page (react-pdf-viewer uses 0-based page index)
         const targetPage = Math.max(0, Number(clickedCit.page) - 1);
         jumpToPage(targetPage);
 
-        // C. Wait for the viewer to render the text layer (CRITICAL STEP)
-        // If we search too fast, the text layer isn't in the DOM yet.
         await sleep(300);
 
-        // D. Build Robust Search Patterns
         const content = clickedCit.content || "";
         const searchPhrases: RegExp[] = [];
 
-        // Strategy 1: Try the full sentence (Best case)
         const fullRegex = createWordRegex(content);
         if (fullRegex) searchPhrases.push(fullRegex);
 
-        // Strategy 2: Fallback to Head/Mid/Tail Shingles (Robust case)
-        // If the full sentence fails due to a PDF newline/hyphenation issue, these will catch it.
         const shingles = generateRobustShingles(content);
         shingles.forEach(shingle => {
             const shingleRegex = createWordRegex(shingle);
             if (shingleRegex) searchPhrases.push(shingleRegex);
         });
 
-        // E. Execute Highlight
         if (searchPhrases.length > 0) {
             highlight(searchPhrases);
         }
