@@ -36,9 +36,13 @@ const Typewriter = ({ content, animate = false }: { content: string, animate?: b
   return <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{displayedContent}</ReactMarkdown>;
 };
 
-// --- HELPER: Escape Regex Characters ---
-function escapeRegExp(string: string) {
-  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); 
+// --- HELPER: Create Flexible Regex ---
+// Turns "Revenue increased" into /Revenue\s+increased/gi to handle newlines/tabs
+function createFlexiblePattern(text: string) {
+    // Escape special regex characters
+    const escaped = text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Replace spaces with flexible whitespace matcher (including newlines)
+    return escaped.replace(/\s+/g, '[\\s\\n\\r]+');
 }
 
 export default function ChatPage({ params }: { params: Promise<{ docId: string }> }) {
@@ -48,7 +52,6 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
   const [isLoading, setIsLoading] = useState(false);
   
   // PDF State
-  const [pdfDocument, setPdfDocument] = useState<any>(null); 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
@@ -60,135 +63,58 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
   const searchPluginInstance = searchPlugin();
   const { highlight, clearHighlights } = searchPluginInstance;
 
-  // 2. CAPTURE PDF DOCUMENT ON LOAD
-  const handleDocumentLoad = (e: DocumentLoadEvent) => {
-      setPdfDocument(e.doc);
-  };
-
-  // 3. SOTA NORMALIZATION MAPPING HIGHLIGHTER
-  const handleCitationClick = async (clickedCit: any) => {
+  // 2. ROBUST HIGHLIGHTING LOGIC
+  const handleCitationClick = (clickedCit: any) => {
     if (!clickedCit.page) return;
     
-    // A. Jump to the page first
+    // A. Jump to the page (Page index is 0-based, citation is usually 1-based)
     jumpToPage(clickedCit.page - 1);
 
-    // B. Find ALL citations on this page (Auto-Batching)
-    const lastAiMsg = messages.slice().reverse().find(m => m.role === 'ai');
-    const citationsOnPage = lastAiMsg?.citations?.filter((c: any) => c.page === clickedCit.page) || [clickedCit];
+    // B. Clean the citation text
+    // Remove quotes and extra spaces
+    const cleanText = clickedCit.content.replace(/["“”]/g, "").trim();
+    if (!cleanText) return;
 
-    if (pdfDocument && citationsOnPage.length > 0) {
-        try {
-            // 1. Get RAW text items from the page
-            const page = await pdfDocument.getPage(clickedCit.page); // Note: getPage uses 0-based index internally often, but let's assume cit.page is 1-based.
-            // Actually, pdfjs getPage is 1-based usually, or check documentation. 
-            // BUT: pdfDocument.getPage(i) often expects index (0..N). 
-            // If cit.page is 1-based, we might need (clickedCit.page - 1).
-            // Let's rely on the previous logic which worked for page navigation.
-            
-            const textContent = await page.getTextContent();
-            
-            // 2. Build the "Normalization Map"
-            // We construct a 'skeleton' string (normText) and map every character index back to the fullText.
-            let fullText = "";
-            let normText = "";
-            const indexMap: number[] = [];
+    // C. Create "Robust Anchors"
+    // We create multiple search patterns to ensure we catch *at least* part of the sentence.
+    const words = cleanText.split(/\s+/);
+    const keywordsToHighlight: any[] = [];
 
-            for (const item of textContent.items) {
-                const str = item.str; 
-                for (let i = 0; i < str.length; i++) {
-                    const char = str[i];
-                    // If it's a letter/number, add to skeleton and record index
-                    if (/[a-zA-Z0-9]/.test(char)) {
-                        normText += char.toLowerCase();
-                        indexMap.push(fullText.length);
-                    }
-                    fullText += char;
-                }
-                // PDF text items are often individual words or lines. We add a space for safety in the full text.
-                fullText += " "; 
-            }
+    // 1. The Full Sentence (Flexible Whitespace)
+    // This handles cases where the text is correct but spans across two lines
+    keywordsToHighlight.push({
+        keyword: new RegExp(createFlexiblePattern(cleanText), 'gi'),
+        matchCase: false
+    });
 
-            // We use 'any[]' to bypass strict TypeScript checks
-            const keywordsToHighlight: any[] = [];
-
-            // 3. Process Citations
-            citationsOnPage.forEach((cit: any) => {
-                // Clean the citation to be a skeleton too
-                const cleanCit = cit.content.replace(/["“”]/g, ""); // Remove quotes
-                const normCit = cleanCit.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
-
-                if (!normCit) return;
-
-                // 4. Find the match in the SKELETON text
-                // We search for the normalized quote in the normalized page text
-                const matchIndex = normText.indexOf(normCit);
-
-                if (matchIndex !== -1) {
-                    // FOUND IT!
-                    // 5. Map back to Original Text
-                    const startIndex = indexMap[matchIndex];
-                    const endIndex = indexMap[matchIndex + normCit.length - 1] + 1; // +1 to include last char
-                    
-                    // Extract the messy, original string from the PDF
-                    const originalString = fullText.substring(startIndex, endIndex);
-
-                    // 6. Create a Flexible Regex from the Original String
-                    // Even though we extracted it, the viewer's rendering might differ slightly (e.g. whitespace handling).
-                    // So we replace all whitespace in our extracted string with a flexible regex pattern.
-                    const flexiblePattern = originalString.split('').map(char => {
-                        // If the char is whitespace in our extraction, allow any whitespace in the viewer
-                        if (/\s/.test(char)) return '[\\s\\n\\r\\u00AD\\u200B\\-]*';
-                        return escapeRegExp(char);
-                    }).join('');
-
-                    keywordsToHighlight.push({
-                        keyword: new RegExp(flexiblePattern, 'gi'),
-                        matchCase: false
-                    });
-                } else {
-                    // Fallback: If exact match fails (maybe OCR typo?), try Shingling (Overlapping Chunks)
-                    // We grab chunks of the normalized citation
-                    const chunkSize = 20; // 20 chars
-                    if (normCit.length > chunkSize) {
-                        for (let i = 0; i < normCit.length - chunkSize; i += 10) {
-                            const chunk = normCit.substring(i, i + chunkSize);
-                            const chunkIdx = normText.indexOf(chunk);
-                            if (chunkIdx !== -1) {
-                                const start = indexMap[chunkIdx];
-                                const end = indexMap[chunkIdx + chunk.length - 1] + 1;
-                                const chunkOriginal = fullText.substring(start, end);
-                                
-                                // Create regex for this chunk
-                                const chunkPattern = chunkOriginal.split('').map(c => 
-                                    /\s/.test(c) ? '[\\s\\n\\r\\u00AD\\u200B\\-]*' : escapeRegExp(c)
-                                ).join('');
-
-                                keywordsToHighlight.push({
-                                    keyword: new RegExp(chunkPattern, 'gi'),
-                                    matchCase: false
-                                });
-                            }
-                        }
-                    }
-                }
-            });
-
-            // E. Execute Batch Highlight
-            clearHighlights();
-            if (keywordsToHighlight.length > 0) {
-                highlight(keywordsToHighlight);
-            } else {
-                // Last Resort: Just try the literal text if all advanced matching failed
-                highlight(citationsOnPage.map((c: any) => ({
-                    keyword: c.content,
-                    matchCase: false
-                })));
-            }
-
-        } catch (err) {
-            console.error("Error finding text match:", err);
-        }
+    // 2. The "Head" Anchor (First 6 words)
+    // If the AI hallucinated the end of the sentence, this will still catch the start.
+    if (words.length > 6) {
+        const headText = words.slice(0, 6).join(" ");
+        keywordsToHighlight.push({
+            keyword: new RegExp(createFlexiblePattern(headText), 'gi'),
+            matchCase: false
+        });
     }
+
+    // 3. The "Tail" Anchor (Last 6 words)
+    // If the PDF has a weird header/footer interruption at the start, this catches the end.
+    if (words.length > 10) {
+        const tailText = words.slice(-6).join(" ");
+        keywordsToHighlight.push({
+            keyword: new RegExp(createFlexiblePattern(tailText), 'gi'),
+            matchCase: false
+        });
+    }
+
+    // D. Execute Highlight
+    // We clear previous highlights and apply the new batch.
+    clearHighlights();
+    
+    // Small timeout ensures the page render has caught up after the jump
+    setTimeout(() => {
+        highlight(keywordsToHighlight);
+    }, 100);
   };
 
   const sendMessage = async (textOverride?: string) => {
@@ -220,7 +146,6 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
           <Viewer
             fileUrl={`${BACKEND_URL}/documents/${docId}/download`}
             plugins={[pageNavigationPluginInstance, searchPluginInstance]}
-            onDocumentLoad={handleDocumentLoad} // Capture doc reference
           />
         </Worker>
         <div className="absolute top-4 left-4 z-20">
