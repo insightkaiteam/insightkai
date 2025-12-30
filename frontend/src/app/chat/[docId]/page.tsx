@@ -36,13 +36,20 @@ const Typewriter = ({ content, animate = false }: { content: string, animate?: b
   return <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{displayedContent}</ReactMarkdown>;
 };
 
-// --- HELPER: Create Flexible Regex ---
-// Turns "Revenue increased" into /Revenue\s+increased/gi to handle newlines/tabs
-function createFlexiblePattern(text: string) {
-    // Escape special regex characters
-    const escaped = text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    // Replace spaces with flexible whitespace matcher (including newlines)
-    return escaped.replace(/\s+/g, '[\\s\\n\\r]+');
+// --- HELPER: Super-Loose Regex Generator ---
+// Inserts a "Noise Matcher" between EVERY character.
+// "Zero" -> /Z[^a-z0-9]*e[^a-z0-9]*r[^a-z0-9]*o/i
+function createSuperLoosePattern(text: string) {
+    // 1. Remove anything that isn't a letter or number to get the "skeleton"
+    const clean = text.replace(/[^a-zA-Z0-9]/g, "");
+    if (!clean) return null;
+
+    // 2. Escape valid chars just in case (though alphanumeric are safe)
+    const chars = clean.split('');
+
+    // 3. Join them with a regex that accepts ANY non-alphanumeric noise (spaces, newlines, hyphens, invisible chars)
+    const noise = '[^a-zA-Z0-9]*'; 
+    return chars.join(noise);
 }
 
 export default function ChatPage({ params }: { params: Promise<{ docId: string }> }) {
@@ -63,58 +70,52 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
   const searchPluginInstance = searchPlugin();
   const { highlight, clearHighlights } = searchPluginInstance;
 
-  // 2. ROBUST HIGHLIGHTING LOGIC
+  // 2. SOTA ROBUST HIGHLIGHTER
   const handleCitationClick = (clickedCit: any) => {
     if (!clickedCit.page) return;
     
-    // A. Jump to the page (Page index is 0-based, citation is usually 1-based)
+    // A. Jump to the page
     jumpToPage(clickedCit.page - 1);
 
-    // B. Clean the citation text
-    // Remove quotes and extra spaces
-    const cleanText = clickedCit.content.replace(/["“”]/g, "").trim();
-    if (!cleanText) return;
-
-    // C. Create "Robust Anchors"
-    // We create multiple search patterns to ensure we catch *at least* part of the sentence.
-    const words = cleanText.split(/\s+/);
+    // B. Generate robust targets
     const keywordsToHighlight: any[] = [];
+    const text = clickedCit.content.trim();
 
-    // 1. The Full Sentence (Flexible Whitespace)
-    // This handles cases where the text is correct but spans across two lines
-    keywordsToHighlight.push({
-        keyword: new RegExp(createFlexiblePattern(cleanText), 'gi'),
-        matchCase: false
-    });
-
-    // 2. The "Head" Anchor (First 6 words)
-    // If the AI hallucinated the end of the sentence, this will still catch the start.
-    if (words.length > 6) {
-        const headText = words.slice(0, 3).join(" ");
-        keywordsToHighlight.push({
-            keyword: new RegExp(createFlexiblePattern(headText), 'gi'),
-            matchCase: false
-        });
-    }
-
-    // 3. The "Tail" Anchor (Last 6 words)
-    // If the PDF has a weird header/footer interruption at the start, this catches the end.
-    if (words.length > 10) {
-        const tailText = words.slice(-3).join(" ");
-        keywordsToHighlight.push({
-            keyword: new RegExp(createFlexiblePattern(tailText), 'gi'),
-            matchCase: false
-        });
-    }
-
-    // D. Execute Highlight
-    // We clear previous highlights and apply the new batch.
-    clearHighlights();
+    // Strategy 1: Highlight the WHOLE sentence using Super-Loose Matching
+    // Limit to 50 chars to avoid regex performance issues on huge paragraphs
+    const shortText = text.length > 50 ? text.substring(0, 50) : text;
+    const loosePattern = createSuperLoosePattern(shortText);
     
-    // Small timeout ensures the page render has caught up after the jump
-    setTimeout(() => {
+    if (loosePattern) {
+        keywordsToHighlight.push({
+            keyword: new RegExp(loosePattern, 'gi'),
+            matchCase: false
+        });
+    }
+
+    // Strategy 2: Anchors (First 2 words + Last 2 words)
+    // If the middle is garbage, we at least light up the start and end.
+    const words = text.split(/\s+/);
+    if (words.length > 5) {
+        const startAnchor = createSuperLoosePattern(words.slice(0, 2).join(""));
+        const endAnchor = createSuperLoosePattern(words.slice(-2).join(""));
+        
+        if (startAnchor) keywordsToHighlight.push({ keyword: new RegExp(startAnchor, 'gi'), matchCase: false });
+        if (endAnchor) keywordsToHighlight.push({ keyword: new RegExp(endAnchor, 'gi'), matchCase: false });
+    }
+
+    // C. RETRY LOOP (Fixes the Timing Issue)
+    // We try to highlight 3 times: immediately, after 500ms, and after 1s.
+    // This ensures that even if the page render is slow, we catch it.
+    
+    const tryHighlight = () => {
+        clearHighlights();
         highlight(keywordsToHighlight);
-    }, 100);
+    };
+
+    tryHighlight(); // Attempt 1
+    setTimeout(tryHighlight, 500); // Attempt 2
+    setTimeout(tryHighlight, 1000); // Attempt 3
   };
 
   const sendMessage = async (textOverride?: string) => {
