@@ -10,7 +10,7 @@ import Link from 'next/link';
 // PDF VIEWER IMPORTS
 import { Worker, Viewer, DocumentLoadEvent } from '@react-pdf-viewer/core';
 import { pageNavigationPlugin } from '@react-pdf-viewer/page-navigation';
-import { searchPlugin } from '@react-pdf-viewer/search';
+import { searchPlugin, SingleKeyword } from '@react-pdf-viewer/search'; // Import types
 
 import '@react-pdf-viewer/core/lib/styles/index.css';
 import '@react-pdf-viewer/page-navigation/lib/styles/index.css';
@@ -37,7 +37,6 @@ const Typewriter = ({ content, animate = false }: { content: string, animate?: b
 };
 
 // --- HELPER: Escape Regex Characters ---
-// Prevents crash if quote contains "?", "$", or "("
 function escapeRegExp(string: string) {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); 
 }
@@ -66,7 +65,7 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
       setPdfDocument(e.doc);
   };
 
-  // 3. SOTA BATCH HIGHLIGHTER (With Flexible Regex)
+  // 3. SOTA BATCH HIGHLIGHTER (With Flexible Regex Resolution)
   const handleCitationClick = async (clickedCit: any) => {
     if (!clickedCit.page) return;
     
@@ -74,25 +73,24 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
     jumpToPage(clickedCit.page - 1);
 
     // B. Find ALL citations on this page from the latest AI message
-    // This allows us to highlight everything relevant in one go.
     const lastAiMsg = messages.slice().reverse().find(m => m.role === 'ai');
     const citationsOnPage = lastAiMsg?.citations?.filter((c: any) => c.page === clickedCit.page) || [clickedCit];
 
     if (pdfDocument && citationsOnPage.length > 0) {
         try {
-            // 1. Get raw text of the target page (for verification)
+            // 1. Get raw text of the target page
             const page = await pdfDocument.getPage(clickedCit.page);
             const textContent = await page.getTextContent();
             // Join items with a single space to create a "normal" text layer representation
             const pageText = textContent.items.map((item: any) => item.str).join(' ');
             
-            // We will collect all valid Regex patterns here
-            const validPatterns: RegExp[] = [];
+            // We will collect the ACTUAL STRINGS found on the page here
+            const validMatches: string[] = [];
 
             // 2. Process EACH citation for this page
             for (const cit of citationsOnPage) {
                 const searchPhrase = cit.content.replace(/["“”]/g, "").trim(); 
-                const words = searchPhrase.split(/\s+/); // Split by any whitespace
+                const words = searchPhrase.split(/\s+/); 
                 
                 let foundMatchForCit = false;
 
@@ -104,35 +102,37 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
                     for (let start = 0; start <= words.length - length; start++) {
                         const candidateWords = words.slice(start, start + length);
                         
-                        // CONSTRUCT FLEXIBLE REGEX:
-                        // "In fact" -> /In\s+fact/gi
-                        // This matches "In fact", "In  fact", "In\nfact"
+                        // Create Flexible Regex: "In fact" -> /In\s+fact/gi
                         const patternString = candidateWords.map(escapeRegExp).join('[\\s\\n]+');
                         const regex = new RegExp(patternString, 'gi');
 
-                        // Test if this flexible pattern exists on the page
-                        if (regex.test(pageText)) {
-                            validPatterns.push(regex);
+                        // EXECUTE REGEX to find the ACTUAL string on the page
+                        const match = regex.exec(pageText);
+
+                        if (match) {
+                            // We found it! Add the EXACT matched string (e.g. "In  fact") to our list
+                            validMatches.push(match[0]);
                             foundMatchForCit = true;
-                            break; // Stop shrinking this citation, we found the longest match
+                            break; 
                         }
                     }
                 }
                 
-                // Fallback: If absolutely nothing matched (e.g. extremely short quote), try literal
+                // Fallback: If absolutely nothing matched, try the literal content
                 if (!foundMatchForCit) {
-                    validPatterns.push(cit.content);
+                    validMatches.push(cit.content);
                 }
             }
 
             // 4. EXECUTE BATCH HIGHLIGHT
-            // We pass the array of Regex patterns to the viewer
             clearHighlights();
-            if (validPatterns.length > 0) {
-                highlight({
-                    keyword: validPatterns, // Accepts array of Regex
-                    matchCase: false,
-                });
+            if (validMatches.length > 0) {
+                // Now we pass valid STRINGS, which TypeScript allows
+                const keywords: SingleKeyword[] = validMatches.map(str => ({
+                    keyword: str,
+                    matchCase: false
+                }));
+                highlight(keywords);
             }
 
         } catch (err) {
