@@ -36,6 +36,12 @@ const Typewriter = ({ content, animate = false }: { content: string, animate?: b
   return <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{displayedContent}</ReactMarkdown>;
 };
 
+// --- HELPER: Escape Regex Characters ---
+// Prevents crash if quote contains "?", "$", or "("
+function escapeRegExp(string: string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); 
+}
+
 export default function ChatPage({ params }: { params: Promise<{ docId: string }> }) {
   const { docId } = use(params);
   const [messages, setMessages] = useState<{role: string, content: string, citations?: any[]}[]>([]);
@@ -60,74 +66,73 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
       setPdfDocument(e.doc);
   };
 
-  // 3. SOTA SLIDING WINDOW HIGHLIGHTER
-  const handleCitationClick = async (cit: any) => {
-    if (!cit.page) return;
+  // 3. SOTA BATCH HIGHLIGHTER (With Flexible Regex)
+  const handleCitationClick = async (clickedCit: any) => {
+    if (!clickedCit.page) return;
     
     // A. Jump to the page first
-    jumpToPage(cit.page - 1);
+    jumpToPage(clickedCit.page - 1);
 
-    // B. Smart Matching Logic
-    if (pdfDocument && cit.content) {
+    // B. Find ALL citations on this page from the latest AI message
+    // This allows us to highlight everything relevant in one go.
+    const lastAiMsg = messages.slice().reverse().find(m => m.role === 'ai');
+    const citationsOnPage = lastAiMsg?.citations?.filter((c: any) => c.page === clickedCit.page) || [clickedCit];
+
+    if (pdfDocument && citationsOnPage.length > 0) {
         try {
-            // 1. Get raw text of the target page
-            const page = await pdfDocument.getPage(cit.page);
+            // 1. Get raw text of the target page (for verification)
+            const page = await pdfDocument.getPage(clickedCit.page);
             const textContent = await page.getTextContent();
-            // Join items to get a single string of the page text
+            // Join items with a single space to create a "normal" text layer representation
             const pageText = textContent.items.map((item: any) => item.str).join(' ');
             
-            // Normalize page text for comparison (remove ALL spaces, lowercase)
-            // This allows us to find "Japan" even if the PDF has "J a p a n" or "Japan\n"
-            const cleanPageText = pageText.replace(/\s+/g, '').toLowerCase();
+            // We will collect all valid Regex patterns here
+            const validPatterns: RegExp[] = [];
 
-            // 2. Prepare the quote
-            // Clean up the AI quote to remove artifacts (Quotes, special chars)
-            const searchPhrase = cit.content.replace(/["“”]/g, "").trim(); 
-            const words = searchPhrase.split(' ');
-            
-            // 3. The Decreasing Sliding Window Loop
-            // We start checking the FULL string. If fail, we check all substrings of Length - 1.
-            // We stop if length < 3 words (too vague).
-            
-            let foundMatch = false;
+            // 2. Process EACH citation for this page
+            for (const cit of citationsOnPage) {
+                const searchPhrase = cit.content.replace(/["“”]/g, "").trim(); 
+                const words = searchPhrase.split(/\s+/); // Split by any whitespace
+                
+                let foundMatchForCit = false;
 
-            // Outer Loop: Window Length (Largest -> Smallest)
-            // We stop at 3 words to avoid highlighting random common phrases like "is that the"
-            for (let length = words.length; length >= 3; length--) {
-                if (foundMatch) break;
+                // 3. Sliding Window Loop (Shrink until we find a match)
+                for (let length = words.length; length >= 3; length--) {
+                    if (foundMatchForCit) break;
 
-                // Inner Loop: Sliding the window across the quote
-                // Example: "A B C D E" (Len 4) -> Check "A B C D", then "B C D E"
-                for (let start = 0; start <= words.length - length; start++) {
-                    
-                    // Construct candidate phrase
-                    const candidateWords = words.slice(start, start + length);
-                    const candidatePhrase = candidateWords.join(' ');
-                    
-                    // Normalize candidate to match the cleanPageText format
-                    const cleanCandidate = candidatePhrase.replace(/\s+/g, '').toLowerCase();
-
-                    // CHECK MATCH
-                    if (cleanPageText.includes(cleanCandidate)) {
-                        // Found the longest possible match!
-                        clearHighlights();
+                    // Try all windows of this length
+                    for (let start = 0; start <= words.length - length; start++) {
+                        const candidateWords = words.slice(start, start + length);
                         
-                        // Highlight this specific phrase
-                        highlight({
-                            keyword: candidatePhrase,
-                            matchCase: false,
-                        });
-                        
-                        foundMatch = true;
-                        break; // Exit inner loop
+                        // CONSTRUCT FLEXIBLE REGEX:
+                        // "In fact" -> /In\s+fact/gi
+                        // This matches "In fact", "In  fact", "In\nfact"
+                        const patternString = candidateWords.map(escapeRegExp).join('[\\s\\n]+');
+                        const regex = new RegExp(patternString, 'gi');
+
+                        // Test if this flexible pattern exists on the page
+                        if (regex.test(pageText)) {
+                            validPatterns.push(regex);
+                            foundMatchForCit = true;
+                            break; // Stop shrinking this citation, we found the longest match
+                        }
                     }
+                }
+                
+                // Fallback: If absolutely nothing matched (e.g. extremely short quote), try literal
+                if (!foundMatchForCit) {
+                    validPatterns.push(cit.content);
                 }
             }
 
-            // Fallback: If absolutely nothing matched (rare), try the original
-            if (!foundMatch) {
-                clearHighlights();
-                highlight({ keyword: cit.content, matchCase: false });
+            // 4. EXECUTE BATCH HIGHLIGHT
+            // We pass the array of Regex patterns to the viewer
+            clearHighlights();
+            if (validPatterns.length > 0) {
+                highlight({
+                    keyword: validPatterns, // Accepts array of Regex
+                    matchCase: false,
+                });
             }
 
         } catch (err) {
@@ -192,7 +197,7 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
                     {m.role === 'ai' && m.citations && m.citations.length > 0 && (
                         <div className="mt-3 space-y-2 w-[85%]">
                             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1"><MapPin size={10} /> Source Highlights</p>
-                            {m.citations.map((cit: any, idx: number) => (
+                            {m.citations.slice(0, 12).map((cit: any, idx: number) => (
                                 <div key={idx} onClick={() => handleCitationClick(cit)} className="bg-white border border-gray-200 p-3 rounded-xl hover:border-blue-400 hover:shadow-md transition-all cursor-pointer group">
                                     <div className="flex justify-between items-center mb-1">
                                         <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">Page {cit.page}</span>
