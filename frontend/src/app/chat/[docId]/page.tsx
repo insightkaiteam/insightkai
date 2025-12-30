@@ -90,7 +90,7 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
     // 2. The "Head" Anchor (First 6 words)
     // If the AI hallucinated the end of the sentence, this will still catch the start.
     if (words.length > 6) {
-        const headText = words.slice(0, 6).join(" ");
+        const headText = words.slice(0, 3).join(" ");
         keywordsToHighlight.push({
             keyword: new RegExp(createFlexiblePattern(headText), 'gi'),
             matchCase: false
@@ -100,7 +100,7 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
     // 3. The "Tail" Anchor (Last 6 words)
     // If the PDF has a weird header/footer interruption at the start, this catches the end.
     if (words.length > 10) {
-        const tailText = words.slice(-6).join(" ");
+        const tailText = words.slice(-3).join(" ");
         keywordsToHighlight.push({
             keyword: new RegExp(createFlexiblePattern(tailText), 'gi'),
             matchCase: false
