@@ -36,20 +36,9 @@ const Typewriter = ({ content, animate = false }: { content: string, animate?: b
   return <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{displayedContent}</ReactMarkdown>;
 };
 
-// --- HELPER: Super-Loose Regex Generator ---
-// Inserts a "Noise Matcher" between EVERY character.
-// "Zero" -> /Z[^a-z0-9]*e[^a-z0-9]*r[^a-z0-9]*o/i
-function createSuperLoosePattern(text: string) {
-    // 1. Remove anything that isn't a letter or number to get the "skeleton"
-    const clean = text.replace(/[^a-zA-Z0-9]/g, "");
-    if (!clean) return null;
-
-    // 2. Escape valid chars just in case (though alphanumeric are safe)
-    const chars = clean.split('');
-
-    // 3. Join them with a regex that accepts ANY non-alphanumeric noise (spaces, newlines, hyphens, invisible chars)
-    const noise = '[^a-zA-Z0-9]*'; 
-    return chars.join(noise);
+// --- HELPER: Escape Regex Characters ---
+function escapeRegExp(string: string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); 
 }
 
 export default function ChatPage({ params }: { params: Promise<{ docId: string }> }) {
@@ -70,52 +59,71 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
   const searchPluginInstance = searchPlugin();
   const { highlight, clearHighlights } = searchPluginInstance;
 
-  // 2. SOTA ROBUST HIGHLIGHTER
+  // 2. TRIPLE-ANCHOR STRATEGY
   const handleCitationClick = (clickedCit: any) => {
     if (!clickedCit.page) return;
     
     // A. Jump to the page
     jumpToPage(clickedCit.page - 1);
 
-    // B. Generate robust targets
-    const keywordsToHighlight: any[] = [];
+    // B. Prepare Search Targets
     const text = clickedCit.content.trim();
-
-    // Strategy 1: Highlight the WHOLE sentence using Super-Loose Matching
-    // Limit to 50 chars to avoid regex performance issues on huge paragraphs
-    const shortText = text.length > 50 ? text.substring(0, 50) : text;
-    const loosePattern = createSuperLoosePattern(shortText);
-    
-    if (loosePattern) {
-        keywordsToHighlight.push({
-            keyword: new RegExp(loosePattern, 'gi'),
-            matchCase: false
-        });
-    }
-
-    // Strategy 2: Anchors (First 2 words + Last 2 words)
-    // If the middle is garbage, we at least light up the start and end.
     const words = text.split(/\s+/);
-    if (words.length > 5) {
-        const startAnchor = createSuperLoosePattern(words.slice(0, 2).join(""));
-        const endAnchor = createSuperLoosePattern(words.slice(-2).join(""));
-        
-        if (startAnchor) keywordsToHighlight.push({ keyword: new RegExp(startAnchor, 'gi'), matchCase: false });
-        if (endAnchor) keywordsToHighlight.push({ keyword: new RegExp(endAnchor, 'gi'), matchCase: false });
-    }
-
-    // C. RETRY LOOP (Fixes the Timing Issue)
-    // We try to highlight 3 times: immediately, after 500ms, and after 1s.
-    // This ensures that even if the page render is slow, we catch it.
     
-    const tryHighlight = () => {
-        clearHighlights();
-        highlight(keywordsToHighlight);
+    // We will bypass TypeScript's strict type checking for the keyword array
+    const keywordsToHighlight: any[] = [];
+    
+    // Helper to create a "Flexible Space" Regex from a list of words
+    // Input: ["In", "fact,"] -> /In[\s\n]+fact,/gi
+    const createFlexiblePattern = (wordList: string[]) => {
+        if (wordList.length === 0) return null;
+        // Escape special chars in words (like brackets or question marks)
+        const escapedWords = wordList.map(escapeRegExp);
+        // Join with pattern matching any whitespace (space, tab, newline)
+        const pattern = escapedWords.join('[\\s\\n]+');
+        return new RegExp(pattern, 'gi');
     };
 
-    tryHighlight(); // Attempt 1
-    setTimeout(tryHighlight, 500); // Attempt 2
-    setTimeout(tryHighlight, 1000); // Attempt 3
+    // --- STRATEGY: HEAD, MIDDLE, TAIL ---
+
+    // 1. HEAD (First 3 words)
+    if (words.length >= 3) {
+        const headPattern = createFlexiblePattern(words.slice(0, 3));
+        if (headPattern) keywordsToHighlight.push({ keyword: headPattern, matchCase: false });
+    }
+
+    // 2. TAIL (Last 3 words)
+    if (words.length >= 6) {
+        const tailPattern = createFlexiblePattern(words.slice(-3));
+        if (tailPattern) keywordsToHighlight.push({ keyword: tailPattern, matchCase: false });
+    }
+
+    // 3. MIDDLE (Middle 3 words)
+    // Only if sentence is long enough to have a distinct middle
+    if (words.length >= 9) {
+        const midIndex = Math.floor(words.length / 2);
+        const middleWords = words.slice(midIndex - 1, midIndex + 2);
+        const midPattern = createFlexiblePattern(middleWords);
+        if (midPattern) keywordsToHighlight.push({ keyword: midPattern, matchCase: false });
+    }
+
+    // 4. FALLBACK: If quote is very short (< 3 words), just search the whole thing
+    if (words.length < 3) {
+        const fullPattern = createFlexiblePattern(words);
+        if (fullPattern) keywordsToHighlight.push({ keyword: fullPattern, matchCase: false });
+    }
+
+    // C. EXECUTE HIGHLIGHT (With Retry for Render Delay)
+    const tryHighlight = () => {
+        clearHighlights();
+        if (keywordsToHighlight.length > 0) {
+            highlight(keywordsToHighlight);
+        }
+    };
+
+    tryHighlight(); // Immediate
+    setTimeout(tryHighlight, 500); // After render
+    setTimeout(tryHighlight, 1000); // Just in case
   };
 
   const sendMessage = async (textOverride?: string) => {
