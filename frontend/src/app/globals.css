@@ -102,3 +102,9 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #d4d4d4;
 }
+
+/* Force all PDF highlights to be Yellow */
+.rpv-search__highlight {
+    background-color: yellow !important;
+    mix-blend-mode: multiply; /* Optional: Helps text show through cleanly */
+}

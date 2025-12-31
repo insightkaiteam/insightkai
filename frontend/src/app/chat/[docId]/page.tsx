@@ -89,7 +89,7 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
             for (let windowSize = 6; windowSize >= 3; windowSize--) {
                 if (matchFound) break; // STOP if a larger window size already succeeded
 
-                // CHANGED: Use a 'while' loop to enable jumping forward on success
+                // Use a 'while' loop to enable jumping forward on success (Smart De-Duplication)
                 let i = 0;
                 while (i <= words.length - windowSize) {
                     const chunkWords = words.slice(i, i + windowSize);
@@ -99,12 +99,12 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
                     if (pageString.includes(chunkString.toLowerCase())) {
                         validKeywords.push({
                             keyword: chunkString,
-                            matchCase: false
+                            matchCase: false,
+                            highlightAll: true // Force CSS class usage
                         });
                         matchFound = true; 
                         
                         // SMART JUMP: Skip ahead by the window size to avoid overlapping highlights
-                        // e.g. if we matched words 0-5, next check should start at 6
                         i += windowSize;
                     } else {
                         // STANDARD SLIDE: If no match, slide forward by 1 word
@@ -116,7 +116,11 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
             // Fallback: If absolutely nothing matched (e.g. quote is only 2 words long), try exact string
             if (!matchFound && words.length < 3) {
                 if (pageString.includes(rawCit.toLowerCase())) {
-                    validKeywords.push({ keyword: rawCit, matchCase: false });
+                    validKeywords.push({ 
+                        keyword: rawCit, 
+                        matchCase: false,
+                        highlightAll: true // Force CSS class usage here too
+                    });
                 }
             }
 
