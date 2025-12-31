@@ -54,7 +54,7 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
   const searchPluginInstance = searchPlugin();
   const { highlight, clearHighlights } = searchPluginInstance;
 
-  // 2. RADICAL SIMPLE STRATEGY (Literal Anchor Swarm)
+  // 2. STRATEGY: LITERAL SWARM (Non-Overlapping 3-Word Chunks)
   const handleCitationClick = (clickedCit: any) => {
     if (!clickedCit.page) return;
     
@@ -62,48 +62,47 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
     jumpToPage(clickedCit.page - 1);
 
     // B. Construct Targets
-    const text = clickedCit.content.replace(/["“”]/g, "").trim(); // Remove quotes, keep spaces
-    const words = text.split(/\s+/);
+    // Remove start/end quotes but preserve internal structure
+    const rawText = clickedCit.content.trim();
+    const cleanText = rawText.replace(/^["“]|["”]$/g, ""); 
+    const words = cleanText.split(/\s+/);
     
     // We will collect multiple "Plain String" keywords
     const targets: string[] = [];
 
-    // 1. FULL TEXT (The obvious choice)
-    targets.push(text);
+    // 1. FULL TEXT (The clean shot)
+    targets.push(cleanText);
 
-    // 2. ANCHORS (The "As Is" Fragments)
-    if (words.length > 6) {
-        // Head: First 3 words
-        const head = words.slice(0, 3).join(" ");
-        targets.push(head);
-
-        // Tail: Last 3 words
-        const tail = words.slice(-3).join(" ");
-        targets.push(tail);
-
-        // Middle: Middle 3 words
-        const midIndex = Math.floor(words.length / 2);
-        const middle = words.slice(midIndex - 1, midIndex + 2).join(" ");
-        targets.push(middle);
+    // 2. NON-OVERLAPPING 3-WORD CHUNKS (The Swarm)
+    // "In fact, we argue they are..." -> ["In fact, we", "argue they are", "ultimately supportive. First,", ...]
+    // This ensures coverage of the entire sentence, robust against line breaks or corruption in any single part.
+    for (let i = 0; i < words.length; i += 3) {
+        // Take a slice of 3 words
+        const chunkWords = words.slice(i, i + 3);
+        // Join them back into a string
+        const chunkString = chunkWords.join(" ");
+        
+        // Only add if it's substantial (avoid single punctuation marks or tiny artifacts)
+        if (chunkString.length > 3) {
+            targets.push(chunkString);
+        }
     }
 
-    // 3. Fallback for strange spacing (First 5 chars + Last 5 chars)
-    // If words fail, maybe these unique strings will catch
-    if (text.length > 20) {
-        targets.push(text.substring(0, 8)); // First 8 chars
-        targets.push(text.substring(text.length - 8)); // Last 8 chars
+    // 3. SNIPPET FALLBACK (First/Last 8 chars)
+    // Desperate measure for extremely messy PDFs where word boundaries are lost
+    if (cleanText.length > 10) {
+        targets.push(cleanText.substring(0, 8)); // First 8 chars
+        targets.push(cleanText.substring(cleanText.length - 8)); // Last 8 chars
     }
 
     // C. HIGHLIGHT EXECUTION
-    // We pass an array of simple strings. The viewer handles the rest.
-    // We use a retry mechanism to handle the PDF rendering delay.
-    
+    // We pass an array of simple strings. The viewer's internal engine handles the matching.
     const keywords: SingleKeyword[] = targets.map(t => ({
         keyword: t,
         matchCase: false
     }));
 
-    // Clear previous, then try highlighting 3 times
+    // Clear previous, then try highlighting 3 times to catch the PDF render
     clearHighlights();
     
     const attemptHighlight = () => {
