@@ -77,7 +77,8 @@ class OpenAIService:
             return json.loads(res.choices[0].message.content).get("selected_ids", [])
         except: return []
 
-    def get_answer(self, context_chunks: List[dict], question: str, mode: str = "single_doc", history: List[Dict[str, str]] = []) -> Dict[str, Any]:
+    # MODIFIED: Accepts optional custom_prompt
+    def get_answer(self, context_chunks: List[dict], question: str, mode: str = "single_doc", history: List[Dict[str, str]] = [], custom_prompt: str = None) -> Dict[str, Any]:
         
         final_chunks = context_chunks
         if mode in ["folder_deep", "single_doc"] and len(context_chunks) > 0:
@@ -86,6 +87,7 @@ class OpenAIService:
         context_text = ""
         system_prompt = ""
 
+        # --- CONTEXT BUILDER ---
         if mode in ["single_doc", "folder_deep"]:
             if final_chunks:
                 context_text += "--- SOURCE MATERIAL ---\n"
@@ -94,7 +96,22 @@ class OpenAIService:
                     context_text += f"[ID:{i}] [Source: {source_label} | Page {chunk.get('page', '?')}] {chunk['content']}\n\n"
             else:
                 context_text = "No specific document context found."
+        elif mode == "folder_fast" or mode == "simple":
+            if final_chunks:
+                context_text += "--- FILE SUMMARIES ---\n"
+                for i, chunk in enumerate(final_chunks):
+                    filename = chunk.get('source', 'Unknown File')
+                    context_text += f"[ID:{i}] [File: {filename}] {chunk['content']}\n\n"
+            else:
+                context_text = "No file summaries found."
 
+        # --- PROMPT SELECTION ---
+        if custom_prompt:
+            # 1. USER OVERRIDE
+            system_prompt = custom_prompt
+        
+        elif mode in ["single_doc", "folder_deep"]:
+            # 2. DEFAULT DEEP ANALYST
             system_prompt = (
                 "You are a Senior Financial Analyst. Answer based ONLY on the provided context.\n"
                 "You must return a JSON object with two keys:\n"
@@ -111,14 +128,7 @@ class OpenAIService:
             )
 
         elif mode == "folder_fast" or mode == "simple":
-            if final_chunks:
-                context_text += "--- FILE SUMMARIES ---\n"
-                for i, chunk in enumerate(final_chunks):
-                    filename = chunk.get('source', 'Unknown File')
-                    context_text += f"[ID:{i}] [File: {filename}] {chunk['content']}\n\n"
-            else:
-                context_text = "No file summaries found."
-
+            # 3. DEFAULT LIBRARIAN
             system_prompt = (
                 "You are a Digital Librarian. You have access to high-level SUMMARIES of files.\n"
                 "Goal: Identify which file contains specific info or extract metadata.\n"

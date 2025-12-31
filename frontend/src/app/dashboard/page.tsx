@@ -5,7 +5,7 @@ import {
   Folder, Trash2, Plus, ArrowLeft, ArrowRight,
   X, Send, Loader2, FileClock, BrainCircuit, UploadCloud, 
   LayoutGrid, LogOut, Quote, FileSearch, Mic, StopCircle, Zap,
-  CheckCircle2, AlertCircle, Clock, FileText, ChevronRight, ChevronDown, Maximize2
+  CheckCircle2, AlertCircle, Clock, FileText, ChevronRight, ChevronDown, Maximize2, Settings
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
@@ -21,6 +21,27 @@ import '@react-pdf-viewer/search/lib/styles/index.css';
 // ⚠️ REPLACE WITH YOUR RENDER URL
 const BACKEND_URL = "https://insightkai.onrender.com";
 const SITE_PASSWORD = "kai2025"; 
+
+// --- DEFAULT PROMPTS ---
+const DEFAULT_DEEP_PROMPT = `You are a Senior Financial Analyst. Answer based ONLY on the provided context.
+You must return a JSON object with two keys:
+1. 'answer': A markdown string formatted strictly as follows:
+   **Executive Summary**
+   [A 2-3 sentence high-level summary of the findings]
+
+   **Key Insights**
+   - **[Insight Title]:** [Detailed explanation of 2-3 sentences. Explain WHY this matters.]
+   - **[Insight Title]:** [Detailed explanation...]
+
+2. 'quotes': An array of strings. Copy the EXACT sentences used to derive the answer.
+   - Rule: Use CONTEXTUAL QUOTING. Do not just quote a number. Quote the full sentence containing the number so it is verifiable.
+   - Aim for 5-7 distinct citations if the text supports it.
+   - Do NOT modify the text inside the quotes.`;
+
+const DEFAULT_FAST_PROMPT = `You are a Digital Librarian. You have access to high-level SUMMARIES of files.
+Goal: Identify which file contains specific info or extract metadata.
+Rules: Be concise. Use the summaries to answer.
+Return JSON: { 'answer': '...', 'quotes': [] }`;
 
 interface Doc {
   id: string;
@@ -101,6 +122,10 @@ export default function Dashboard() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
+  // Prompt Settings
+  const [customPrompt, setCustomPrompt] = useState("");
+  const [showPromptSettings, setShowPromptSettings] = useState(false);
+
   // Auth
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
@@ -108,7 +133,6 @@ export default function Dashboard() {
   // --- PDF VIEWER LOGIC (SWARM SEARCH) ---
   const handleDocumentLoad = (e: DocumentLoadEvent) => {
       setPdfDocument(e.doc);
-      // If we opened with a specific quote target, search for it now
       if (activeDoc?.initialQuote && activeDoc?.page) {
           setTimeout(() => performHighlight(activeDoc.initialQuote!, activeDoc.page!), 500);
       }
@@ -132,7 +156,6 @@ export default function Dashboard() {
         let matchFound = false;
         const validKeywords: SingleKeyword[] = [];
 
-        // Cascading Loop (6 words -> 3 words)
         for (let windowSize = 6; windowSize >= 3; windowSize--) {
             if (matchFound) break; 
             let i = 0;
@@ -148,7 +171,6 @@ export default function Dashboard() {
             }
         }
 
-        // Fallback
         if (!matchFound && words.length < 3) {
             if (pageString.includes(rawCit.toLowerCase())) {
                 validKeywords.push({ keyword: rawCit, matchCase: false });
@@ -161,14 +183,10 @@ export default function Dashboard() {
     } catch (err) { console.error("Highlight error:", err); }
   };
 
-  // Handle clicking a citation in the sidebar
   const onCitationClick = (docId: string, sourceName: string, quote: string, page: number) => {
-      // 1. Check if we need to switch documents
       if (activeDoc?.id !== docId) {
-          // Switch Doc -> Wait for load -> Highlight happens in onDocumentLoad
           setActiveDoc({ id: docId, title: sourceName, initialQuote: quote, page });
       } else {
-          // Doc already open -> Just highlight
           performHighlight(quote, page);
       }
   };
@@ -261,8 +279,14 @@ export default function Dashboard() {
 
   // --- CHAT ---
   const toggleChat = (mode: 'simple' | 'deep') => {
-    if (chatMode === mode) setChatMode(null);
-    else setChatMode(mode);
+    if (chatMode === mode) {
+        setChatMode(null);
+        setShowPromptSettings(false);
+    } else {
+        setChatMode(mode);
+        // Pre-fill prompt based on mode
+        setCustomPrompt(mode === 'deep' ? DEFAULT_DEEP_PROMPT : DEFAULT_FAST_PROMPT);
+    }
   };
 
   const sendFolderMessage = async () => {
@@ -278,7 +302,13 @@ export default function Dashboard() {
       const res = await fetch(`${BACKEND_URL}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: msgToSend, folder_name: currentFolder, mode: chatMode, history: historyPayload }),
+        body: JSON.stringify({ 
+            message: msgToSend, 
+            folder_name: currentFolder, 
+            mode: chatMode, 
+            history: historyPayload,
+            custom_prompt: customPrompt // SEND MODIFIED BRAIN
+        }),
       });
       const data = await res.json();
       setChatMessages(prev => [...prev, { role: 'ai', content: data.answer, citations: data.citations || [] }]);
@@ -419,143 +449,3 @@ export default function Dashboard() {
                                                             <ArrowRight size={18} className="-rotate-45" />
                                                         </button>
                                                     </Link>
-                                                    
-                                                    {/* 2. READ IN DASHBOARD (Secondary Action) */}
-                                                    <button onClick={() => setActiveDoc({id: doc.id, title: doc.title})} className="w-10 h-10 bg-blue-50 text-blue-600 border border-blue-100 rounded-xl flex items-center justify-center shadow-sm hover:bg-blue-100 transition" title="Read in Split View">
-                                                        <Maximize2 size={18} />
-                                                    </button>
-                                                </>
-                                            ) : (
-                                                <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center"><Loader2 size={18} className="animate-spin text-gray-400"/></div>
-                                            )}
-                                            
-                                            <button onClick={(e) => handleDelete(doc.id, e)} className="w-10 h-10 bg-white border border-gray-200 text-gray-400 hover:text-red-500 hover:bg-red-50 hover:border-red-100 rounded-xl flex items-center justify-center transition mt-auto" title="Delete">
-                                                <Trash2 size={18} />
-                                            </button>
-                                        </div>
-
-                                        <div className="min-w-0 flex-1 border-l border-gray-100 pl-4 py-1">
-                                            <div className="flex items-start gap-2 mb-2 flex-wrap">
-                                                <h3 className="font-bold text-gray-900 text-sm leading-snug break-words">{doc.title}</h3>
-                                                {tag && <span className={`shrink-0 px-2 py-0.5 rounded-lg text-[10px] font-extrabold border uppercase tracking-wider ${getTagColor(tag)}`}>{tag}</span>}
-                                            </div>
-                                            <p className="text-xs text-gray-500 leading-relaxed whitespace-normal break-words">{desc}</p>
-                                            <div className="flex gap-4 mt-4 text-[10px] font-bold text-gray-300 uppercase tracking-widest"><span className="flex items-center gap-1"><FileClock size={10}/> {doc.upload_date}</span></div>
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                            {docs.filter(doc => doc.folder === currentFolder).length === 0 && (
-                                <div className="col-span-full flex flex-col items-center justify-center py-20 border-2 border-dashed border-gray-200 rounded-3xl text-gray-400">
-                                    <UploadCloud size={40} className="mb-4 text-gray-300"/>
-                                    <p className="font-medium">No files yet.</p>
-                                </div>
-                            )}
-                        </div>
-                    )}
-                </div>
-            </div>
-        )}
-      </div>
-
-      {/* 3. UPLOAD QUEUE */}
-      {uploadQueue.length > 0 && (
-          <div className="fixed bottom-6 right-6 w-80 bg-white rounded-2xl shadow-2xl border border-gray-200 z-50 overflow-hidden animate-in slide-in-from-bottom-10 fade-in duration-300">
-              <div className="bg-black text-white p-3 flex justify-between items-center">
-                  <span className="text-xs font-bold flex items-center gap-2">
-                      {uploadQueue.some(i => i.status === 'uploading') ? <Loader2 size={12} className="animate-spin" /> : <UploadCloud size={12}/>}
-                      Upload Queue ({uploadQueue.filter(i => i.status === 'completed').length}/{uploadQueue.length})
-                  </span>
-                  <div className="flex gap-2">
-                      <button onClick={cancelUploads} className="text-[10px] bg-white/20 hover:bg-white/30 px-2 py-1 rounded transition">Cancel</button>
-                      <button onClick={clearCompleted} className="hover:text-gray-300"><X size={14}/></button>
-                  </div>
-              </div>
-              {/* Queue items... */}
-          </div>
-      )}
-
-      {/* 4. CHAT SIDEBAR */}
-      <aside className={`fixed top-0 right-0 h-full w-[400px] bg-white/90 backdrop-blur-2xl border-l border-gray-200 shadow-2xl z-30 transform transition-transform duration-500 ${chatMode ? 'translate-x-0' : 'translate-x-full'} flex flex-col`}>
-        <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-white/80">
-            <div className="flex items-center gap-3">
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-white shadow-md ${chatMode === 'simple' ? 'bg-black' : 'bg-gradient-to-br from-blue-600 to-purple-600'}`}>
-                    {chatMode === 'simple' ? <Zap size={16} /> : <BrainCircuit size={16} />}
-                </div>
-                <div>
-                    <h2 className="font-bold text-lg leading-tight">{chatMode === 'simple' ? "Fast Chat" : "Deep Chat"}</h2>
-                    <p className="text-xs text-gray-400 font-medium">{chatMode === 'simple' ? "Instant answers" : "Full analysis"}</p>
-                </div>
-            </div>
-            <button onClick={() => setChatMode(null)} className="p-2 hover:bg-gray-100 rounded-full transition"><X size={20} className="text-gray-400"/></button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-6 space-y-6 scroll-smooth">
-            {chatMessages.map((m, i) => (
-                <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
-                    <div className={`p-5 max-w-[85%] rounded-2xl text-sm leading-relaxed shadow-sm ${m.role === 'user' ? 'bg-black text-white rounded-br-none' : 'bg-white border border-gray-100 text-gray-700 rounded-bl-none'}`}>
-                        {m.role === 'ai' ? <div className="prose prose-sm"><Typewriter content={m.content} animate={i === chatMessages.length - 1} /></div> : <div className="prose prose-sm prose-invert"><ReactMarkdown>{m.content}</ReactMarkdown></div>}
-                    </div>
-                    
-                    {/* CITATIONS */}
-                    {m.role === 'ai' && m.citations && m.citations.length > 0 && (
-                        <div className="mt-4 w-full animate-in fade-in slide-in-from-top-2 duration-500 space-y-4">
-                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1"><Quote size={10} /> Verified Sources</p>
-                            {groupCitations(m.citations).map((group, gIdx) => {
-                                const groupKey = group.docId + group.source;
-                                const isExpanded = expandedSources.has(groupKey);
-                                const visibleQuotes = isExpanded ? group.quotes : group.quotes.slice(0, 3);
-                                const hiddenCount = group.quotes.length - 3;
-
-                                return (
-                                    <div key={gIdx} className="bg-gray-50 border border-gray-200 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-all">
-                                        <div onClick={() => onCitationClick(group.docId, group.source, group.quotes[0].content, group.quotes[0].page)} className="bg-white border-b border-gray-100 px-3 py-2 flex items-center justify-between cursor-pointer hover:bg-blue-50 transition group/header">
-                                            <div className="flex items-center gap-2 overflow-hidden">
-                                                <div className="bg-blue-100 p-1 rounded text-blue-600"><FileText size={12}/></div>
-                                                <span className="text-xs font-bold text-gray-700 truncate">{group.source}</span>
-                                            </div>
-                                            <ChevronRight size={14} className="text-gray-300 group-hover/header:text-blue-500"/>
-                                        </div>
-                                        
-                                        <div className="divide-y divide-gray-100">
-                                            {visibleQuotes.map((cit, cIdx) => (
-                                                <div key={cIdx} onClick={() => onCitationClick(group.docId, group.source, cit.content, cit.page)} className="block p-3 hover:bg-gray-100 transition-colors cursor-pointer group/quote">
-                                                    <div className="flex items-center gap-2 mb-1">
-                                                        <span className="text-[10px] font-mono bg-white border border-gray-200 px-1.5 rounded text-gray-500 group-hover/quote:border-blue-200 group-hover/quote:text-blue-500">P.{cit.page}</span>
-                                                    </div>
-                                                    <p className="text-xs text-gray-600 italic line-clamp-2 border-l-2 border-transparent pl-2 group-hover/quote:border-blue-400 group-hover/quote:text-gray-900 transition-all">"{cit.content}"</p>
-                                                </div>
-                                            ))}
-                                            
-                                            {/* EXPAND BUTTON */}
-                                            {hiddenCount > 0 && !isExpanded && (
-                                                <button onClick={() => toggleSourceExpansion(groupKey)} className="w-full p-2 text-center text-[10px] text-gray-400 font-bold uppercase tracking-wider hover:bg-gray-100 hover:text-black transition flex items-center justify-center gap-1">
-                                                    <ChevronDown size={10} /> Show {hiddenCount} more
-                                                </button>
-                                            )}
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
-                </div>
-            ))}
-            {isChatLoading && <div className="flex items-center gap-3 text-sm text-gray-500 animate-pulse"><div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center"><Loader2 size={16} className="animate-spin"/></div><span>Analyzing documents...</span></div>}
-        </div>
-
-        <div className="p-6 bg-white border-t border-gray-100">
-            <div className="flex gap-3 relative items-center max-w-4xl mx-auto">
-                <button onMouseDown={startRecording} onMouseUp={stopRecording} onMouseLeave={stopRecording} disabled={isChatLoading} className={`p-4 rounded-2xl transition-all duration-200 ${isRecording ? 'bg-red-500 text-white scale-110 shadow-lg shadow-red-200 ring-4 ring-red-100' : 'bg-gray-100 text-gray-500 hover:bg-black hover:text-white'}`}>
-                    {isRecording ? <StopCircle size={20} className="animate-pulse" /> : <Mic size={20} />}
-                </button>
-                <div className="flex-1 relative">
-                    <input className="w-full bg-gray-100 border-none rounded-2xl py-4 pl-6 pr-14 text-sm focus:outline-none focus:ring-2 focus:ring-black/5 placeholder:text-gray-400 transition-all" placeholder={isRecording ? "Listening..." : `Ask ${chatMode === 'simple' ? 'Fast' : 'Deep'} Chat...`} value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendFolderMessage()} disabled={isRecording} />
-                    <button onClick={sendFolderMessage} className="absolute right-2 top-2 p-2 bg-white text-black rounded-xl hover:scale-110 shadow-sm transition"><Send size={18}/></button>
-                </div>
-            </div>
-        </div>
-      </aside>
-    </div>
-  );
-}
