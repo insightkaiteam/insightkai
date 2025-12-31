@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
-import { Mic, Send, ArrowLeft, StopCircle, Loader2, Quote, MapPin } from 'lucide-react';
+import { Mic, Send, ArrowLeft, StopCircle, Loader2, Quote, MapPin, FileText, ChevronRight } from 'lucide-react';
 import Link from 'next/link';
 
 // PDF VIEWER IMPORTS
@@ -34,6 +34,17 @@ const Typewriter = ({ content, animate = false }: { content: string, animate?: b
     return () => clearInterval(timer);
   }, [content, animate]);
   return <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{displayedContent}</ReactMarkdown>;
+};
+
+// --- HELPER: Group Citations (Reused for consistency) ---
+const groupCitations = (citations: any[]) => {
+    const groups: { [key: string]: { docId: string, source: string, quotes: any[] } } = {};
+    citations.forEach(cit => {
+        const key = cit.document_id || cit.source || "Current Doc";
+        if (!groups[key]) groups[key] = { docId: cit.document_id, source: cit.source, quotes: [] };
+        groups[key].quotes.push(cit);
+    });
+    return Object.values(groups);
 };
 
 export default function ChatPage({ params }: { params: Promise<{ docId: string }> }) {
@@ -69,77 +80,51 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
 
     if (pdfDocument && cit.content) {
         try {
-            // 1. Get raw text of the specific page to verify existence
+            // 1. Get raw text of the specific page
             const page = await pdfDocument.getPage(cit.page);
             const textContent = await page.getTextContent();
-            
-            // Normalize page text: collapse multiple spaces/newlines to single space, lowercase
             const pageString = textContent.items.map((item: any) => item.str).join(' ').replace(/\s+/g, ' ').toLowerCase();
             
             // 2. Prepare Citation
-            // Clean quotes and excessive whitespace
             const rawCit = cit.content.replace(/["“”]/g, "").trim(); 
             const words = rawCit.split(/\s+/);
             
             let matchFound = false;
             const validKeywords: SingleKeyword[] = [];
 
-            // 3. Cascading Loop (Size 6 -> 5 -> 4 -> 3)
-            // We start with the largest window. If we find matches, we highlight them and STOP.
+            // 3. Cascading Loop
             for (let windowSize = 6; windowSize >= 3; windowSize--) {
-                if (matchFound) break; // STOP if a larger window size already succeeded
-
-                // Use a 'while' loop to enable jumping forward on success (Smart De-Duplication)
+                if (matchFound) break; 
                 let i = 0;
                 while (i <= words.length - windowSize) {
                     const chunkWords = words.slice(i, i + windowSize);
                     const chunkString = chunkWords.join(' ');
                     
-                    // 4. VERIFY: Does this chunk actually exist on the page?
                     if (pageString.includes(chunkString.toLowerCase())) {
-                        validKeywords.push({
-                            keyword: chunkString,
-                            matchCase: false,
-                            highlightAll: true // Force CSS class usage
-                        });
+                        validKeywords.push({ keyword: chunkString, matchCase: false, highlightAll: true });
                         matchFound = true; 
-                        
-                        // SMART JUMP: Skip ahead by the window size to avoid overlapping highlights
                         i += windowSize;
-                    } else {
-                        // STANDARD SLIDE: If no match, slide forward by 1 word
-                        i++;
-                    }
+                    } else { i++; }
                 }
             }
 
-            // Fallback: If absolutely nothing matched (e.g. quote is only 2 words long), try exact string
+            // Fallback
             if (!matchFound && words.length < 3) {
                 if (pageString.includes(rawCit.toLowerCase())) {
-                    validKeywords.push({ 
-                        keyword: rawCit, 
-                        matchCase: false,
-                        highlightAll: true // Force CSS class usage here too
-                    });
+                    validKeywords.push({ keyword: rawCit, matchCase: false, highlightAll: true });
                 }
             }
 
-            // C. Execute Highlight (With Retry)
+            // C. Execute Highlight
             const executeHighlight = () => {
                 clearHighlights();
-                if (validKeywords.length > 0) {
-                    highlight(validKeywords);
-                }
+                if (validKeywords.length > 0) highlight(validKeywords);
             };
-
-            // Fire immediately and retry to handle rendering delays
             executeHighlight();
             setTimeout(executeHighlight, 500);
             setTimeout(executeHighlight, 1000);
 
-        } catch (err) {
-            console.error("Error finding text match:", err);
-        }
+        } catch (err) { console.error("Error finding text match:", err); }
     }
   };
 
@@ -172,7 +157,7 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
           <Viewer
             fileUrl={`${BACKEND_URL}/documents/${docId}/download`}
             plugins={[pageNavigationPluginInstance, searchPluginInstance]}
-            onDocumentLoad={handleDocumentLoad} // Capture doc reference
+            onDocumentLoad={handleDocumentLoad} 
           />
         </Worker>
         <div className="absolute top-4 left-4 z-20">
@@ -197,14 +182,28 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
                     </div>
 
                     {m.role === 'ai' && m.citations && m.citations.length > 0 && (
-                        <div className="mt-3 space-y-2 w-[85%]">
+                        <div className="mt-3 w-[85%] space-y-2">
                             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1"><MapPin size={10} /> Source Highlights</p>
-                            {m.citations.map((cit: any, idx: number) => (
-                                <div key={idx} onClick={() => handleCitationClick(cit)} className="bg-white border border-gray-200 p-3 rounded-xl hover:border-blue-400 hover:shadow-md transition-all cursor-pointer group">
-                                    <div className="flex justify-between items-center mb-1">
-                                        <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">Page {cit.page}</span>
+                            
+                            {/* NEW: GROUPED CITATIONS FOR CONSISTENCY */}
+                            {groupCitations(m.citations).map((group, gIdx) => (
+                                <div key={gIdx} className="bg-gray-50 border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+                                    <div className="bg-white border-b border-gray-100 px-3 py-2 flex items-center justify-between">
+                                        <div className="flex items-center gap-2 overflow-hidden">
+                                            <div className="bg-blue-100 p-1 rounded text-blue-600"><FileText size={12}/></div>
+                                            <span className="text-xs font-bold text-gray-700 truncate">{group.source || "This Document"}</span>
+                                        </div>
                                     </div>
-                                    <p className="text-xs text-gray-600 italic line-clamp-2 group-hover:text-gray-900 transition-colors">"{cit.content}"</p>
+                                    <div className="divide-y divide-gray-100">
+                                        {group.quotes.slice(0, 5).map((cit, cIdx) => (
+                                            <div key={cIdx} onClick={() => handleCitationClick(cit)} className="block p-3 hover:bg-gray-100 transition-colors cursor-pointer group/quote">
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <span className="text-[10px] font-mono bg-white border border-gray-200 px-1.5 rounded text-gray-500 group-hover/quote:border-blue-200 group-hover/quote:text-blue-500">Page {cit.page}</span>
+                                                </div>
+                                                <p className="text-xs text-gray-600 italic line-clamp-2 border-l-2 border-transparent pl-2 group-hover/quote:border-blue-400 group-hover/quote:text-gray-900 transition-all">"{cit.content}"</p>
+                                            </div>
+                                        ))}
+                                    </div>
                                 </div>
                             ))}
                         </div>

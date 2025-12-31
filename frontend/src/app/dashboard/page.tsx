@@ -5,7 +5,7 @@ import {
   Folder, Trash2, Plus, ArrowLeft, ArrowRight,
   X, Send, Loader2, FileClock, BrainCircuit, UploadCloud, 
   LayoutGrid, LogOut, Quote, FileSearch, Mic, StopCircle, Zap,
-  CheckCircle2, AlertCircle, Clock
+  CheckCircle2, AlertCircle, Clock, FileText, ChevronRight
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
@@ -56,6 +56,26 @@ const Typewriter = ({ content, animate = false }: { content: string, animate?: b
   }, [content, animate]);
 
   return <ReactMarkdown>{displayedContent}</ReactMarkdown>;
+};
+
+// --- HELPER: Group Citations by Source File ---
+const groupCitations = (citations: any[]) => {
+    const groups: { [key: string]: { docId: string, source: string, quotes: any[] } } = {};
+    
+    citations.forEach(cit => {
+        // Use document_id + source as key to ensure uniqueness
+        const key = cit.document_id || cit.source;
+        if (!groups[key]) {
+            groups[key] = {
+                docId: cit.document_id,
+                source: cit.source,
+                quotes: []
+            };
+        }
+        groups[key].quotes.push(cit);
+    });
+    
+    return Object.values(groups);
 };
 
 export default function Dashboard() {
@@ -294,11 +314,6 @@ export default function Dashboard() {
     } finally { setIsChatLoading(false); }
   };
 
-  const findDocIdByTitle = (title: string) => {
-    const found = docs.find(d => d.title === title);
-    return found ? found.id : null;
-  };
-
   if (!isAuthenticated) return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-[#fafafa] p-4">
         <div className="bg-white p-10 rounded-3xl shadow-xl border border-gray-100 w-full max-w-sm text-center">
@@ -486,7 +501,7 @@ export default function Dashboard() {
           </div>
       )}
 
-      {/* 4. CHAT SIDEBAR */}
+      {/* 4. CHAT SIDEBAR (SOTA SOURCE CARDS) */}
       <aside className={`fixed top-0 right-0 h-full w-[400px] bg-white/90 backdrop-blur-2xl border-l border-gray-200 shadow-2xl z-30 transform transition-transform duration-500 ${chatMode ? 'translate-x-0' : 'translate-x-full'} flex flex-col`}>
         <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-white/80">
             <div className="flex items-center gap-3">
@@ -512,7 +527,6 @@ export default function Dashboard() {
             {chatMessages.map((m, i) => (
                 <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
                     <div className={`p-5 max-w-[85%] rounded-2xl text-sm leading-relaxed shadow-sm ${m.role === 'user' ? 'bg-black text-white rounded-br-none' : 'bg-white border border-gray-100 text-gray-700 rounded-bl-none'}`}>
-                        {/* TYPEWRITER FOR AI */}
                         {m.role === 'ai' ? (
                             <div className="prose prose-sm">
                                 <Typewriter content={m.content} animate={i === chatMessages.length - 1} />
@@ -521,24 +535,46 @@ export default function Dashboard() {
                             <div className="prose prose-sm prose-invert"><ReactMarkdown>{m.content}</ReactMarkdown></div>
                         )}
                     </div>
+                    
+                    {/* SOTA SOURCE GROUPING */}
                     {m.role === 'ai' && m.citations && m.citations.length > 0 && (
-                        <div className="mt-4 w-[85%] grid grid-cols-1 gap-2 animate-in fade-in slide-in-from-top-2 duration-500">
-                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1 mb-1"><Quote size={10} /> Verified Sources</p>
-                            {/* UPDATED: INCREASED SLICE TO 20 */}
-                            {m.citations.slice(0, 20).map((cit: any, idx: number) => {
-                                const docId = findDocIdByTitle(cit.source);
-                                const content = (
-                                    <div className="bg-white/50 hover:bg-blue-50/50 border border-gray-200 hover:border-blue-200 p-3 rounded-xl transition-all cursor-pointer group shadow-sm hover:shadow-md">
-                                        <div className="flex items-center justify-between mb-2">
-                                            <span className="font-bold text-[10px] text-blue-600 flex items-center gap-1 bg-blue-50 px-2 py-1 rounded-md border border-blue-100"><FileSearch size={10} /> {cit.source}</span>
-                                            <span className="text-[10px] text-gray-400 font-mono bg-gray-50 px-2 py-1 rounded">Page {cit.page}</span>
+                        <div className="mt-4 w-full animate-in fade-in slide-in-from-top-2 duration-500 space-y-4">
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1"><Quote size={10} /> Verified Sources</p>
+                            
+                            {/* Group by Source File */}
+                            {groupCitations(m.citations).map((group, gIdx) => (
+                                <div key={gIdx} className="bg-gray-50 border border-gray-200 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-all">
+                                    {/* Group Header: File Link */}
+                                    <Link href={group.docId ? `/chat/${group.docId}` : '#'} className="block bg-white border-b border-gray-100 px-3 py-2 hover:bg-blue-50 transition-colors group/header">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2 overflow-hidden">
+                                                <div className="bg-blue-100 p-1 rounded text-blue-600"><FileText size={12}/></div>
+                                                <span className="text-xs font-bold text-gray-700 truncate">{group.source}</span>
+                                            </div>
+                                            <ChevronRight size={14} className="text-gray-300 group-hover/header:text-blue-500 transition-colors"/>
                                         </div>
-                                        <p className="text-xs text-gray-600 italic leading-relaxed pl-2 border-l-2 border-gray-300 group-hover:border-blue-400 transition-colors">"{cit.content}"</p>
+                                    </Link>
+                                    
+                                    {/* Quotes in this Group */}
+                                    <div className="divide-y divide-gray-100">
+                                        {group.quotes.slice(0, 3).map((cit, cIdx) => (
+                                            <Link key={cIdx} href={group.docId ? `/chat/${group.docId}#page=${cit.page}` : '#'} className="block p-3 hover:bg-gray-100 transition-colors group/quote">
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <span className="text-[10px] font-mono bg-white border border-gray-200 px-1.5 rounded text-gray-500 group-hover/quote:border-blue-200 group-hover/quote:text-blue-500">P.{cit.page}</span>
+                                                </div>
+                                                <p className="text-xs text-gray-600 italic line-clamp-2 border-l-2 border-transparent pl-2 group-hover/quote:border-blue-400 group-hover/quote:text-gray-900 transition-all">
+                                                    "{cit.content}"
+                                                </p>
+                                            </Link>
+                                        ))}
+                                        {group.quotes.length > 3 && (
+                                            <div className="p-2 text-center text-[10px] text-gray-400 font-medium italic">
+                                                + {group.quotes.length - 3} more citations
+                                            </div>
+                                        )}
                                     </div>
-                                );
-                                if (docId) return <Link key={idx} href={`/chat/${docId}#page=${cit.page}&:~:text=${encodeURIComponent(cit.content.substring(0,300))}`} className="block">{content}</Link>;
-                                return <div key={idx}>{content}</div>;
-                            })}
+                                </div>
+                            ))}
                         </div>
                     )}
                 </div>
@@ -548,17 +584,4 @@ export default function Dashboard() {
 
         <div className="p-6 bg-white border-t border-gray-100">
             <div className="flex gap-3 relative items-center max-w-4xl mx-auto">
-                <button onMouseDown={startRecording} onMouseUp={stopRecording} onMouseLeave={stopRecording} disabled={isChatLoading} className={`p-4 rounded-2xl transition-all duration-200 ${isRecording ? 'bg-red-500 text-white scale-110 shadow-lg shadow-red-200 ring-4 ring-red-100' : 'bg-gray-100 text-gray-500 hover:bg-black hover:text-white'}`}>
-                    {isRecording ? <StopCircle size={20} className="animate-pulse" /> : <Mic size={20} />}
-                </button>
-                <div className="flex-1 relative">
-                    <input className="w-full bg-gray-100 border-none rounded-2xl py-4 pl-6 pr-14 text-sm focus:outline-none focus:ring-2 focus:ring-black/5 placeholder:text-gray-400 transition-all" placeholder={isRecording ? "Listening..." : `Ask ${chatMode === 'simple' ? 'Fast' : 'Deep'} Chat...`} value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendFolderMessage()} disabled={isRecording} />
-                    <button onClick={sendFolderMessage} className="absolute right-2 top-2 p-2 bg-white text-black rounded-xl hover:scale-110 shadow-sm transition"><Send size={18}/></button>
-                </div>
-            </div>
-        </div>
-      </aside>
-
-    </div>
-  );
-}
+                <button onMouseDown={startRecording} onMouseUp={stopRecording} onMouseLeave={stopRecording} disabled={isChatLoading} className={`p-4 rounded-2xl transition-all duration-200 ${isRecording ? 'bg-

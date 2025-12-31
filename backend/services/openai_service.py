@@ -11,24 +11,19 @@ class OpenAIService:
 
     @retry(wait=wait_random_exponential(min=1, max=60), stop=stop_after_attempt(6))
     def get_answer_with_backoff(self, messages, model="gpt-4o-mini", json_mode=True):
-        # Increased max_tokens to 1500 to allow for detailed bullet points
         kwargs = {"model": model, "messages": messages, "max_tokens": 1500}
         if json_mode: kwargs["response_format"] = {"type": "json_object"}
         return self.client.chat.completions.create(**kwargs)
 
-    # --- 1. REFINED QUERY GENERATION ---
     def generate_refined_query(self, history: List[Dict[str, str]], current_question: str) -> str:
         if not history: return current_question
-        
         short_history = history[-3:] 
         prompt = (
             "You are a query optimizer. Rewrite the 'Current Question' into a specific, standalone search query using the 'Chat History'.\n"
             "Example: History=['The revenue is $5M'], Current='Why is it low?' -> Output='Why is $5M revenue considered low?'\n"
             "Return JSON: { \"refined_query\": \"...\" }"
         )
-        
         history_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in short_history])
-        
         try:
             response = self.get_answer_with_backoff([
                 {"role": "system", "content": prompt},
@@ -38,14 +33,12 @@ class OpenAIService:
             return data.get("refined_query", current_question)
         except: return current_question
 
-    # --- 2. RE-RANKING (Filter 45 -> Top 20) ---
     def rerank_chunks(self, chunks: List[dict], query: str) -> List[dict]:
         if not chunks: return []
         if len(chunks) <= 5: return chunks 
         
         chunk_text = ""
         for i, c in enumerate(chunks):
-            # 300 char preview for re-ranker
             preview = c['content'][:300].replace("\n", " ")
             chunk_text += f"[ID:{i}] {preview}...\n"
 
@@ -63,8 +56,6 @@ class OpenAIService:
             data = json.loads(response.choices[0].message.content)
             indices = data.get("selected_indices", [])
             selected_chunks = [chunks[i] for i in indices if 0 <= i < len(chunks)]
-            
-            # Fallback if AI returns empty list
             return selected_chunks if selected_chunks else chunks[:10]
         except: return chunks[:15]
 
@@ -86,13 +77,8 @@ class OpenAIService:
             return json.loads(res.choices[0].message.content).get("selected_ids", [])
         except: return []
 
-    def _normalize(self, text: str) -> str:
-        return re.sub(r'\s+', ' ', text).strip().lower()
-
-    # --- MAIN ANSWER FUNCTION (Analyst Mode) ---
     def get_answer(self, context_chunks: List[dict], question: str, mode: str = "single_doc", history: List[Dict[str, str]] = []) -> Dict[str, Any]:
         
-        # 1. Reranking Step (For Deep/Doc modes)
         final_chunks = context_chunks
         if mode in ["folder_deep", "single_doc"] and len(context_chunks) > 0:
             final_chunks = self.rerank_chunks(context_chunks, question)
@@ -100,7 +86,6 @@ class OpenAIService:
         context_text = ""
         system_prompt = ""
 
-        # 2. Build Context
         if mode in ["single_doc", "folder_deep"]:
             if final_chunks:
                 context_text += "--- SOURCE MATERIAL ---\n"
@@ -110,7 +95,6 @@ class OpenAIService:
             else:
                 context_text = "No specific document context found."
 
-            # --- SOTA ANALYST PROMPT ---
             system_prompt = (
                 "You are a Senior Financial Analyst. Answer based ONLY on the provided context.\n"
                 "You must return a JSON object with two keys:\n"
@@ -142,7 +126,6 @@ class OpenAIService:
                 "Return JSON: { 'answer': '...', 'quotes': [] }"
             )
 
-        # 3. Messages & Response
         messages = [{"role": "system", "content": system_prompt}]
         if history:
             for msg in history[-6:]:
@@ -159,7 +142,6 @@ class OpenAIService:
             
             for ai_quote in raw_quotes:
                 best_match = None
-                # Match the AI's quote to our source chunks to find the coordinates
                 for c in final_chunks:
                     if ai_quote[:30].lower() in c['content'].lower():
                         best_match = c
@@ -170,8 +152,8 @@ class OpenAIService:
                         "content": ai_quote,
                         "page": best_match.get('page', 1),
                         "source": best_match.get('source', 'Document'),
-                        "coords": best_match.get('bboxes', []), # NEW: Include coordinates
-                        "id": best_match.get('id', 0)
+                        "id": best_match.get('id', 0),
+                        "document_id": best_match.get('document_id', None) # PASS THROUGH
                     })
 
             return {"answer": data.get("answer", ""), "citations": formatted_citations}

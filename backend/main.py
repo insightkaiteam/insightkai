@@ -87,14 +87,15 @@ async def chat(request: ChatRequest):
     relevant_chunks = []
     mode_arg = "single_doc"
 
-    # 1. CONTEXTUAL REWRITING (Fixes "What is the image on page 48?" -> "Summarize it")
-    # We always refine the query based on history before searching
+    # 1. CONTEXTUAL REWRITING
     refined_query = ai_service.generate_refined_query(request.history, request.message)
 
     # 2. INDIVIDUAL DOCUMENT CHAT
     if request.document_id:
-        # Search with the REFINED query
         relevant_chunks = ocr_engine.search_single_doc(refined_query, request.document_id)
+        # INJECT DOC ID
+        for chunk in relevant_chunks:
+            chunk['document_id'] = request.document_id
         mode_arg = "single_doc"
 
     # 3. FOLDER CHAT
@@ -103,15 +104,14 @@ async def chat(request: ChatRequest):
             mode_arg = "folder_deep"
             all_files = ocr_engine.get_folder_files(request.folder_name)
             
-            # Select files based on original or refined query (refined is safer)
             selected_ids = ai_service.select_relevant_files(all_files, refined_query)
             
             for doc_id in selected_ids:
                 title = next((f['title'] for f in all_files if f['id'] == doc_id), "Unknown")
-                # Broad Search (30 chunks per file handled in engine)
                 doc_chunks = ocr_engine.search_single_doc(refined_query, doc_id)
                 for chunk in doc_chunks:
                     chunk['source'] = title 
+                    chunk['document_id'] = doc_id # INJECT DOC ID
                     relevant_chunks.append(chunk)
             
             # Fallback
@@ -120,6 +120,7 @@ async def chat(request: ChatRequest):
                      doc_chunks = ocr_engine.search_single_doc(refined_query, f['id'])
                      for chunk in doc_chunks:
                          chunk['source'] = f['title']
+                         chunk['document_id'] = f['id'] # INJECT DOC ID
                          relevant_chunks.append(chunk)
 
         else:
@@ -129,14 +130,15 @@ async def chat(request: ChatRequest):
                 relevant_chunks.append({
                     "content": f['summary'],
                     "source": f['title'],
+                    "document_id": f['id'], # INJECT DOC ID
                     "page": 1,
                     "type": "summary"
                 })
 
-    # 4. GENERATE ANSWER (Chunks are filtered inside get_answer)
+    # 4. GENERATE ANSWER
     result = ai_service.get_answer(
         relevant_chunks, 
-        request.message, # We pass the original user question to the final prompt for naturalness
+        request.message,
         mode=mode_arg,
         history=request.history
     )
