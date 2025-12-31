@@ -60,69 +60,75 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
       setPdfDocument(e.doc);
   };
 
-  // 3. SOTA "DESCENDING CHUNK" HIGHLIGHTER
-  const handleCitationClick = async (clickedCit: any) => {
-    if (!clickedCit.page) return;
+  // 3. SOTA "CASCADING OVERLAPPING SWARM" HIGHLIGHTER
+  const handleCitationClick = async (cit: any) => {
+    if (!cit.page) return;
     
     // A. Jump to the page first
-    jumpToPage(clickedCit.page - 1);
+    jumpToPage(cit.page - 1);
 
-    if (pdfDocument) {
+    if (pdfDocument && cit.content) {
         try {
             // 1. Get raw text of the specific page to verify existence
-            const page = await pdfDocument.getPage(clickedCit.page);
+            const page = await pdfDocument.getPage(cit.page);
             const textContent = await page.getTextContent();
             
-            // Normalize page text (collapse multiple spaces to single space for matching)
+            // Normalize page text: collapse multiple spaces/newlines to single space, lowercase
             const pageString = textContent.items.map((item: any) => item.str).join(' ').replace(/\s+/g, ' ').toLowerCase();
             
             // 2. Prepare Citation
-            const rawCit = clickedCit.content.replace(/["“”]/g, "").trim(); // Remove quotes
+            // Clean quotes and excessive whitespace
+            const rawCit = cit.content.replace(/["“”]/g, "").trim(); 
             const words = rawCit.split(/\s+/);
             
             let matchFound = false;
             const validKeywords: SingleKeyword[] = [];
 
-            // 3. Descending Chunk Loop (6 -> 5 -> 4 -> 3)
-            // We prioritize longer matches. If we find matches at length 6, we highlight those and STOP.
-            for (let chunkSize = 6; chunkSize >= 3; chunkSize--) {
-                if (matchFound) break; // Stop if we found a larger successful chunk set
+            // 3. Cascading Loop (Size 6 -> 5 -> 4 -> 3)
+            // We start with the largest window. If we find matches, we highlight them and STOP.
+            for (let windowSize = 6; windowSize >= 3; windowSize--) {
+                if (matchFound) break; // STOP if a larger window size already succeeded
 
-                // Generate Non-Overlapping Chunks
-                // Example: [A, B, C, D, E, F, G, H...] size 6 -> [A..F], [G..L]
-                for (let i = 0; i < words.length; i += chunkSize) {
-                    const chunkWords = words.slice(i, i + chunkSize);
-                    
-                    // Skip tiny chunks at the end (e.g. 1 word leftovers) unless it's the only text
-                    if (chunkWords.length < 3 && words.length > 3) continue;
-
+                // Generate OVERLAPPING Chunks (Stride = 1)
+                // "The puzzle of why momentum is" (Words 0-5)
+                // "puzzle of why momentum is so" (Words 1-6)
+                for (let i = 0; i <= words.length - windowSize; i++) {
+                    const chunkWords = words.slice(i, i + windowSize);
                     const chunkString = chunkWords.join(' ');
                     
                     // 4. VERIFY: Does this chunk actually exist on the page?
-                    // This prevents the "jumping to wrong page" issue by ensuring the text is local.
+                    // This ensures we don't highlight random text on other pages (since we only checked pageString)
+                    // and ensures the viewer will actually find it.
                     if (pageString.includes(chunkString.toLowerCase())) {
                         validKeywords.push({
                             keyword: chunkString,
                             matchCase: false
                         });
-                        matchFound = true;
+                        matchFound = true; 
+                        // Note: We don't break the inner loop here because we want ALL matches of this size (e.g., start AND end of sentence)
                     }
                 }
             }
 
-            // Fallback: If descending loop failed completely (rare), try the full string literal
-            if (!matchFound) {
-                // Check if full string is on page
+            // Fallback: If absolutely nothing matched (e.g. quote is only 2 words long), try exact string
+            if (!matchFound && words.length < 3) {
                 if (pageString.includes(rawCit.toLowerCase())) {
                     validKeywords.push({ keyword: rawCit, matchCase: false });
                 }
             }
 
-            // C. Apply Highlights
-            clearHighlights();
-            if (validKeywords.length > 0) {
-                highlight(validKeywords);
-            }
+            // C. Execute Highlight (With Retry)
+            const executeHighlight = () => {
+                clearHighlights();
+                if (validKeywords.length > 0) {
+                    highlight(validKeywords);
+                }
+            };
+
+            // Fire immediately and retry to handle rendering delays
+            executeHighlight();
+            setTimeout(executeHighlight, 500);
+            setTimeout(executeHighlight, 1000);
 
         } catch (err) {
             console.error("Error finding text match:", err);
@@ -186,7 +192,7 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
                     {m.role === 'ai' && m.citations && m.citations.length > 0 && (
                         <div className="mt-3 space-y-2 w-[85%]">
                             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1"><MapPin size={10} /> Source Highlights</p>
-                            {m.citations.slice(0, 12).map((cit: any, idx: number) => (
+                            {m.citations.map((cit: any, idx: number) => (
                                 <div key={idx} onClick={() => handleCitationClick(cit)} className="bg-white border border-gray-200 p-3 rounded-xl hover:border-blue-400 hover:shadow-md transition-all cursor-pointer group">
                                     <div className="flex justify-between items-center mb-1">
                                         <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">Page {cit.page}</span>
