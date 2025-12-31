@@ -234,6 +234,8 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
                 <h1 className="font-bold text-xl tracking-tight text-gray-900">Document Chat</h1>
                 <p className="text-xs text-gray-400 font-medium mt-1">SOTA Analyst Mode</p>
             </div>
+            
+            {/* SETTINGS BUTTON (THE BRAIN) */}
             <button onClick={() => setShowPromptSettings(!showPromptSettings)} className={`p-2 rounded-full transition ${showPromptSettings ? 'bg-black text-white' : 'hover:bg-gray-100 text-gray-400'}`}>
                 <Settings size={18} />
             </button>

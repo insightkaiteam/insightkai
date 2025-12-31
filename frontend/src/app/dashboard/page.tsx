@@ -140,17 +140,13 @@ export default function Dashboard() {
 
   const performHighlight = async (quote: string, pageNum: number) => {
     if (!pdfDocument) return;
-    
-    // 1. Jump to Page
     jumpToPage(pageNum - 1);
 
     try {
-        // 2. Get Page Text
         const page = await pdfDocument.getPage(pageNum);
         const textContent = await page.getTextContent();
         const pageString = textContent.items.map((item: any) => item.str).join(' ').replace(/\s+/g, ' ').toLowerCase();
         
-        // 3. Swarm Search Strategy
         const rawCit = quote.replace(/["“”]/g, "").trim(); 
         const words = rawCit.split(/\s+/);
         let matchFound = false;
@@ -284,7 +280,6 @@ export default function Dashboard() {
         setShowPromptSettings(false);
     } else {
         setChatMode(mode);
-        // Pre-fill prompt based on mode
         setCustomPrompt(mode === 'deep' ? DEFAULT_DEEP_PROMPT : DEFAULT_FAST_PROMPT);
     }
   };
@@ -307,7 +302,7 @@ export default function Dashboard() {
             folder_name: currentFolder, 
             mode: chatMode, 
             history: historyPayload,
-            custom_prompt: customPrompt // SEND MODIFIED BRAIN
+            custom_prompt: customPrompt
         }),
       });
       const data = await res.json();
@@ -329,7 +324,6 @@ export default function Dashboard() {
   return (
     <div className="flex h-screen bg-[#F3F4F6] overflow-hidden font-sans text-gray-900 relative">
       
-      {/* 1. SIDEBAR NAVIGATION */}
       <aside className="w-20 bg-white border-r border-gray-200 flex flex-col items-center py-8 gap-8 z-20 shrink-0">
         <Link href="/" className="w-10 h-10 bg-black rounded-xl flex items-center justify-center text-white font-serif italic font-bold text-xl shadow-lg">κ</Link>
         <div className="flex flex-col gap-4">
@@ -342,10 +336,7 @@ export default function Dashboard() {
         </div>
       </aside>
 
-      {/* 2. MAIN CONTENT AREA (Split: Grid OR PDF) */}
       <div className={`flex-1 overflow-hidden transition-all duration-500 ${chatMode ? 'mr-[400px]' : ''} flex flex-col relative`}>
-        
-        {/* VIEW 1: PDF VIEWER (Active Doc) */}
         {activeDoc ? (
             <div className="flex-1 flex flex-col h-full bg-white relative">
                 <div className="h-16 border-b border-gray-200 flex items-center justify-between px-6 bg-white/95 backdrop-blur z-10">
@@ -368,7 +359,6 @@ export default function Dashboard() {
                 </div>
             </div>
         ) : (
-            /* VIEW 2: DASHBOARD GRID */
             <div className="flex-1 p-8 overflow-y-auto">
                 <div className="max-w-7xl mx-auto">
                     <header className="flex flex-col gap-6 mb-10">
@@ -382,7 +372,6 @@ export default function Dashboard() {
                                     <p className="text-xs text-gray-400 font-medium uppercase tracking-wider mt-1">{currentFolder ? "Folder View" : "Dashboard"}</p>
                                 </div>
                             </div>
-                            
                             <div className="flex gap-3">
                                 {!currentFolder && (
                                     <button onClick={() => setShowNewFolderInput(true)} className="flex items-center gap-2 bg-white border border-gray-200 px-5 py-2.5 rounded-full hover:shadow-md transition text-sm font-bold"><Plus size={16} /> New Folder</button>
@@ -398,7 +387,6 @@ export default function Dashboard() {
                                 <button onClick={() => toggleChat('deep')} className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition text-sm font-bold border shadow-sm ${chatMode === 'deep' ? 'bg-black text-white border-black ring-2 ring-black/20' : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-700'}`}>
                                     <BrainCircuit size={16} /> Deep Chat
                                 </button>
-                                
                                 <label className="flex items-center justify-center gap-2 bg-blue-600 text-white px-5 py-3 rounded-xl cursor-pointer hover:bg-blue-700 transition shadow-lg shadow-blue-200 text-sm font-bold relative overflow-hidden min-w-[140px]">
                                     <><UploadCloud size={16} /> Upload PDFs</>
                                     <input ref={fileInputRef} type="file" className="hidden" accept=".pdf" multiple onChange={handleFileSelect} />
@@ -438,14 +426,174 @@ export default function Dashboard() {
                                 return (
                                     <div key={doc.id} className="group bg-white p-5 rounded-3xl border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all flex items-start gap-4 relative overflow-hidden h-full">
                                         {doc.status === 'processing' && <div className="absolute top-0 left-0 w-full h-1 bg-blue-100"><div className="h-full bg-blue-500 animate-progress origin-left"></div></div>}
-                                        
-                                        {/* ACTIONS COLUMN - UPDATED */}
                                         <div className="flex flex-col gap-2 shrink-0 pt-1">
                                             {doc.status !== 'processing' ? (
                                                 <>
-                                                    {/* 1. CHAT (Restored Primary Action) */}
                                                     <Link href={`/chat/${doc.id}`} title="Chat with document">
                                                         <button className="w-10 h-10 bg-black text-white rounded-xl flex items-center justify-center shadow-lg hover:bg-gray-800 hover:scale-105 transition">
                                                             <ArrowRight size={18} className="-rotate-45" />
                                                         </button>
                                                     </Link>
+                                                    <button onClick={() => setActiveDoc({id: doc.id, title: doc.title})} className="w-10 h-10 bg-blue-50 text-blue-600 border border-blue-100 rounded-xl flex items-center justify-center shadow-sm hover:bg-blue-100 transition" title="Read in Split View">
+                                                        <Maximize2 size={18} />
+                                                    </button>
+                                                </>
+                                            ) : (
+                                                <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center"><Loader2 size={18} className="animate-spin text-gray-400"/></div>
+                                            )}
+                                            <button onClick={(e) => handleDelete(doc.id, e)} className="w-10 h-10 bg-white border border-gray-200 text-gray-400 hover:text-red-500 hover:bg-red-50 hover:border-red-100 rounded-xl flex items-center justify-center transition mt-auto" title="Delete"><Trash2 size={18} /></button>
+                                        </div>
+                                        <div className="min-w-0 flex-1 border-l border-gray-100 pl-4 py-1">
+                                            <div className="flex items-start gap-2 mb-2 flex-wrap">
+                                                <h3 className="font-bold text-gray-900 text-sm leading-snug break-words">{doc.title}</h3>
+                                                {tag && <span className={`shrink-0 px-2 py-0.5 rounded-lg text-[10px] font-extrabold border uppercase tracking-wider ${getTagColor(tag)}`}>{tag}</span>}
+                                            </div>
+                                            <p className="text-xs text-gray-500 leading-relaxed whitespace-normal break-words">{desc}</p>
+                                            <div className="flex gap-4 mt-4 text-[10px] font-bold text-gray-300 uppercase tracking-widest"><span className="flex items-center gap-1"><FileClock size={10}/> {doc.upload_date}</span></div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                            {docs.filter(doc => doc.folder === currentFolder).length === 0 && (
+                                <div className="col-span-full flex flex-col items-center justify-center py-20 border-2 border-dashed border-gray-200 rounded-3xl text-gray-400">
+                                    <UploadCloud size={40} className="mb-4 text-gray-300"/>
+                                    <p className="font-medium">No files yet.</p>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            </div>
+        )}
+      </div>
+
+      {uploadQueue.length > 0 && (
+          <div className="fixed bottom-6 right-6 w-80 bg-white rounded-2xl shadow-2xl border border-gray-200 z-50 overflow-hidden animate-in slide-in-from-bottom-10 fade-in duration-300">
+              <div className="bg-black text-white p-3 flex justify-between items-center">
+                  <span className="text-xs font-bold flex items-center gap-2">
+                      {uploadQueue.some(i => i.status === 'uploading') ? <Loader2 size={12} className="animate-spin" /> : <UploadCloud size={12}/>}
+                      Upload Queue ({uploadQueue.filter(i => i.status === 'completed').length}/{uploadQueue.length})
+                  </span>
+                  <div className="flex gap-2">
+                      <button onClick={cancelUploads} className="text-[10px] bg-white/20 hover:bg-white/30 px-2 py-1 rounded transition">Cancel</button>
+                      <button onClick={clearCompleted} className="hover:text-gray-300"><X size={14}/></button>
+                  </div>
+              </div>
+              <div className="max-h-48 overflow-y-auto p-2 space-y-1">
+                  {uploadQueue.map((item) => (
+                      <div key={item.id} className="flex items-center justify-between p-2 rounded-lg bg-gray-50 text-xs">
+                          <span className="truncate max-w-[180px] font-medium text-gray-700">{item.file.name}</span>
+                          <span>
+                              {item.status === 'pending' && <Clock size={14} className="text-gray-400" />}
+                              {item.status === 'uploading' && <Loader2 size={14} className="animate-spin text-blue-500" />}
+                              {item.status === 'completed' && <CheckCircle2 size={14} className="text-green-500" />}
+                              {item.status === 'error' && <AlertCircle size={14} className="text-red-500" />}
+                          </span>
+                      </div>
+                  ))}
+              </div>
+              {uploadQueue.some(i => i.status === 'uploading' || i.status === 'pending') && (
+                  <div className="px-3 py-1.5 bg-blue-50 text-[10px] text-blue-600 font-medium text-center border-t border-blue-100">
+                      Processing files sequentially (10s delay to respect rate limits)
+                  </div>
+              )}
+          </div>
+      )}
+
+      <aside className={`fixed top-0 right-0 h-full w-[400px] bg-white/90 backdrop-blur-2xl border-l border-gray-200 shadow-2xl z-30 transform transition-transform duration-500 ${chatMode ? 'translate-x-0' : 'translate-x-full'} flex flex-col`}>
+        <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-white/80">
+            <div className="flex items-center gap-3">
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-white shadow-md ${chatMode === 'simple' ? 'bg-black' : 'bg-gradient-to-br from-blue-600 to-purple-600'}`}>
+                    {chatMode === 'simple' ? <Zap size={16} /> : <BrainCircuit size={16} />}
+                </div>
+                <div>
+                    <h2 className="font-bold text-lg leading-tight">{chatMode === 'simple' ? "Fast Chat" : "Deep Chat"}</h2>
+                    <p className="text-xs text-gray-400 font-medium">{chatMode === 'simple' ? "Instant answers" : "Full analysis"}</p>
+                </div>
+            </div>
+            <div className="flex items-center gap-1">
+                <button onClick={() => setShowPromptSettings(!showPromptSettings)} className={`p-2 rounded-full transition ${showPromptSettings ? 'bg-black text-white' : 'hover:bg-gray-100 text-gray-400'}`}>
+                    <Settings size={18} />
+                </button>
+                <button onClick={() => setChatMode(null)} className="p-2 hover:bg-gray-100 rounded-full transition"><X size={20} className="text-gray-400"/></button>
+            </div>
+        </div>
+
+        {showPromptSettings && (
+            <div className="bg-gray-50 p-4 border-b border-gray-200 animate-in slide-in-from-top-2">
+                <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">System Instructions (The Brain)</p>
+                <textarea 
+                    className="w-full text-xs font-mono p-3 rounded-xl border border-gray-300 focus:border-black focus:ring-0 h-32 bg-white"
+                    value={customPrompt}
+                    onChange={(e) => setCustomPrompt(e.target.value)}
+                />
+            </div>
+        )}
+
+        <div className="flex-1 overflow-y-auto p-6 space-y-6 scroll-smooth">
+            {chatMessages.map((m, i) => (
+                <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
+                    <div className={`p-5 max-w-[85%] rounded-2xl text-sm leading-relaxed shadow-sm ${m.role === 'user' ? 'bg-black text-white rounded-br-none' : 'bg-white border border-gray-100 text-gray-700 rounded-bl-none'}`}>
+                        {m.role === 'ai' ? <div className="prose prose-sm"><Typewriter content={m.content} animate={i === chatMessages.length - 1} /></div> : <div className="prose prose-sm prose-invert"><ReactMarkdown>{m.content}</ReactMarkdown></div>}
+                    </div>
+                    
+                    {m.role === 'ai' && m.citations && m.citations.length > 0 && (
+                        <div className="mt-4 w-full animate-in fade-in slide-in-from-top-2 duration-500 space-y-4">
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1"><Quote size={10} /> Verified Sources</p>
+                            {groupCitations(m.citations).map((group, gIdx) => {
+                                const groupKey = group.docId + group.source;
+                                const isExpanded = expandedSources.has(groupKey);
+                                const visibleQuotes = isExpanded ? group.quotes : group.quotes.slice(0, 3);
+                                const hiddenCount = group.quotes.length - 3;
+
+                                return (
+                                    <div key={gIdx} className="bg-gray-50 border border-gray-200 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-all">
+                                        <div onClick={() => onCitationClick(group.docId, group.source, group.quotes[0].content, group.quotes[0].page)} className="bg-white border-b border-gray-100 px-3 py-2 flex items-center justify-between cursor-pointer hover:bg-blue-50 transition group/header">
+                                            <div className="flex items-center gap-2 overflow-hidden">
+                                                <div className="bg-blue-100 p-1 rounded text-blue-600"><FileText size={12}/></div>
+                                                <span className="text-xs font-bold text-gray-700 truncate">{group.source}</span>
+                                            </div>
+                                            <ChevronRight size={14} className="text-gray-300 group-hover/header:text-blue-500"/>
+                                        </div>
+                                        
+                                        <div className="divide-y divide-gray-100">
+                                            {visibleQuotes.map((cit, cIdx) => (
+                                                <div key={cIdx} onClick={() => onCitationClick(group.docId, group.source, cit.content, cit.page)} className="block p-3 hover:bg-gray-100 transition-colors cursor-pointer group/quote">
+                                                    <div className="flex items-center gap-2 mb-1">
+                                                        <span className="text-[10px] font-mono bg-white border border-gray-200 px-1.5 rounded text-gray-500 group-hover/quote:border-blue-200 group-hover/quote:text-blue-500">P.{cit.page}</span>
+                                                    </div>
+                                                    <p className="text-xs text-gray-600 italic line-clamp-2 border-l-2 border-transparent pl-2 group-hover/quote:border-blue-400 group-hover/quote:text-gray-900 transition-all">"{cit.content}"</p>
+                                                </div>
+                                            ))}
+                                            
+                                            {hiddenCount > 0 && !isExpanded && (
+                                                <button onClick={() => toggleSourceExpansion(groupKey)} className="w-full p-2 text-center text-[10px] text-gray-400 font-bold uppercase tracking-wider hover:bg-gray-100 hover:text-black transition flex items-center justify-center gap-1">
+                                                    <ChevronDown size={10} /> Show {hiddenCount} more
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+            ))}
+            {isChatLoading && <div className="flex items-center gap-3 text-sm text-gray-500 animate-pulse"><div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center"><Loader2 size={16} className="animate-spin"/></div><span>Analyzing documents...</span></div>}
+        </div>
+
+        <div className="p-6 bg-white border-t border-gray-100">
+            <div className="flex gap-3 relative items-center max-w-4xl mx-auto">
+                <button onMouseDown={startRecording} onMouseUp={stopRecording} onMouseLeave={stopRecording} disabled={isChatLoading} className={`p-4 rounded-2xl transition-all duration-200 ${isRecording ? 'bg-red-500 text-white scale-110 shadow-lg shadow-red-200 ring-4 ring-red-100' : 'bg-gray-100 text-gray-500 hover:bg-black hover:text-white'}`}>
+                    {isRecording ? <StopCircle size={20} className="animate-pulse" /> : <Mic size={20} />}
+                </button>
+                <div className="flex-1 relative">
+                    <input className="w-full bg-gray-100 border-none rounded-2xl py-4 pl-6 pr-14 text-sm focus:outline-none focus:ring-2 focus:ring-black/5 placeholder:text-gray-400 transition-all" placeholder={isRecording ? "Listening..." : `Ask ${chatMode === 'simple' ? 'Fast' : 'Deep'} Chat...`} value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendFolderMessage()} disabled={isRecording} />
+                    <button onClick={sendFolderMessage} className="absolute right-2 top-2 p-2 bg-white text-black rounded-xl hover:scale-110 shadow-sm transition"><Send size={18}/></button>
+                </div>
+            </div>
+        </div>
+      </aside>
+    </div>
+  );
+}
