@@ -53,6 +53,11 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   
+  // Audio State
+  const [isRecording, setIsRecording] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+
   // PDF State
   const [pdfDocument, setPdfDocument] = useState<any>(null); 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -71,7 +76,38 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
       setPdfDocument(e.doc);
   };
 
-  // 3. SOTA "SMART DE-DUPLICATION" HIGHLIGHTER
+  // 3. AUDIO LOGIC
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorderRef.current = new MediaRecorder(stream);
+      chunksRef.current = [];
+      mediaRecorderRef.current.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+      mediaRecorderRef.current.onstop = async () => {
+        const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm' });
+        const formData = new FormData();
+        formData.append("file", audioBlob, "recording.webm");
+        setInput("Transcribing...");
+        try {
+          const res = await fetch(`${BACKEND_URL}/transcribe`, { method: "POST", body: formData });
+          const data = await res.json();
+          setInput(data.text);
+        } catch (e) { setInput(""); alert("Transcription failed"); }
+      };
+      mediaRecorderRef.current.start();
+      setIsRecording(true);
+    } catch (e) { alert("Microphone access denied."); }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+    }
+  };
+
+  // 4. SOTA "SMART DE-DUPLICATION" HIGHLIGHTER
   const handleCitationClick = async (cit: any) => {
     if (!cit.page) return;
     
@@ -80,10 +116,9 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
 
     if (pdfDocument && cit.content) {
         try {
-            // 1. Get raw text of the specific page to verify existence
+            // 1. Get raw text of the specific page
             const page = await pdfDocument.getPage(cit.page);
             const textContent = await page.getTextContent();
-            // Normalize page text: collapse multiple spaces/newlines to single space, lowercase
             const pageString = textContent.items.map((item: any) => item.str).join(' ').replace(/\s+/g, ' ').toLowerCase();
             
             // 2. Prepare Citation
@@ -93,58 +128,39 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
             let matchFound = false;
             const validKeywords: SingleKeyword[] = [];
 
-            // 3. Cascading Loop (Size 6 -> 5 -> 4 -> 3)
-            // We start with the largest window. If we find matches, we highlight them and STOP.
+            // 3. Cascading Loop
             for (let windowSize = 6; windowSize >= 3; windowSize--) {
-                if (matchFound) break; // STOP if a larger window size already succeeded
-
-                // Use a 'while' loop to enable jumping forward on success (Smart De-Duplication)
+                if (matchFound) break; 
                 let i = 0;
                 while (i <= words.length - windowSize) {
                     const chunkWords = words.slice(i, i + windowSize);
                     const chunkString = chunkWords.join(' ');
                     
-                    // 4. VERIFY: Does this chunk actually exist on the page?
                     if (pageString.includes(chunkString.toLowerCase())) {
-                        validKeywords.push({
-                            keyword: chunkString,
-                            matchCase: false
-                            // REMOVED 'highlightAll' property to fix Build Error
-                        });
+                        validKeywords.push({ keyword: chunkString, matchCase: false });
                         matchFound = true; 
-                        
-                        // SMART JUMP: Skip ahead by the window size to avoid overlapping highlights
                         i += windowSize;
-                    } else {
-                        // STANDARD SLIDE: If no match, slide forward by 1 word
-                        i++;
-                    }
+                    } else { i++; }
                 }
             }
 
-            // Fallback: If absolutely nothing matched (e.g. quote is only 2 words long), try exact string
+            // Fallback
             if (!matchFound && words.length < 3) {
                 if (pageString.includes(rawCit.toLowerCase())) {
                     validKeywords.push({ keyword: rawCit, matchCase: false });
                 }
             }
 
-            // C. Execute Highlight (With Retry)
+            // C. Execute Highlight
             const executeHighlight = () => {
                 clearHighlights();
-                if (validKeywords.length > 0) {
-                    highlight(validKeywords);
-                }
+                if (validKeywords.length > 0) highlight(validKeywords);
             };
-
-            // Fire immediately and retry to handle rendering delays
             executeHighlight();
             setTimeout(executeHighlight, 500);
             setTimeout(executeHighlight, 1000);
 
-        } catch (err) {
-            console.error("Error finding text match:", err);
-        }
+        } catch (err) { console.error("Error finding text match:", err); }
     }
   };
 
@@ -177,7 +193,7 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
           <Viewer
             fileUrl={`${BACKEND_URL}/documents/${docId}/download`}
             plugins={[pageNavigationPluginInstance, searchPluginInstance]}
-            onDocumentLoad={handleDocumentLoad} // Capture doc reference
+            onDocumentLoad={handleDocumentLoad} 
           />
         </Worker>
         <div className="absolute top-4 left-4 z-20">
@@ -205,7 +221,7 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
                         <div className="mt-3 w-[85%] space-y-2">
                             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1"><MapPin size={10} /> Source Highlights</p>
                             
-                            {/* NEW: GROUPED CITATIONS FOR CONSISTENCY */}
+                            {/* GROUPED CITATIONS */}
                             {groupCitations(m.citations).map((group, gIdx) => (
                                 <div key={gIdx} className="bg-gray-50 border border-gray-200 rounded-xl overflow-hidden shadow-sm">
                                     <div className="bg-white border-b border-gray-100 px-3 py-2 flex items-center justify-between">
@@ -236,13 +252,26 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
 
         <div className="p-5 border-t border-gray-100 bg-white">
             <div className={`flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-2xl p-2 focus-within:ring-4 focus-within:ring-blue-50`}>
+                
+                {/* NEW: AUDIO BUTTON */}
+                <button 
+                    onMouseDown={startRecording} 
+                    onMouseUp={stopRecording} 
+                    onMouseLeave={stopRecording} 
+                    disabled={isLoading}
+                    className={`p-3 rounded-xl transition-all duration-200 flex-shrink-0 ${isRecording ? 'bg-red-500 text-white scale-110 shadow-lg shadow-red-200 ring-4 ring-red-100' : 'bg-gray-100 text-gray-500 hover:bg-black hover:text-white'}`}
+                >
+                    {isRecording ? <StopCircle size={20} className="animate-pulse" /> : <Mic size={20} />}
+                </button>
+
                 <textarea 
                     className="flex-1 bg-transparent border-none focus:ring-0 p-3 text-sm resize-none max-h-32 placeholder:text-gray-400 focus:outline-none" 
                     rows={1}
                     value={input} 
                     onChange={e=>setInput(e.target.value)} 
                     onKeyDown={e=>{ if(e.key==='Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-                    placeholder="Ask a question..."
+                    placeholder={isRecording ? "Listening..." : "Ask a question..."}
+                    disabled={isRecording}
                 />
                 <button onClick={() => sendMessage()} className="w-12 h-12 bg-black text-white rounded-xl hover:scale-105 active:scale-95 transition shadow-lg flex items-center justify-center">
                     <Send size={18} />
