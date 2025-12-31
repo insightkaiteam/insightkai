@@ -36,6 +36,11 @@ const Typewriter = ({ content, animate = false }: { content: string, animate?: b
   return <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{displayedContent}</ReactMarkdown>;
 };
 
+// --- HELPER: Escape Regex Characters ---
+function escapeRegExp(string: string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); 
+}
+
 export default function ChatPage({ params }: { params: Promise<{ docId: string }> }) {
   const { docId } = use(params);
   const [messages, setMessages] = useState<{role: string, content: string, citations?: any[]}[]>([]);
@@ -43,6 +48,7 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
   const [isLoading, setIsLoading] = useState(false);
   
   // PDF State
+  const [pdfDocument, setPdfDocument] = useState<any>(null); 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
@@ -54,64 +60,85 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
   const searchPluginInstance = searchPlugin();
   const { highlight, clearHighlights } = searchPluginInstance;
 
-  // 2. STRATEGY: LITERAL SWARM (Non-Overlapping 3-Word Chunks)
-  const handleCitationClick = (clickedCit: any) => {
-    if (!clickedCit.page) return;
+  // 2. CAPTURE PDF DOCUMENT ON LOAD
+  const handleDocumentLoad = (e: DocumentLoadEvent) => {
+      setPdfDocument(e.doc);
+  };
+
+  // 3. SOTA SLIDING WINDOW HIGHLIGHTER
+  const handleCitationClick = async (cit: any) => {
+    if (!cit.page) return;
     
     // A. Jump to the page first
-    jumpToPage(clickedCit.page - 1);
+    jumpToPage(cit.page - 1);
 
-    // B. Construct Targets
-    // Remove start/end quotes but preserve internal structure
-    const rawText = clickedCit.content.trim();
-    const cleanText = rawText.replace(/^["“]|["”]$/g, ""); 
-    const words = cleanText.split(/\s+/);
-    
-    // We will collect multiple "Plain String" keywords
-    const targets: string[] = [];
+    // B. Smart Matching Logic
+    if (pdfDocument && cit.content) {
+        try {
+            // 1. Get raw text of the target page
+            const page = await pdfDocument.getPage(cit.page);
+            const textContent = await page.getTextContent();
+            // Join items to get a single string of the page text
+            const pageText = textContent.items.map((item: any) => item.str).join(' ');
+            
+            // Normalize page text for comparison (remove ALL spaces, lowercase)
+            // This allows us to find "Japan" even if the PDF has "J a p a n" or "Japan\n"
+            const cleanPageText = pageText.replace(/\s+/g, '').toLowerCase();
 
-    // 1. FULL TEXT (The clean shot)
-    targets.push(cleanText);
+            // 2. Prepare the quote
+            // Clean up the AI quote to remove artifacts
+            const searchPhrase = cit.content.replace(/["“”]/g, "").trim(); 
+            const words = searchPhrase.split(' ');
+            
+            // 3. The Decreasing Sliding Window Loop
+            // We start checking the FULL string. If fail, we check all substrings of Length - 1.
+            // We stop if length < 3 words (too vague).
+            
+            let foundMatch = false;
 
-    // 2. NON-OVERLAPPING 3-WORD CHUNKS (The Swarm)
-    // "In fact, we argue they are..." -> ["In fact, we", "argue they are", "ultimately supportive. First,", ...]
-    // This ensures coverage of the entire sentence, robust against line breaks or corruption in any single part.
-    for (let i = 0; i < words.length; i += 3) {
-        // Take a slice of 3 words
-        const chunkWords = words.slice(i, i + 3);
-        // Join them back into a string
-        const chunkString = chunkWords.join(" ");
-        
-        // Only add if it's substantial (avoid single punctuation marks or tiny artifacts)
-        if (chunkString.length > 3) {
-            targets.push(chunkString);
+            // Outer Loop: Window Length (Largest -> Smallest)
+            // We stop at 3 words to avoid highlighting random common phrases like "is that the"
+            for (let length = words.length; length >= 3; length--) {
+                if (foundMatch) break;
+
+                // Inner Loop: Sliding the window across the quote
+                // Example: "A B C D E" (Len 4) -> Check "A B C D", then "B C D E"
+                for (let start = 0; start <= words.length - length; start++) {
+                    
+                    // Construct candidate phrase
+                    const candidateWords = words.slice(start, start + length);
+                    const candidatePhrase = candidateWords.join(' ');
+                    
+                    // Normalize candidate to match the cleanPageText format
+                    const cleanCandidate = candidatePhrase.replace(/\s+/g, '').toLowerCase();
+
+                    // CHECK MATCH
+                    if (cleanPageText.includes(cleanCandidate)) {
+                        // Found the longest possible match!
+                        clearHighlights();
+                        
+                        // Highlight this specific phrase
+                        highlight({
+                            keyword: candidatePhrase,
+                            matchCase: false,
+                        });
+                        
+                        foundMatch = true;
+                        break; // Exit inner loop
+                    }
+                }
+            }
+
+            // Fallback: If absolutely nothing matched (rare), try the original
+            if (!foundMatch) {
+                clearHighlights();
+                highlight({ keyword: cit.content, matchCase: false });
+            }
+
+        } catch (err) {
+            console.error("Error finding text match:", err);
         }
     }
-
-    // 3. SNIPPET FALLBACK (First/Last 8 chars)
-    // Desperate measure for extremely messy PDFs where word boundaries are lost
-    if (cleanText.length > 10) {
-        targets.push(cleanText.substring(0, 8)); // First 8 chars
-        targets.push(cleanText.substring(cleanText.length - 8)); // Last 8 chars
-    }
-
-    // C. HIGHLIGHT EXECUTION
-    // We pass an array of simple strings. The viewer's internal engine handles the matching.
-    const keywords: SingleKeyword[] = targets.map(t => ({
-        keyword: t,
-        matchCase: false
-    }));
-
-    // Clear previous, then try highlighting 3 times to catch the PDF render
-    clearHighlights();
-    
-    const attemptHighlight = () => {
-        if (keywords.length > 0) highlight(keywords);
-    };
-
-    attemptHighlight(); // Immediate
-    setTimeout(attemptHighlight, 500); // After 500ms
-    setTimeout(attemptHighlight, 1500); // After 1.5s (Aggressive fallback)
   };
 
   const sendMessage = async (textOverride?: string) => {
@@ -143,6 +170,7 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
           <Viewer
             fileUrl={`${BACKEND_URL}/documents/${docId}/download`}
             plugins={[pageNavigationPluginInstance, searchPluginInstance]}
+            onDocumentLoad={handleDocumentLoad} // Capture doc reference
           />
         </Worker>
         <div className="absolute top-4 left-4 z-20">
@@ -169,7 +197,7 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
                     {m.role === 'ai' && m.citations && m.citations.length > 0 && (
                         <div className="mt-3 space-y-2 w-[85%]">
                             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1"><MapPin size={10} /> Source Highlights</p>
-                            {m.citations.slice(0, 12).map((cit: any, idx: number) => (
+                            {m.citations.map((cit: any, idx: number) => (
                                 <div key={idx} onClick={() => handleCitationClick(cit)} className="bg-white border border-gray-200 p-3 rounded-xl hover:border-blue-400 hover:shadow-md transition-all cursor-pointer group">
                                     <div className="flex justify-between items-center mb-1">
                                         <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">Page {cit.page}</span>
