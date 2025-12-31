@@ -60,7 +60,7 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
       setPdfDocument(e.doc);
   };
 
-  // 3. SOTA "CASCADING OVERLAPPING SWARM" HIGHLIGHTER
+  // 3. SOTA "SMART DE-DUPLICATION" HIGHLIGHTER
   const handleCitationClick = async (cit: any) => {
     if (!cit.page) return;
     
@@ -89,23 +89,26 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
             for (let windowSize = 6; windowSize >= 3; windowSize--) {
                 if (matchFound) break; // STOP if a larger window size already succeeded
 
-                // Generate OVERLAPPING Chunks (Stride = 1)
-                // "The puzzle of why momentum is" (Words 0-5)
-                // "puzzle of why momentum is so" (Words 1-6)
-                for (let i = 0; i <= words.length - windowSize; i++) {
+                // CHANGED: Use a 'while' loop to enable jumping forward on success
+                let i = 0;
+                while (i <= words.length - windowSize) {
                     const chunkWords = words.slice(i, i + windowSize);
                     const chunkString = chunkWords.join(' ');
                     
                     // 4. VERIFY: Does this chunk actually exist on the page?
-                    // This ensures we don't highlight random text on other pages (since we only checked pageString)
-                    // and ensures the viewer will actually find it.
                     if (pageString.includes(chunkString.toLowerCase())) {
                         validKeywords.push({
                             keyword: chunkString,
                             matchCase: false
                         });
                         matchFound = true; 
-                        // Note: We don't break the inner loop here because we want ALL matches of this size (e.g., start AND end of sentence)
+                        
+                        // SMART JUMP: Skip ahead by the window size to avoid overlapping highlights
+                        // e.g. if we matched words 0-5, next check should start at 6
+                        i += windowSize;
+                    } else {
+                        // STANDARD SLIDE: If no match, slide forward by 1 word
+                        i++;
                     }
                 }
             }
