@@ -231,8 +231,6 @@ export default function Dashboard() {
     } else { alert("Incorrect Password"); }
   };
 
-  // ... (Keep handleCreateFolder, handleDeleteFolder, handleDelete, startRecording, stopRecording as before) ...
-  // [Code truncated for brevity - insert previous handlers here if not changed]
   const handleCreateFolder = async () => { if(!newFolderName.trim()) return; await fetch(`${BACKEND_URL}/folders`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ name: newFolderName }) }); setNewFolderName(""); setShowNewFolderInput(false); refreshData(); };
   const handleDeleteFolder = async (folderName: string, e: React.MouseEvent) => { e.stopPropagation(); if (!confirm(`Delete?`)) return; await fetch(`${BACKEND_URL}/folders/${folderName}`, { method: 'DELETE' }); refreshData(); };
   const handleDelete = async (docId: string, e: React.MouseEvent) => { e.stopPropagation(); if(!confirm("Delete?")) return; await fetch(`${BACKEND_URL}/documents/${docId}`, { method: 'DELETE' }); refreshData(); };
@@ -410,16 +408,32 @@ export default function Dashboard() {
                                 return (
                                     <div key={doc.id} className="group bg-white p-5 rounded-3xl border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all flex items-start gap-4 relative overflow-hidden h-full">
                                         {doc.status === 'processing' && <div className="absolute top-0 left-0 w-full h-1 bg-blue-100"><div className="h-full bg-blue-500 animate-progress origin-left"></div></div>}
-                                        <div className="flex flex-col gap-3 shrink-0 pt-1">
+                                        
+                                        {/* ACTIONS COLUMN - UPDATED */}
+                                        <div className="flex flex-col gap-2 shrink-0 pt-1">
                                             {doc.status !== 'processing' ? (
-                                                <button onClick={() => setActiveDoc({id: doc.id, title: doc.title})} className="w-10 h-10 bg-black text-white rounded-xl flex items-center justify-center shadow-lg hover:bg-gray-800 hover:scale-105 transition">
-                                                    <Maximize2 size={18} />
-                                                </button>
+                                                <>
+                                                    {/* 1. CHAT (Restored Primary Action) */}
+                                                    <Link href={`/chat/${doc.id}`} title="Chat with document">
+                                                        <button className="w-10 h-10 bg-black text-white rounded-xl flex items-center justify-center shadow-lg hover:bg-gray-800 hover:scale-105 transition">
+                                                            <ArrowRight size={18} className="-rotate-45" />
+                                                        </button>
+                                                    </Link>
+                                                    
+                                                    {/* 2. READ IN DASHBOARD (Secondary Action) */}
+                                                    <button onClick={() => setActiveDoc({id: doc.id, title: doc.title})} className="w-10 h-10 bg-blue-50 text-blue-600 border border-blue-100 rounded-xl flex items-center justify-center shadow-sm hover:bg-blue-100 transition" title="Read in Split View">
+                                                        <Maximize2 size={18} />
+                                                    </button>
+                                                </>
                                             ) : (
                                                 <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center"><Loader2 size={18} className="animate-spin text-gray-400"/></div>
                                             )}
-                                            <button onClick={(e) => handleDelete(doc.id, e)} className="w-10 h-10 bg-white border border-gray-200 text-gray-400 hover:text-red-500 hover:bg-red-50 hover:border-red-100 rounded-xl flex items-center justify-center transition" title="Delete"><Trash2 size={18} /></button>
+                                            
+                                            <button onClick={(e) => handleDelete(doc.id, e)} className="w-10 h-10 bg-white border border-gray-200 text-gray-400 hover:text-red-500 hover:bg-red-50 hover:border-red-100 rounded-xl flex items-center justify-center transition mt-auto" title="Delete">
+                                                <Trash2 size={18} />
+                                            </button>
                                         </div>
+
                                         <div className="min-w-0 flex-1 border-l border-gray-100 pl-4 py-1">
                                             <div className="flex items-start gap-2 mb-2 flex-wrap">
                                                 <h3 className="font-bold text-gray-900 text-sm leading-snug break-words">{doc.title}</h3>
