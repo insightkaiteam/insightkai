@@ -43,6 +43,7 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
   const [isLoading, setIsLoading] = useState(false);
   
   // PDF State
+  const [pdfDocument, setPdfDocument] = useState<any>(null); 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
@@ -54,64 +55,79 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
   const searchPluginInstance = searchPlugin();
   const { highlight, clearHighlights } = searchPluginInstance;
 
-  // 2. STRATEGY: LITERAL SWARM (Non-Overlapping 3-Word Chunks)
-  const handleCitationClick = (clickedCit: any) => {
+  // 2. CAPTURE PDF DOCUMENT ON LOAD
+  const handleDocumentLoad = (e: DocumentLoadEvent) => {
+      setPdfDocument(e.doc);
+  };
+
+  // 3. SOTA "DESCENDING CHUNK" HIGHLIGHTER
+  const handleCitationClick = async (clickedCit: any) => {
     if (!clickedCit.page) return;
     
     // A. Jump to the page first
     jumpToPage(clickedCit.page - 1);
 
-    // B. Construct Targets
-    // Remove start/end quotes but preserve internal structure
-    const rawText = clickedCit.content.trim();
-    const cleanText = rawText.replace(/^["“]|["”]$/g, ""); 
-    const words = cleanText.split(/\s+/);
-    
-    // We will collect multiple "Plain String" keywords
-    const targets: string[] = [];
+    if (pdfDocument) {
+        try {
+            // 1. Get raw text of the specific page to verify existence
+            const page = await pdfDocument.getPage(clickedCit.page);
+            const textContent = await page.getTextContent();
+            
+            // Normalize page text (collapse multiple spaces to single space for matching)
+            const pageString = textContent.items.map((item: any) => item.str).join(' ').replace(/\s+/g, ' ').toLowerCase();
+            
+            // 2. Prepare Citation
+            const rawCit = clickedCit.content.replace(/["“”]/g, "").trim(); // Remove quotes
+            const words = rawCit.split(/\s+/);
+            
+            let matchFound = false;
+            const validKeywords: SingleKeyword[] = [];
 
-    // 1. FULL TEXT (The clean shot)
-    targets.push(cleanText);
+            // 3. Descending Chunk Loop (6 -> 5 -> 4 -> 3)
+            // We prioritize longer matches. If we find matches at length 6, we highlight those and STOP.
+            for (let chunkSize = 6; chunkSize >= 3; chunkSize--) {
+                if (matchFound) break; // Stop if we found a larger successful chunk set
 
-    // 2. NON-OVERLAPPING 3-WORD CHUNKS (The Swarm)
-    // "In fact, we argue they are..." -> ["In fact, we", "argue they are", "ultimately supportive. First,", ...]
-    // This ensures coverage of the entire sentence, robust against line breaks or corruption in any single part.
-    for (let i = 0; i < words.length; i += 3) {
-        // Take a slice of 3 words
-        const chunkWords = words.slice(i, i + 3);
-        // Join them back into a string
-        const chunkString = chunkWords.join(" ");
-        
-        // Only add if it's substantial (avoid single punctuation marks or tiny artifacts)
-        if (chunkString.length > 3) {
-            targets.push(chunkString);
+                // Generate Non-Overlapping Chunks
+                // Example: [A, B, C, D, E, F, G, H...] size 6 -> [A..F], [G..L]
+                for (let i = 0; i < words.length; i += chunkSize) {
+                    const chunkWords = words.slice(i, i + chunkSize);
+                    
+                    // Skip tiny chunks at the end (e.g. 1 word leftovers) unless it's the only text
+                    if (chunkWords.length < 3 && words.length > 3) continue;
+
+                    const chunkString = chunkWords.join(' ');
+                    
+                    // 4. VERIFY: Does this chunk actually exist on the page?
+                    // This prevents the "jumping to wrong page" issue by ensuring the text is local.
+                    if (pageString.includes(chunkString.toLowerCase())) {
+                        validKeywords.push({
+                            keyword: chunkString,
+                            matchCase: false
+                        });
+                        matchFound = true;
+                    }
+                }
+            }
+
+            // Fallback: If descending loop failed completely (rare), try the full string literal
+            if (!matchFound) {
+                // Check if full string is on page
+                if (pageString.includes(rawCit.toLowerCase())) {
+                    validKeywords.push({ keyword: rawCit, matchCase: false });
+                }
+            }
+
+            // C. Apply Highlights
+            clearHighlights();
+            if (validKeywords.length > 0) {
+                highlight(validKeywords);
+            }
+
+        } catch (err) {
+            console.error("Error finding text match:", err);
         }
     }
-
-    // 3. SNIPPET FALLBACK (First/Last 8 chars)
-    // Desperate measure for extremely messy PDFs where word boundaries are lost
-    if (cleanText.length > 10) {
-        targets.push(cleanText.substring(0, 8)); // First 8 chars
-        targets.push(cleanText.substring(cleanText.length - 8)); // Last 8 chars
-    }
-
-    // C. HIGHLIGHT EXECUTION
-    // We pass an array of simple strings. The viewer's internal engine handles the matching.
-    const keywords: SingleKeyword[] = targets.map(t => ({
-        keyword: t,
-        matchCase: false
-    }));
-
-    // Clear previous, then try highlighting 3 times to catch the PDF render
-    clearHighlights();
-    
-    const attemptHighlight = () => {
-        if (keywords.length > 0) highlight(keywords);
-    };
-
-    attemptHighlight(); // Immediate
-    setTimeout(attemptHighlight, 500); // After 500ms
-    setTimeout(attemptHighlight, 1500); // After 1.5s (Aggressive fallback)
   };
 
   const sendMessage = async (textOverride?: string) => {
@@ -143,6 +159,7 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
           <Viewer
             fileUrl={`${BACKEND_URL}/documents/${docId}/download`}
             plugins={[pageNavigationPluginInstance, searchPluginInstance]}
+            onDocumentLoad={handleDocumentLoad} // Capture doc reference
           />
         </Worker>
         <div className="absolute top-4 left-4 z-20">
