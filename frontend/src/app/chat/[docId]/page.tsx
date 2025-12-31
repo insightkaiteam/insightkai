@@ -80,9 +80,10 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
 
     if (pdfDocument && cit.content) {
         try {
-            // 1. Get raw text of the specific page
+            // 1. Get raw text of the specific page to verify existence
             const page = await pdfDocument.getPage(cit.page);
             const textContent = await page.getTextContent();
+            // Normalize page text: collapse multiple spaces/newlines to single space, lowercase
             const pageString = textContent.items.map((item: any) => item.str).join(' ').replace(/\s+/g, ' ').toLowerCase();
             
             // 2. Prepare Citation
@@ -92,39 +93,58 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
             let matchFound = false;
             const validKeywords: SingleKeyword[] = [];
 
-            // 3. Cascading Loop
+            // 3. Cascading Loop (Size 6 -> 5 -> 4 -> 3)
+            // We start with the largest window. If we find matches, we highlight them and STOP.
             for (let windowSize = 6; windowSize >= 3; windowSize--) {
-                if (matchFound) break; 
+                if (matchFound) break; // STOP if a larger window size already succeeded
+
+                // Use a 'while' loop to enable jumping forward on success (Smart De-Duplication)
                 let i = 0;
                 while (i <= words.length - windowSize) {
                     const chunkWords = words.slice(i, i + windowSize);
                     const chunkString = chunkWords.join(' ');
                     
+                    // 4. VERIFY: Does this chunk actually exist on the page?
                     if (pageString.includes(chunkString.toLowerCase())) {
-                        validKeywords.push({ keyword: chunkString, matchCase: false, highlightAll: true });
+                        validKeywords.push({
+                            keyword: chunkString,
+                            matchCase: false
+                            // REMOVED 'highlightAll' property to fix Build Error
+                        });
                         matchFound = true; 
+                        
+                        // SMART JUMP: Skip ahead by the window size to avoid overlapping highlights
                         i += windowSize;
-                    } else { i++; }
+                    } else {
+                        // STANDARD SLIDE: If no match, slide forward by 1 word
+                        i++;
+                    }
                 }
             }
 
-            // Fallback
+            // Fallback: If absolutely nothing matched (e.g. quote is only 2 words long), try exact string
             if (!matchFound && words.length < 3) {
                 if (pageString.includes(rawCit.toLowerCase())) {
-                    validKeywords.push({ keyword: rawCit, matchCase: false, highlightAll: true });
+                    validKeywords.push({ keyword: rawCit, matchCase: false });
                 }
             }
 
-            // C. Execute Highlight
+            // C. Execute Highlight (With Retry)
             const executeHighlight = () => {
                 clearHighlights();
-                if (validKeywords.length > 0) highlight(validKeywords);
+                if (validKeywords.length > 0) {
+                    highlight(validKeywords);
+                }
             };
+
+            // Fire immediately and retry to handle rendering delays
             executeHighlight();
             setTimeout(executeHighlight, 500);
             setTimeout(executeHighlight, 1000);
 
-        } catch (err) { console.error("Error finding text match:", err); }
+        } catch (err) {
+            console.error("Error finding text match:", err);
+        }
     }
   };
 
@@ -157,7 +177,7 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
           <Viewer
             fileUrl={`${BACKEND_URL}/documents/${docId}/download`}
             plugins={[pageNavigationPluginInstance, searchPluginInstance]}
-            onDocumentLoad={handleDocumentLoad} 
+            onDocumentLoad={handleDocumentLoad} // Capture doc reference
           />
         </Worker>
         <div className="absolute top-4 left-4 z-20">
