@@ -1,12 +1,13 @@
 "use client";
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Suspense } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { 
   Folder, Trash2, Plus, ArrowLeft, ArrowRight,
   X, Send, Loader2, FileClock, BrainCircuit, UploadCloud, 
   LayoutGrid, LogOut, Quote, FileSearch, Mic, StopCircle, Zap,
   CheckCircle2, AlertCircle, Clock, FileText, ChevronRight, ChevronDown, Maximize2, Settings,
-  Filter, MoreHorizontal, MessageSquare, File
+  Filter, MoreHorizontal, MessageSquare, File, User, GraduationCap, Briefcase, Code2, Phone, Mail
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
@@ -19,7 +20,6 @@ import '@react-pdf-viewer/core/lib/styles/index.css';
 import '@react-pdf-viewer/page-navigation/lib/styles/index.css';
 import '@react-pdf-viewer/search/lib/styles/index.css';
 
-// ⚠️ REPLACE WITH YOUR RENDER URL
 const BACKEND_URL = "https://insightkai.onrender.com";
 const SITE_PASSWORD = "kai2025"; 
 
@@ -59,27 +59,22 @@ interface UploadItem {
   status: 'pending' | 'uploading' | 'completed' | 'error';
 }
 
-// --- TYPEWRITER COMPONENT ---
 const Typewriter = ({ content, animate = false }: { content: string, animate?: boolean }) => {
   const [displayedContent, setDisplayedContent] = useState(animate ? "" : content);
   const hasAnimated = useRef(!animate);
-
   useEffect(() => {
     if (hasAnimated.current) { setDisplayedContent(content); return; }
     let i = -1;
     const speed = 5; 
     const timer = setInterval(() => {
-      i++;
-      if (i <= content.length) setDisplayedContent(content.slice(0, i));
+      i++; if (i <= content.length) setDisplayedContent(content.slice(0, i));
       else { clearInterval(timer); hasAnimated.current = true; }
     }, speed);
     return () => clearInterval(timer);
   }, [content, animate]);
-
   return <ReactMarkdown>{displayedContent}</ReactMarkdown>;
 };
 
-// --- HELPER: Group Citations ---
 const groupCitations = (citations: any[]) => {
     const groups: { [key: string]: { docId: string, source: string, quotes: any[] } } = {};
     citations.forEach(cit => {
@@ -90,12 +85,15 @@ const groupCitations = (citations: any[]) => {
     return Object.values(groups);
 };
 
-export default function Dashboard() {
+function DashboardContent() {
+  const searchParams = useSearchParams();
+  const initialFolder = searchParams.get('folder');
+
   const [folders, setFolders] = useState<string[]>([]);
   const [docs, setDocs] = useState<Doc[]>([]);
-  const [currentFolder, setCurrentFolder] = useState<string | null>(null);
+  const [currentFolder, setCurrentFolder] = useState<string | null>(initialFolder);
   
-  // -- NEW: ACTIVE DOC STATE (SPLIT VIEW) --
+  // -- ACTIVE DOC STATE --
   const [activeDoc, setActiveDoc] = useState<{id: string, title: string, initialQuote?: string, page?: number} | null>(null);
   const [expandedSources, setExpandedSources] = useState<Set<string>>(new Set());
 
@@ -134,7 +132,7 @@ export default function Dashboard() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
 
-  // --- PDF VIEWER LOGIC (SWARM SEARCH) ---
+  // --- PDF VIEWER LOGIC ---
   const handleDocumentLoad = (e: DocumentLoadEvent) => {
       setPdfDocument(e.doc);
       if (activeDoc?.initialQuote && activeDoc?.page) {
@@ -145,7 +143,6 @@ export default function Dashboard() {
   const performHighlight = async (quote: string, pageNum: number) => {
     if (!pdfDocument) return;
     jumpToPage(pageNum - 1);
-
     try {
         const page = await pdfDocument.getPage(pageNum);
         const textContent = await page.getTextContent();
@@ -162,7 +159,6 @@ export default function Dashboard() {
             while (i <= words.length - windowSize) {
                 const chunkWords = words.slice(i, i + windowSize);
                 const chunkString = chunkWords.join(' ');
-                
                 if (pageString.includes(chunkString.toLowerCase())) {
                     validKeywords.push({ keyword: chunkString, matchCase: false });
                     matchFound = true; 
@@ -170,16 +166,13 @@ export default function Dashboard() {
                 } else { i++; }
             }
         }
-
         if (!matchFound && words.length < 3) {
             if (pageString.includes(rawCit.toLowerCase())) {
                 validKeywords.push({ keyword: rawCit, matchCase: false });
             }
         }
-
         clearHighlights();
         if (validKeywords.length > 0) highlight(validKeywords);
-
     } catch (err) { console.error("Highlight error:", err); }
   };
 
@@ -275,7 +268,7 @@ export default function Dashboard() {
   const cancelUploads = () => setUploadQueue(prev => prev.filter(i => i.status !== 'pending'));
   const clearCompleted = () => setUploadQueue([]);
   
-  // Enhanced Parsing
+  // PARSING
   const parseSummary = (rawSummary: string) => { 
       if (!rawSummary) return { tag: "General", desc: "No description available." }; 
       const tagMatch = rawSummary.match(/\[TAG\]:\s*(.*?)(?=\n|\[|$)/i); 
@@ -294,6 +287,15 @@ export default function Dashboard() {
       if(t.includes("LEGAL")) return 'bg-blue-50 text-blue-700 border-blue-200';
       if(t.includes("RECEIPT")) return 'bg-amber-50 text-amber-700 border-amber-200';
       return 'bg-gray-100 text-gray-700 border-gray-200';
+  };
+
+  // RESUME PARSER
+  const safeParseResume = (jsonStr: string) => {
+      try {
+          const parsed = JSON.parse(jsonStr);
+          if (parsed.structured) return parsed.structured;
+      } catch (e) {}
+      return null;
   };
 
   // --- CHAT ---
@@ -348,6 +350,9 @@ export default function Dashboard() {
   const filteredDocs = docs.filter(d => d.folder === currentFolder);
   const uniqueTags = Array.from(new Set(filteredDocs.map(d => parseSummary(d.summary).tag))).filter(t => t);
   const displayedDocs = selectedTag ? filteredDocs.filter(d => parseSummary(d.summary).tag === selectedTag) : filteredDocs;
+
+  // VIEW MODE SWITCHER (Resume vs Standard)
+  const isResumeMode = currentFolder === "Hiring Kai";
 
   return (
     <div className="flex h-screen bg-[#F9FAFB] overflow-hidden font-sans text-gray-900 relative">
@@ -430,8 +435,8 @@ export default function Dashboard() {
                                 </label>
                             </div>
 
-                            {/* Tag Filters */}
-                            {uniqueTags.length > 0 && (
+                            {/* Tag Filters (Only for Standard View) */}
+                            {!isResumeMode && uniqueTags.length > 0 && (
                                 <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
                                     <button 
                                         onClick={() => setSelectedTag(null)}
@@ -482,115 +487,114 @@ export default function Dashboard() {
                             ))}
                         </div>
                     ) : (
-                        <div className="space-y-4">
+                        <div className="bg-white border border-gray-200 rounded-3xl shadow-sm overflow-hidden">
+                            <table className="w-full text-left border-collapse">
+                                {/* DYNAMIC HEADERS */}
+                                <thead>
+                                    <tr className="bg-gray-50/50 border-b border-gray-100 text-left">
+                                        <th className="py-4 px-6 text-xs font-bold text-gray-400 uppercase tracking-wider w-[25%]">Name</th>
+                                        {isResumeMode ? (
+                                            <>
+                                                <th className="py-4 px-6 text-xs font-bold text-gray-400 uppercase tracking-wider w-[20%]">Contact</th>
+                                                <th className="py-4 px-6 text-xs font-bold text-gray-400 uppercase tracking-wider w-[20%]">Education</th>
+                                                <th className="py-4 px-6 text-xs font-bold text-gray-400 uppercase tracking-wider w-[20%]">Experience</th>
+                                                <th className="py-4 px-6 text-xs font-bold text-gray-400 uppercase tracking-wider w-[15%]">Skills</th>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <th className="py-4 px-6 text-xs font-bold text-gray-400 uppercase tracking-wider w-[40%]">Summary</th>
+                                                <th className="py-4 px-6 text-xs font-bold text-gray-400 uppercase tracking-wider w-[15%]">Tag</th>
+                                            </>
+                                        )}
+                                        <th className="py-4 px-6 text-xs font-bold text-gray-400 uppercase tracking-wider text-right">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-50">
+                                    {displayedDocs.map((doc) => {
+                                        const resumeData = isResumeMode ? safeParseResume(doc.summary) : null;
+                                        const { tag, desc } = parseSummary(doc.summary);
+
+                                        return (
+                                            <tr key={doc.id} onClick={() => setActiveDoc({id: doc.id, title: doc.title})} className="group hover:bg-blue-50/30 transition-colors cursor-pointer">
+                                                {/* 1. Name Column */}
+                                                <td className="py-4 px-6 align-top">
+                                                    <div className="flex items-start gap-3">
+                                                        <div className="w-8 h-8 rounded-lg bg-gray-50 text-gray-400 flex items-center justify-center shrink-0 border border-gray-200">
+                                                            {doc.status === 'processing' ? <Loader2 size={16} className="animate-spin"/> : (isResumeMode ? <User size={16} /> : <FileText size={16} />)}
+                                                        </div>
+                                                        <div className="min-w-0">
+                                                            <div className="font-bold text-sm text-gray-900 line-clamp-1">{resumeData ? resumeData.name : doc.title}</div>
+                                                            <div className="text-[10px] text-gray-400 font-medium mt-0.5 flex items-center gap-1 tabular-nums">
+                                                                <Clock size={10} /> {doc.upload_date}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </td>
+
+                                                {/* 2. Dynamic Content Columns */}
+                                                {isResumeMode && resumeData ? (
+                                                    <>
+                                                        <td className="py-4 px-6 align-top text-xs text-gray-500">
+                                                            <div className="flex flex-col gap-1">
+                                                                <span className="flex items-center gap-1"><Mail size={10}/> {resumeData.email}</span>
+                                                                <span className="flex items-center gap-1"><Phone size={10}/> {resumeData.phone}</span>
+                                                            </div>
+                                                        </td>
+                                                        <td className="py-4 px-6 align-top text-xs text-gray-600 leading-relaxed"><div className="line-clamp-3">{resumeData.education}</div></td>
+                                                        <td className="py-4 px-6 align-top text-xs text-gray-600 leading-relaxed"><div className="line-clamp-3">{resumeData.experience}</div></td>
+                                                        <td className="py-4 px-6 align-top">
+                                                            <div className="flex flex-wrap gap-1">
+                                                                {resumeData.skills?.split(',').slice(0,3).map((s:string, i:number) => (
+                                                                    <span key={i} className="px-1.5 py-0.5 bg-gray-100 rounded text-[10px] border border-gray-200 whitespace-nowrap">{s.trim()}</span>
+                                                                ))}
+                                                            </div>
+                                                        </td>
+                                                    </>
+                                                ) : (
+                                                    // Standard View
+                                                    <>
+                                                        <td className="py-4 px-6 align-top">
+                                                            <p className="text-xs text-gray-500 line-clamp-2 leading-relaxed">{desc}</p>
+                                                        </td>
+                                                        <td className="py-4 px-6 align-top">
+                                                            <span className={`inline-block px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide border ${getTagStyle(tag)}`}>
+                                                                {tag}
+                                                            </span>
+                                                        </td>
+                                                    </>
+                                                )}
+
+                                                <td className="py-4 px-6 align-top text-right">
+                                                    <div className="flex items-center justify-end gap-2">
+                                                        {doc.status !== 'processing' && (
+                                                            <Link href={`/chat/${doc.id}`} onClick={(e) => e.stopPropagation()}>
+                                                                <button className="px-3 py-1.5 bg-black text-white text-[10px] font-bold rounded-lg hover:scale-105 transition shadow-sm flex items-center gap-1.5" title="Chat with this Doc">
+                                                                    <MessageSquare size={12} /> Chat
+                                                                </button>
+                                                            </Link>
+                                                        )}
+                                                        <button 
+                                                            onClick={(e) => handleDelete(doc.id, e)} 
+                                                            className="p-1.5 bg-white border border-gray-200 text-gray-400 rounded-lg hover:bg-red-50 hover:text-red-500 hover:border-red-200 transition shadow-sm"
+                                                            title="Delete"
+                                                        >
+                                                            <Trash2 size={14} />
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
                             {displayedDocs.length === 0 && (
-                                <div className="py-16 flex flex-col items-center justify-center text-center text-gray-400 border-2 border-dashed border-gray-200 rounded-3xl">
+                                <div className="py-16 flex flex-col items-center justify-center text-center text-gray-400">
                                     <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mb-3">
                                         <FileSearch size={24} className="opacity-20" />
                                     </div>
                                     <p className="text-sm font-medium">No files found.</p>
                                 </div>
                             )}
-
-                            {/* --- MOBILE: CARD VIEW (Visible on Small Screens) --- */}
-                            <div className="md:hidden space-y-4">
-                                {displayedDocs.map((doc) => {
-                                    const { tag, desc } = parseSummary(doc.summary);
-                                    return (
-                                        <div key={doc.id} onClick={() => setActiveDoc({id: doc.id, title: doc.title})} className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm active:scale-[0.98] transition-transform">
-                                            <div className="flex justify-between items-start mb-3">
-                                                <div className="flex items-center gap-3 overflow-hidden">
-                                                    <div className="w-10 h-10 rounded-xl bg-gray-50 text-gray-500 border border-gray-200 flex items-center justify-center shrink-0">
-                                                        <FileText size={20} />
-                                                    </div>
-                                                    <div className="min-w-0">
-                                                        <h3 className="font-bold text-sm text-gray-900 truncate">{doc.title}</h3>
-                                                        <div className="text-[10px] text-gray-400 font-medium flex items-center gap-1">
-                                                            <Clock size={10} /> {doc.upload_date}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                                <span className={`shrink-0 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase border ${getTagStyle(tag)}`}>{tag}</span>
-                                            </div>
-                                            
-                                            <p className="text-xs text-gray-500 line-clamp-2 leading-relaxed mb-4">{desc}</p>
-                                            
-                                            <div className="flex gap-2 pt-3 border-t border-gray-50">
-                                                <Link href={`/chat/${doc.id}`} onClick={(e) => e.stopPropagation()} className="flex-1">
-                                                    <button className="w-full py-2 bg-black text-white text-xs font-bold rounded-lg flex items-center justify-center gap-2">
-                                                        <MessageSquare size={14} /> Chat
-                                                    </button>
-                                                </Link>
-                                                <button onClick={(e) => handleDelete(doc.id, e)} className="px-3 py-2 bg-white border border-gray-200 text-gray-400 rounded-lg hover:bg-red-50 hover:text-red-500 hover:border-red-200">
-                                                    <Trash2 size={14} />
-                                                </button>
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-
-                            {/* --- DESKTOP: TABLE VIEW (Visible on Medium+ Screens) --- */}
-                            <div className="hidden md:block bg-white border border-gray-200 rounded-3xl shadow-sm overflow-hidden">
-                                <table className="w-full text-left border-collapse">
-                                    <thead>
-                                        <tr className="bg-gray-50/50 border-b border-gray-100 text-left">
-                                            <th className="py-4 px-6 text-xs font-bold text-gray-400 uppercase tracking-wider w-[35%]">Name</th>
-                                            <th className="py-4 px-6 text-xs font-bold text-gray-400 uppercase tracking-wider w-[30%]">Summary</th>
-                                            <th className="py-4 px-6 text-xs font-bold text-gray-400 uppercase tracking-wider w-[15%]">Tag</th>
-                                            <th className="py-4 px-6 text-xs font-bold text-gray-400 uppercase tracking-wider text-right w-[20%]">Actions</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-50">
-                                        {displayedDocs.map((doc) => {
-                                            const { tag, desc } = parseSummary(doc.summary);
-                                            return (
-                                                <tr key={doc.id} onClick={() => setActiveDoc({id: doc.id, title: doc.title})} className="group hover:bg-blue-50/30 transition-colors cursor-pointer">
-                                                    <td className="py-4 px-6 align-top">
-                                                        <div className="flex items-start gap-3">
-                                                            <div className="w-8 h-8 rounded-lg bg-gray-50 text-gray-400 flex items-center justify-center shrink-0 border border-gray-200">
-                                                                <FileText size={16} />
-                                                            </div>
-                                                            <div className="min-w-0">
-                                                                <div className="font-bold text-sm text-gray-900 line-clamp-1">{doc.title}</div>
-                                                                <div className="text-[10px] text-gray-400 font-medium mt-0.5 flex items-center gap-1 tabular-nums">
-                                                                    <Clock size={10} /> {doc.upload_date}
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    </td>
-                                                    <td className="py-4 px-6 align-top">
-                                                        <p className="text-xs text-gray-500 line-clamp-2 leading-relaxed">{desc}</p>
-                                                    </td>
-                                                    <td className="py-4 px-6 align-top">
-                                                        <span className={`inline-block px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide border ${getTagStyle(tag)}`}>
-                                                            {tag}
-                                                        </span>
-                                                    </td>
-                                                    <td className="py-4 px-6 align-top text-right">
-                                                        <div className="flex items-center justify-end gap-2">
-                                                            {doc.status !== 'processing' && (
-                                                                <Link href={`/chat/${doc.id}`} onClick={(e) => e.stopPropagation()}>
-                                                                    <button className="px-3 py-1.5 bg-black text-white text-[10px] font-bold rounded-lg hover:scale-105 transition shadow-sm flex items-center gap-1.5" title="Chat with this Doc">
-                                                                        <MessageSquare size={12} /> Chat
-                                                                    </button>
-                                                                </Link>
-                                                            )}
-                                                            <button 
-                                                                onClick={(e) => handleDelete(doc.id, e)} 
-                                                                className="p-1.5 bg-white border border-gray-200 text-gray-400 rounded-lg hover:bg-red-50 hover:text-red-500 hover:border-red-200 transition shadow-sm"
-                                                                title="Delete"
-                                                            >
-                                                                <Trash2 size={14} />
-                                                            </button>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
-                            </div>
                         </div>
                     )}
                 </div>
@@ -723,5 +727,13 @@ export default function Dashboard() {
         </div>
       </aside>
     </div>
+  );
+}
+
+export default function Dashboard() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center h-screen"><Loader2 className="animate-spin text-gray-400" /></div>}>
+      <DashboardContent />
+    </Suspense>
   );
 }
