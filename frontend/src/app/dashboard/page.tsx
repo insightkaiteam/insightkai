@@ -6,7 +6,7 @@ import {
   X, Send, Loader2, FileClock, BrainCircuit, UploadCloud, 
   LayoutGrid, LogOut, Quote, FileSearch, Mic, StopCircle, Zap,
   CheckCircle2, AlertCircle, Clock, FileText, ChevronRight, ChevronDown, Maximize2, Settings,
-  Filter, MoreHorizontal, MessageSquare
+  Filter, MoreHorizontal, MessageSquare, File
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
@@ -417,14 +417,14 @@ export default function Dashboard() {
                     {currentFolder && (
                         <div className="flex flex-col gap-4">
                             {/* Action Row */}
-                            <div className="flex items-center gap-3">
-                                <button onClick={() => toggleChat('simple')} className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition text-sm font-bold border shadow-sm ${chatMode === 'simple' ? 'bg-black text-white border-black' : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-700'}`}>
+                            <div className="flex items-center gap-3 flex-wrap">
+                                <button onClick={() => toggleChat('simple')} className={`flex-1 min-w-[140px] flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition text-sm font-bold border shadow-sm ${chatMode === 'simple' ? 'bg-black text-white border-black' : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-700'}`}>
                                     <Zap size={16} className={chatMode === 'simple' ? "fill-white" : "fill-none"} /> Fast Chat
                                 </button>
-                                <button onClick={() => toggleChat('deep')} className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition text-sm font-bold border shadow-sm ${chatMode === 'deep' ? 'bg-black text-white border-black' : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-700'}`}>
+                                <button onClick={() => toggleChat('deep')} className={`flex-1 min-w-[140px] flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition text-sm font-bold border shadow-sm ${chatMode === 'deep' ? 'bg-black text-white border-black' : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-700'}`}>
                                     <BrainCircuit size={16} /> Deep Chat
                                 </button>
-                                <label className="flex items-center justify-center gap-2 bg-blue-600 text-white px-5 py-3 rounded-xl cursor-pointer hover:bg-blue-700 transition shadow-lg shadow-blue-200 text-sm font-bold relative overflow-hidden min-w-[140px]">
+                                <label className="flex items-center justify-center gap-2 bg-blue-600 text-white px-5 py-3 rounded-xl cursor-pointer hover:bg-blue-700 transition shadow-lg shadow-blue-200 text-sm font-bold relative overflow-hidden min-w-[140px] flex-1">
                                     <><UploadCloud size={16} /> Upload PDFs</>
                                     <input ref={fileInputRef} type="file" className="hidden" accept=".pdf" multiple onChange={handleFileSelect} />
                                 </label>
@@ -466,7 +466,7 @@ export default function Dashboard() {
                 )}
 
                 {/* CONTENT: FOLDER GRID or FILE TABLE */}
-                <div className="flex-1 overflow-y-auto px-8 pb-8">
+                <div className="flex-1 overflow-y-auto px-4 md:px-8 pb-8">
                     {!currentFolder ? (
                         /* FOLDERS GRID */
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
@@ -482,77 +482,115 @@ export default function Dashboard() {
                             ))}
                         </div>
                     ) : (
-                        /* SOTA FILES TABLE */
-                        <div className="bg-white border border-gray-200 rounded-3xl shadow-sm overflow-hidden">
-                            <table className="w-full text-left border-collapse">
-                                <thead>
-                                    <tr className="bg-gray-50/50 border-b border-gray-100 text-left">
-                                        <th className="py-4 px-6 text-xs font-bold text-gray-400 uppercase tracking-wider w-[35%]">Name</th>
-                                        <th className="py-4 px-6 text-xs font-bold text-gray-400 uppercase tracking-wider w-[30%]">Summary</th>
-                                        <th className="py-4 px-6 text-xs font-bold text-gray-400 uppercase tracking-wider w-[15%]">Tag</th>
-                                        <th className="py-4 px-6 text-xs font-bold text-gray-400 uppercase tracking-wider text-right w-[20%]">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-50">
-                                    {displayedDocs.map((doc) => {
-                                        const { tag, desc } = parseSummary(doc.summary);
-                                        return (
-                                            <tr key={doc.id} onClick={() => setActiveDoc({id: doc.id, title: doc.title})} className="group hover:bg-blue-50/30 transition-colors cursor-pointer">
-                                                <td className="py-4 px-6 align-top">
-                                                    <div className="flex items-start gap-3">
-                                                        <div className="w-8 h-8 rounded-lg bg-red-50 text-red-500 flex items-center justify-center shrink-0 border border-red-100">
-                                                            {doc.status === 'processing' ? <Loader2 size={16} className="animate-spin"/> : <FileText size={16} />}
-                                                        </div>
-                                                        <div>
-                                                            <div className="font-bold text-sm text-gray-900 line-clamp-1">{doc.title}</div>
-                                                            <div className="text-[10px] text-gray-400 font-medium mt-0.5 flex items-center gap-1">
-                                                                <Clock size={10} /> {doc.upload_date}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </td>
-                                                <td className="py-4 px-6 align-top">
-                                                    <p className="text-xs text-gray-500 line-clamp-2 leading-relaxed">{desc}</p>
-                                                </td>
-                                                <td className="py-4 px-6 align-top">
-                                                    <span className={`inline-block px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide border ${getTagStyle(tag)}`}>
-                                                        {tag}
-                                                    </span>
-                                                </td>
-                                                <td className="py-4 px-6 align-top text-right">
-                                                    <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                        {/* Single Chat Action */}
-                                                        {doc.status !== 'processing' && (
-                                                            <Link href={`/chat/${doc.id}`} onClick={(e) => e.stopPropagation()}>
-                                                                <button className="p-2 bg-white border border-gray-200 text-gray-600 rounded-lg hover:bg-black hover:text-white hover:border-black transition shadow-sm" title="Chat with this Doc">
-                                                                    <MessageSquare size={14} />
-                                                                </button>
-                                                            </Link>
-                                                        )}
-                                                        {/* Delete Action */}
-                                                        <button 
-                                                            onClick={(e) => handleDelete(doc.id, e)} 
-                                                            className="p-2 bg-white border border-gray-200 text-gray-400 rounded-lg hover:bg-red-50 hover:text-red-500 hover:border-red-200 transition shadow-sm"
-                                                            title="Delete"
-                                                        >
-                                                            <Trash2 size={14} />
-                                                        </button>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
-                            
+                        <div className="space-y-4">
                             {displayedDocs.length === 0 && (
-                                <div className="py-16 flex flex-col items-center justify-center text-center text-gray-400">
+                                <div className="py-16 flex flex-col items-center justify-center text-center text-gray-400 border-2 border-dashed border-gray-200 rounded-3xl">
                                     <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mb-3">
                                         <FileSearch size={24} className="opacity-20" />
                                     </div>
-                                    <p className="text-sm font-medium">No files found.</p>
+                                    <p className=\"text-sm font-medium\">No files found.</p>
                                 </div>
                             )}
+
+                            {/* --- MOBILE: CARD VIEW (Visible on Small Screens) --- */}
+                            <div className="md:hidden space-y-4">
+                                {displayedDocs.map((doc) => {
+                                    const { tag, desc } = parseSummary(doc.summary);
+                                    return (
+                                        <div key={doc.id} onClick={() => setActiveDoc({id: doc.id, title: doc.title})} className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm active:scale-[0.98] transition-transform">
+                                            <div className="flex justify-between items-start mb-3">
+                                                <div className="flex items-center gap-3 overflow-hidden">
+                                                    <div className="w-10 h-10 rounded-xl bg-gray-50 text-gray-500 border border-gray-200 flex items-center justify-center shrink-0">
+                                                        <FileText size={20} />
+                                                    </div>
+                                                    <div className="min-w-0">
+                                                        <h3 className="font-bold text-sm text-gray-900 truncate">{doc.title}</h3>
+                                                        <div className="text-[10px] text-gray-400 font-medium flex items-center gap-1">
+                                                            <Clock size={10} /> {doc.upload_date}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <span className={`shrink-0 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase border ${getTagStyle(tag)}`}>{tag}</span>
+                                            </div>
+                                            
+                                            <p className="text-xs text-gray-500 line-clamp-2 leading-relaxed mb-4">{desc}</p>
+                                            
+                                            <div className="flex gap-2 pt-3 border-t border-gray-50">
+                                                <Link href={`/chat/${doc.id}`} onClick={(e) => e.stopPropagation()} className="flex-1">
+                                                    <button className="w-full py-2 bg-black text-white text-xs font-bold rounded-lg flex items-center justify-center gap-2">
+                                                        <MessageSquare size={14} /> Chat
+                                                    </button>
+                                                </Link>
+                                                <button onClick={(e) => handleDelete(doc.id, e)} className="px-3 py-2 bg-white border border-gray-200 text-gray-400 rounded-lg hover:bg-red-50 hover:text-red-500 hover:border-red-200">
+                                                    <Trash2 size={14} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                            {/* --- DESKTOP: TABLE VIEW (Visible on Medium+ Screens) --- */}
+                            <div className="hidden md:block bg-white border border-gray-200 rounded-3xl shadow-sm overflow-hidden">
+                                <table className="w-full text-left border-collapse">
+                                    <thead>
+                                        <tr className="bg-gray-50/50 border-b border-gray-100 text-left">
+                                            <th className="py-4 px-6 text-xs font-bold text-gray-400 uppercase tracking-wider w-[35%]">Name</th>
+                                            <th className="py-4 px-6 text-xs font-bold text-gray-400 uppercase tracking-wider w-[30%]">Summary</th>
+                                            <th className="py-4 px-6 text-xs font-bold text-gray-400 uppercase tracking-wider w-[15%]">Tag</th>
+                                            <th className="py-4 px-6 text-xs font-bold text-gray-400 uppercase tracking-wider text-right w-[20%]">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-50">
+                                        {displayedDocs.map((doc) => {
+                                            const { tag, desc } = parseSummary(doc.summary);
+                                            return (
+                                                <tr key={doc.id} onClick={() => setActiveDoc({id: doc.id, title: doc.title})} className="group hover:bg-blue-50/30 transition-colors cursor-pointer">
+                                                    <td className="py-4 px-6 align-top">
+                                                        <div className="flex items-start gap-3">
+                                                            <div className="w-8 h-8 rounded-lg bg-gray-50 text-gray-400 flex items-center justify-center shrink-0 border border-gray-200">
+                                                                <FileText size={16} />
+                                                            </div>
+                                                            <div className="min-w-0">
+                                                                <div className="font-bold text-sm text-gray-900 line-clamp-1">{doc.title}</div>
+                                                                <div className="text-[10px] text-gray-400 font-medium mt-0.5 flex items-center gap-1 tabular-nums">
+                                                                    <Clock size={10} /> {doc.upload_date}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                    <td className="py-4 px-6 align-top">
+                                                        <p className="text-xs text-gray-500 line-clamp-2 leading-relaxed">{desc}</p>
+                                                    </td>
+                                                    <td className="py-4 px-6 align-top">
+                                                        <span className={`inline-block px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide border ${getTagStyle(tag)}`}>
+                                                            {tag}
+                                                        </span>
+                                                    </td>
+                                                    <td className="py-4 px-6 align-top text-right">
+                                                        <div className="flex items-center justify-end gap-2">
+                                                            {doc.status !== 'processing' && (
+                                                                <Link href={`/chat/${doc.id}`} onClick={(e) => e.stopPropagation()}>
+                                                                    <button className="px-3 py-1.5 bg-black text-white text-[10px] font-bold rounded-lg hover:scale-105 transition shadow-sm flex items-center gap-1.5" title="Chat with this Doc">
+                                                                        <MessageSquare size={12} /> Chat
+                                                                    </button>
+                                                                </Link>
+                                                            )}
+                                                            <button 
+                                                                onClick={(e) => handleDelete(doc.id, e)} 
+                                                                className="p-1.5 bg-white border border-gray-200 text-gray-400 rounded-lg hover:bg-red-50 hover:text-red-500 hover:border-red-200 transition shadow-sm"
+                                                                title="Delete"
+                                                            >
+                                                                <Trash2 size={14} />
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     )}
                 </div>
@@ -601,7 +639,6 @@ export default function Dashboard() {
                     <p className="text-xs text-gray-400 font-medium">{chatMode === 'simple' ? "Instant answers" : "Full analysis"}</p>
                 </div>
             </div>
-            
             <div className="flex items-center gap-1">
                 <button onClick={() => setShowPromptSettings(!showPromptSettings)} className={`p-2 rounded-full transition ${showPromptSettings ? 'bg-black text-white' : 'hover:bg-gray-100 text-gray-400'}`}>
                     <Settings size={18} />
