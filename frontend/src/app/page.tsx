@@ -34,7 +34,6 @@ export default function LandingPage() {
             
             <h1 className="text-6xl md:text-7xl font-bold tracking-tighter leading-[1.1] animate-in fade-in slide-in-from-bottom-8 duration-1000">
                 The Operating System for <br/>
-                {/* Changed Gradient from Purple to Professional Gray/Zinc */}
                 <span className="text-transparent bg-clip-text bg-gradient-to-r from-gray-900 via-gray-600 to-black">Institutional Knowledge</span>
             </h1>
             

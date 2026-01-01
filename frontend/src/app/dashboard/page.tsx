@@ -265,10 +265,19 @@ function DashboardContent() {
   };
   const stopRecording = () => { if (mediaRecorderRef.current && isRecording) { mediaRecorderRef.current.stop(); setIsRecording(false); mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop()); } };
   
-  // -- FIXED FILE SELECT HANDLER --
+  // -- FIXED: ROBUST UPLOAD HANDLER --
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => { 
-      if (!e.target.files) return; 
-      setUploadQueue(prev => [...prev, ...Array.from(e.target.files!).map(file => ({ id: Math.random().toString(36).substr(2, 9), file, status: 'pending' as const }))]); 
+      if (!e.target.files || e.target.files.length === 0) return; 
+      
+      const newFiles = Array.from(e.target.files).map(file => ({ 
+          id: Math.random().toString(36).substr(2, 9), 
+          file, 
+          status: 'pending' as const 
+      }));
+
+      setUploadQueue(prev => [...prev, ...newFiles]); 
+      
+      // Reset input to allow selecting same file again
       if (fileInputRef.current) fileInputRef.current.value = ''; 
   };
   
@@ -368,7 +377,7 @@ function DashboardContent() {
       <aside className="w-20 bg-white border-r border-gray-200 flex flex-col items-center py-8 gap-8 z-20 shrink-0">
         <Link href="/" className="w-10 h-10 bg-black rounded-xl flex items-center justify-center text-white font-serif italic font-bold text-xl shadow-lg">κ</Link>
         <div className="flex flex-col gap-4">
-            <button onClick={() => { setCurrentFolder(null); setChatMode(null); setActiveDoc(null); }} className={`p-3 rounded-xl transition ${!currentFolder ? 'bg-blue-50 text-blue-600' : 'text-gray-400 hover:bg-gray-50'}`}>
+            <button onClick={() => { setCurrentFolder(null); setChatMode(null); setActiveDoc(null); }} className={`p-3 rounded-xl transition ${!currentFolder ? 'bg-zinc-100 text-black' : 'text-gray-400 hover:bg-gray-50'}`}>
                 <LayoutGrid size={24} />
             </button>
         </div>
@@ -431,11 +440,21 @@ function DashboardContent() {
                             {/* Action Row */}
                             <div className="flex items-center gap-3 flex-wrap">
                                 
-                                {/* --- MOVED UPLOAD BUTTON TO LEFT --- */}
-                                <label className="flex items-center justify-center gap-2 bg-black text-white px-5 py-3 rounded-xl cursor-pointer hover:bg-gray-800 transition shadow-lg text-sm font-bold relative overflow-hidden min-w-[160px] flex-1">
-                                    <><UploadCloud size={16} /> {isResumeMode ? "Upload Resumes" : "Upload PDFs"}</>
-                                    <input ref={fileInputRef} type="file" className="hidden" accept=".pdf" multiple onChange={handleFileSelect} />
-                                </label>
+                                {/* --- FIXED UPLOAD BUTTON (Separate Input from Button) --- */}
+                                <input 
+                                    ref={fileInputRef} 
+                                    type="file" 
+                                    className="hidden" 
+                                    accept=".pdf" 
+                                    multiple 
+                                    onChange={handleFileSelect} 
+                                />
+                                <button 
+                                    onClick={() => fileInputRef.current?.click()}
+                                    className="flex items-center justify-center gap-2 bg-black text-white px-5 py-3 rounded-xl hover:bg-gray-800 transition shadow-lg text-sm font-bold min-w-[160px] flex-1 active:scale-95"
+                                >
+                                    <UploadCloud size={16} /> {isResumeMode ? "Upload Resumes" : "Upload PDFs"}
+                                </button>
 
                                 <button onClick={() => toggleChat('simple')} className={`flex-1 min-w-[140px] flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition text-sm font-bold border shadow-sm ${chatMode === 'simple' ? 'bg-white text-black border-black ring-2 ring-black/10' : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-700'}`}>
                                     <Zap size={16} className={chatMode === 'simple' ? "fill-black" : "fill-none"} /> Fast Chat
@@ -488,7 +507,7 @@ function DashboardContent() {
                             {folders.map(folder => (
                                 <div key={folder} onClick={() => setCurrentFolder(folder)} className="group bg-white p-6 rounded-[2rem] border border-gray-200 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all cursor-pointer relative overflow-hidden">
                                     <div className="flex justify-between items-start mb-4">
-                                        <div className="w-12 h-12 bg-gray-50 rounded-2xl flex items-center justify-center text-gray-700 group-hover:bg-blue-50 group-hover:text-blue-600 transition"><Folder size={24} fill="currentColor" className="text-gray-300 group-hover:text-blue-200" /></div>
+                                        <div className="w-12 h-12 bg-gray-50 rounded-2xl flex items-center justify-center text-gray-700 group-hover:bg-zinc-100 group-hover:text-black transition"><Folder size={24} fill="currentColor" className="text-gray-300 group-hover:text-gray-400" /></div>
                                         {folder !== "General" && <button onClick={(e) => handleDeleteFolder(folder, e)} className="text-gray-300 hover:text-red-500 transition"><Trash2 size={16}/></button>}
                                     </div>
                                     <h3 className="font-bold text-lg text-gray-900 mb-1">{folder}</h3>
