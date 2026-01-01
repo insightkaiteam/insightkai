@@ -20,7 +20,8 @@ class MistralEngine:
         self.client = Mistral(api_key=api_key)
 
     def get_embedding(self, text: str) -> List[float]:
-        text = text.replace("\n", " ")
+        text = text.replace("\n", " ").strip()
+        if not text: return []
         return self.client.embeddings.create(model="mistral-embed", inputs=[text]).data[0].embedding
 
     def _generate_summary(self, text: str) -> str:
@@ -30,7 +31,6 @@ class MistralEngine:
             return res.choices[0].message.content
         except: return "Summary unavailable."
 
-    # --- NEW: SPECIALIZED RESUME EXTRACTION ---
     def _extract_resume_data(self, text: str) -> dict:
         prompt = (
             "You are a Technical Recruiter. Extract structured data from this resume text into JSON.\n"
@@ -49,36 +49,38 @@ class MistralEngine:
                 model="gpt-4o-mini",
                 messages=[
                     {"role": "system", "content": prompt},
-                    {"role": "user", "content": text[:15000]} # Send more context for resumes
+                    {"role": "user", "content": text[:20000]} 
                 ],
                 response_format={"type": "json_object"}
             )
-            return json.loads(response.choices[0].message.content)
+            content = response.choices[0].message.content
+            return json.loads(content)
         except Exception as e:
             print(f"Resume Extraction Error: {e}")
-            return {"name": "Error", "education": "Extraction Failed"}
+            return {"name": "Extraction Error", "education": "Failed to parse"}
 
     def process_pdf_background(self, doc_id: str, file_bytes: bytes, filename: str, folder: str):
         try:
             # 1. Upload to Storage
             self.supabase.storage.from_("document-pages").upload(f"{doc_id}/source.pdf", file_bytes, {"content-type": "application/pdf"})
             
-            # 2. Mistral OCR (The "SOTA" Extraction)
+            # 2. Mistral OCR
             ocr_response = self.client.ocr.process(
                 model="mistral-ocr-latest",
                 document={"file_name": filename, "content": file_bytes},
                 include_image_base64=False
             )
             
-            # 3. Aggregate Markdown
+            # 3. Aggregate Markdown & Embeddings
             full_document_text = ""
             for page in ocr_response.pages:
                 page_text = page.markdown
                 full_document_text += page_text + "\n\n"
                 
-                # Save chunks/embeddings (Standard Process)
+                # Chunking
                 chunks = [page_text[i:i+1000] for i in range(0, len(page_text), 800)]
                 for chunk in chunks:
+                    if not chunk.strip(): continue
                     self.supabase.table("document_pages").insert({
                         "document_id": doc_id,
                         "content": chunk,
@@ -87,27 +89,23 @@ class MistralEngine:
                         "bboxes": [] 
                     }).execute()
             
-            # --- 4. REGISTRY PATTERN: CHOOSE PIPELINE BASED ON FOLDER ---
+            # 4. Routing Logic (Robust Strip)
             final_summary_content = ""
+            clean_folder = folder.strip()
             
-            if folder == "Hiring Kai":
-                # A. Resume Pipeline
+            if clean_folder == "Hiring Kai":
                 structured_data = self._extract_resume_data(full_document_text)
-                # B. Standard Summary (for Fast Chat fallback)
                 text_summary = self._generate_summary(full_document_text)
-                
-                # Combine into JSON payload for the DB
                 final_summary_content = json.dumps({
                     "type": "resume",
                     "structured": structured_data,
                     "fast_summary": text_summary
                 })
             else:
-                # Standard Pipeline
                 summary = self._generate_summary(full_document_text)
                 final_summary_content = f"**Content Summary:** {summary}\n\nVerified."
 
-            # 5. Update Document Status
+            # 5. Update Status
             self.supabase.table("documents").update({
                 "status": "ready", 
                 "summary": final_summary_content

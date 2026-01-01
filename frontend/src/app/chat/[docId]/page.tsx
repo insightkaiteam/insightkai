@@ -1,5 +1,5 @@
 "use client";
-import { useState, use, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
@@ -51,7 +51,6 @@ const Typewriter = ({ content, animate = false }: { content: string, animate?: b
   return <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{displayedContent}</ReactMarkdown>;
 };
 
-// --- HELPER: Group Citations (Reused for consistency) ---
 const groupCitations = (citations: any[]) => {
     const groups: { [key: string]: { docId: string, source: string, quotes: any[] } } = {};
     citations.forEach(cit => {
@@ -62,8 +61,15 @@ const groupCitations = (citations: any[]) => {
     return Object.values(groups);
 };
 
-export default function ChatPage({ params }: { params: Promise<{ docId: string }> }) {
-  const { docId } = use(params);
+export default function ChatPage({ params }: { params: any }) {
+  // SAFE UNWRAP PARAMS
+  const [docId, setDocId] = useState<string>("");
+  
+  useEffect(() => {
+    // Handle both Promise (Next 15) and Object (Next 14) params
+    Promise.resolve(params).then((p) => setDocId(p.docId));
+  }, [params]);
+
   const [messages, setMessages] = useState<{role: string, content: string, citations?: any[]}[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -83,19 +89,16 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
   
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
-  // 1. INITIALIZE PLUGINS
+  // Plugins
   const pageNavigationPluginInstance = pageNavigationPlugin();
   const { jumpToPage } = pageNavigationPluginInstance;
-
   const searchPluginInstance = searchPlugin();
   const { highlight, clearHighlights } = searchPluginInstance;
 
-  // 2. CAPTURE PDF DOCUMENT ON LOAD
   const handleDocumentLoad = (e: DocumentLoadEvent) => {
       setPdfDocument(e.doc);
   };
 
-  // 3. AUDIO LOGIC
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -126,35 +129,26 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
     }
   };
 
-  // 4. SOTA "SMART DE-DUPLICATION" HIGHLIGHTER
   const handleCitationClick = async (cit: any) => {
     if (!cit.page) return;
-    
-    // A. Jump to the page first
     jumpToPage(cit.page - 1);
 
     if (pdfDocument && cit.content) {
         try {
-            // 1. Get raw text of the specific page
             const page = await pdfDocument.getPage(cit.page);
             const textContent = await page.getTextContent();
             const pageString = textContent.items.map((item: any) => item.str).join(' ').replace(/\s+/g, ' ').toLowerCase();
-            
-            // 2. Prepare Citation
             const rawCit = cit.content.replace(/["“”]/g, "").trim(); 
             const words = rawCit.split(/\s+/);
-            
             let matchFound = false;
             const validKeywords: SingleKeyword[] = [];
 
-            // 3. Cascading Loop
             for (let windowSize = 6; windowSize >= 3; windowSize--) {
                 if (matchFound) break; 
                 let i = 0;
                 while (i <= words.length - windowSize) {
                     const chunkWords = words.slice(i, i + windowSize);
                     const chunkString = chunkWords.join(' ');
-                    
                     if (pageString.includes(chunkString.toLowerCase())) {
                         validKeywords.push({ keyword: chunkString, matchCase: false });
                         matchFound = true; 
@@ -162,23 +156,13 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
                     } else { i++; }
                 }
             }
-
-            // Fallback
             if (!matchFound && words.length < 3) {
                 if (pageString.includes(rawCit.toLowerCase())) {
                     validKeywords.push({ keyword: rawCit, matchCase: false });
                 }
             }
-
-            // C. Execute Highlight
-            const executeHighlight = () => {
-                clearHighlights();
-                if (validKeywords.length > 0) highlight(validKeywords);
-            };
-            executeHighlight();
-            setTimeout(executeHighlight, 500);
-            setTimeout(executeHighlight, 1000);
-
+            clearHighlights();
+            if (validKeywords.length > 0) highlight(validKeywords);
         } catch (err) { console.error("Error finding text match:", err); }
     }
   };
@@ -199,7 +183,7 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
             message: messageToSend, 
             document_id: docId, 
             history: historyPayload,
-            custom_prompt: customPrompt // SEND MODIFIED BRAIN
+            custom_prompt: customPrompt 
         }),
       });
       const data = await response.json();
@@ -207,6 +191,8 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
     } catch (error) { setMessages(prev => [...prev, { role: 'ai', content: "Sorry, something went wrong." }]); }
     finally { setIsLoading(false); }
   };
+
+  if (!docId) return <div className="flex h-screen items-center justify-center"><Loader2 className="animate-spin"/></div>;
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden font-sans">
@@ -234,14 +220,11 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
                 <h1 className="font-bold text-xl tracking-tight text-gray-900">Document Chat</h1>
                 <p className="text-xs text-gray-400 font-medium mt-1">SOTA Analyst Mode</p>
             </div>
-            
-            {/* SETTINGS BUTTON (THE BRAIN) */}
             <button onClick={() => setShowPromptSettings(!showPromptSettings)} className={`p-2 rounded-full transition ${showPromptSettings ? 'bg-black text-white' : 'hover:bg-gray-100 text-gray-400'}`}>
                 <Settings size={18} />
             </button>
         </div>
 
-        {/* PROMPT EDITOR OVERLAY */}
         {showPromptSettings && (
             <div className="bg-gray-50 p-4 border-b border-gray-200 animate-in slide-in-from-top-2">
                 <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">System Instructions (The Brain)</p>
@@ -263,8 +246,6 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
                     {m.role === 'ai' && m.citations && m.citations.length > 0 && (
                         <div className="mt-3 w-[85%] space-y-2">
                             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1"><MapPin size={10} /> Source Highlights</p>
-                            
-                            {/* GROUPED CITATIONS */}
                             {groupCitations(m.citations).map((group, gIdx) => (
                                 <div key={gIdx} className="bg-gray-50 border border-gray-200 rounded-xl overflow-hidden shadow-sm">
                                     <div className="bg-white border-b border-gray-100 px-3 py-2 flex items-center justify-between">
@@ -296,7 +277,6 @@ export default function ChatPage({ params }: { params: Promise<{ docId: string }
         <div className="p-5 border-t border-gray-100 bg-white">
             <div className={`flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-2xl p-2 focus-within:ring-4 focus-within:ring-blue-50`}>
                 
-                {/* NEW: AUDIO BUTTON */}
                 <button 
                     onMouseDown={startRecording} 
                     onMouseUp={stopRecording} 
