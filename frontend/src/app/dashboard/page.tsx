@@ -264,7 +264,14 @@ function DashboardContent() {
     } catch (e) { alert("Microphone access denied."); }
   };
   const stopRecording = () => { if (mediaRecorderRef.current && isRecording) { mediaRecorderRef.current.stop(); setIsRecording(false); mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop()); } };
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => { if (!e.target.files) return; setUploadQueue(prev => [...prev, ...Array.from(e.target.files!).map(file => ({ id: Math.random().toString(36).substr(2, 9), file, status: 'pending' as const }))]); if (fileInputRef.current) fileInputRef.current.value = ''; };
+  
+  // -- FIXED FILE SELECT HANDLER --
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => { 
+      if (!e.target.files) return; 
+      setUploadQueue(prev => [...prev, ...Array.from(e.target.files!).map(file => ({ id: Math.random().toString(36).substr(2, 9), file, status: 'pending' as const }))]); 
+      if (fileInputRef.current) fileInputRef.current.value = ''; 
+  };
+  
   const cancelUploads = () => setUploadQueue(prev => prev.filter(i => i.status !== 'pending'));
   const clearCompleted = () => setUploadQueue([]);
   
@@ -279,14 +286,14 @@ function DashboardContent() {
       }; 
   };
 
+  // -- UPDATED: NEUTRAL COLORS (MAC STYLE) --
   const getTagStyle = (tag: string) => { 
       const t = tag.toUpperCase();
-      if(t.includes("INVOICE")) return 'bg-rose-50 text-rose-700 border-rose-200';
-      if(t.includes("RESEARCH") || t.includes("PAPER")) return 'bg-purple-50 text-purple-700 border-purple-200';
-      if(t.includes("FINANC")) return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-      if(t.includes("LEGAL")) return 'bg-blue-50 text-blue-700 border-blue-200';
-      if(t.includes("RECEIPT")) return 'bg-amber-50 text-amber-700 border-amber-200';
-      return 'bg-gray-100 text-gray-700 border-gray-200';
+      if(t.includes("INVOICE")) return 'bg-gray-100 text-gray-700 border-gray-200';
+      if(t.includes("RESEARCH") || t.includes("PAPER")) return 'bg-zinc-50 text-zinc-700 border-zinc-200';
+      if(t.includes("FINANC")) return 'bg-slate-50 text-slate-700 border-slate-200';
+      if(t.includes("LEGAL")) return 'bg-gray-50 text-gray-800 border-gray-300';
+      return 'bg-gray-50 text-gray-600 border-gray-200';
   };
 
   // RESUME PARSER
@@ -423,16 +430,19 @@ function DashboardContent() {
                         <div className="flex flex-col gap-4">
                             {/* Action Row */}
                             <div className="flex items-center gap-3 flex-wrap">
-                                <button onClick={() => toggleChat('simple')} className={`flex-1 min-w-[140px] flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition text-sm font-bold border shadow-sm ${chatMode === 'simple' ? 'bg-black text-white border-black' : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-700'}`}>
-                                    <Zap size={16} className={chatMode === 'simple' ? "fill-white" : "fill-none"} /> Fast Chat
-                                </button>
-                                <button onClick={() => toggleChat('deep')} className={`flex-1 min-w-[140px] flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition text-sm font-bold border shadow-sm ${chatMode === 'deep' ? 'bg-black text-white border-black' : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-700'}`}>
-                                    <BrainCircuit size={16} /> Deep Chat
-                                </button>
-                                <label className="flex items-center justify-center gap-2 bg-blue-600 text-white px-5 py-3 rounded-xl cursor-pointer hover:bg-blue-700 transition shadow-lg shadow-blue-200 text-sm font-bold relative overflow-hidden min-w-[140px] flex-1">
-                                    <><UploadCloud size={16} /> Upload PDFs</>
+                                
+                                {/* --- MOVED UPLOAD BUTTON TO LEFT --- */}
+                                <label className="flex items-center justify-center gap-2 bg-black text-white px-5 py-3 rounded-xl cursor-pointer hover:bg-gray-800 transition shadow-lg text-sm font-bold relative overflow-hidden min-w-[160px] flex-1">
+                                    <><UploadCloud size={16} /> {isResumeMode ? "Upload Resumes" : "Upload PDFs"}</>
                                     <input ref={fileInputRef} type="file" className="hidden" accept=".pdf" multiple onChange={handleFileSelect} />
                                 </label>
+
+                                <button onClick={() => toggleChat('simple')} className={`flex-1 min-w-[140px] flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition text-sm font-bold border shadow-sm ${chatMode === 'simple' ? 'bg-white text-black border-black ring-2 ring-black/10' : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-700'}`}>
+                                    <Zap size={16} className={chatMode === 'simple' ? "fill-black" : "fill-none"} /> Fast Chat
+                                </button>
+                                <button onClick={() => toggleChat('deep')} className={`flex-1 min-w-[140px] flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition text-sm font-bold border shadow-sm ${chatMode === 'deep' ? 'bg-white text-black border-black ring-2 ring-black/10' : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-700'}`}>
+                                    <BrainCircuit size={16} /> Deep Chat
+                                </button>
                             </div>
 
                             {/* Tag Filters (Only for Standard View) */}
@@ -515,7 +525,7 @@ function DashboardContent() {
                                         const { tag, desc } = parseSummary(doc.summary);
 
                                         return (
-                                            <tr key={doc.id} onClick={() => setActiveDoc({id: doc.id, title: doc.title})} className="group hover:bg-blue-50/30 transition-colors cursor-pointer">
+                                            <tr key={doc.id} onClick={() => setActiveDoc({id: doc.id, title: doc.title})} className="group hover:bg-gray-50 transition-colors cursor-pointer">
                                                 {/* 1. Name Column */}
                                                 <td className="py-4 px-6 align-top">
                                                     <div className="flex items-start gap-3">
@@ -635,7 +645,7 @@ function DashboardContent() {
       <aside className={`fixed top-0 right-0 h-full w-[400px] bg-white/90 backdrop-blur-2xl border-l border-gray-200 shadow-2xl z-30 transform transition-transform duration-500 ${chatMode ? 'translate-x-0' : 'translate-x-full'} flex flex-col`}>
         <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-white/80">
             <div className="flex items-center gap-3">
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-white shadow-md ${chatMode === 'simple' ? 'bg-black' : 'bg-gradient-to-br from-blue-600 to-purple-600'}`}>
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-white shadow-md ${chatMode === 'simple' ? 'bg-black' : 'bg-gradient-to-br from-gray-700 to-gray-900'}`}>
                     {chatMode === 'simple' ? <Zap size={16} /> : <BrainCircuit size={16} />}
                 </div>
                 <div>
@@ -682,7 +692,7 @@ function DashboardContent() {
                                     <div key={gIdx} className="bg-gray-50 border border-gray-200 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-all">
                                         <div onClick={() => onCitationClick(group.docId, group.source, group.quotes[0].content, group.quotes[0].page)} className="bg-white border-b border-gray-100 px-3 py-2 flex items-center justify-between cursor-pointer hover:bg-blue-50 transition group/header">
                                             <div className="flex items-center gap-2 overflow-hidden">
-                                                <div className="bg-blue-100 p-1 rounded text-blue-600"><FileText size={12}/></div>
+                                                <div className="bg-gray-100 p-1 rounded text-gray-600"><FileText size={12}/></div>
                                                 <span className="text-xs font-bold text-gray-700 truncate">{group.source}</span>
                                             </div>
                                             <ChevronRight size={14} className="text-gray-300 group-hover/header:text-blue-500"/>
