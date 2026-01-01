@@ -488,7 +488,7 @@ export default function Dashboard() {
                                     <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mb-3">
                                         <FileSearch size={24} className="opacity-20" />
                                     </div>
-                                    <p className=\"text-sm font-medium\">No files found.</p>
+                                    <p className="text-sm font-medium">No files found.</p>
                                 </div>
                             )}
 
