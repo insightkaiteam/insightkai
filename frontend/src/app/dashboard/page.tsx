@@ -5,7 +5,8 @@ import {
   Folder, Trash2, Plus, ArrowLeft, ArrowRight,
   X, Send, Loader2, FileClock, BrainCircuit, UploadCloud, 
   LayoutGrid, LogOut, Quote, FileSearch, Mic, StopCircle, Zap,
-  CheckCircle2, AlertCircle, Clock, FileText, ChevronRight, ChevronDown, Maximize2, Settings
+  CheckCircle2, AlertCircle, Clock, FileText, ChevronRight, ChevronDown, Maximize2, Settings,
+  Filter, MoreHorizontal, MessageSquare
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
@@ -125,6 +126,9 @@ export default function Dashboard() {
   // Prompt Settings
   const [customPrompt, setCustomPrompt] = useState("");
   const [showPromptSettings, setShowPromptSettings] = useState(false);
+
+  // Filtering State
+  const [selectedTag, setSelectedTag] = useState<string | null>(null);
 
   // Auth
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -270,8 +274,27 @@ export default function Dashboard() {
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => { if (!e.target.files) return; setUploadQueue(prev => [...prev, ...Array.from(e.target.files!).map(file => ({ id: Math.random().toString(36).substr(2, 9), file, status: 'pending' as const }))]); if (fileInputRef.current) fileInputRef.current.value = ''; };
   const cancelUploads = () => setUploadQueue(prev => prev.filter(i => i.status !== 'pending'));
   const clearCompleted = () => setUploadQueue([]);
-  const parseSummary = (rawSummary: string) => { if (!rawSummary) return { tag: null, desc: null }; const tagMatch = rawSummary.match(/\[TAG\]:\s*(.*?)(?=\n|\[|$)/i); const descMatch = rawSummary.match(/\[DESC\]:\s*(.*?)(?=\n|\[|$)/i); return { tag: tagMatch ? tagMatch[1].trim().toUpperCase() : "FILE", desc: descMatch ? descMatch[1].trim() : "No description." }; };
-  const getTagColor = (tag: string) => { const colors: any = { 'INVOICE': 'bg-rose-50 text-rose-600 border-rose-200', 'RESEARCH': 'bg-purple-50 text-purple-600 border-purple-200', 'FINANCIAL': 'bg-emerald-50 text-emerald-600 border-emerald-200', 'LEGAL': 'bg-blue-50 text-blue-600 border-blue-200', 'RECEIPT': 'bg-amber-50 text-amber-600 border-amber-200', 'OTHER': 'bg-gray-50 text-gray-600 border-gray-200' }; return colors[tag] || colors['OTHER']; };
+  
+  // Enhanced Parsing
+  const parseSummary = (rawSummary: string) => { 
+      if (!rawSummary) return { tag: "General", desc: "No description available." }; 
+      const tagMatch = rawSummary.match(/\[TAG\]:\s*(.*?)(?=\n|\[|$)/i); 
+      const descMatch = rawSummary.match(/\[DESC\]:\s*(.*?)(?=\n|\[|$)/i); 
+      return { 
+          tag: tagMatch ? tagMatch[1].trim() : "General", 
+          desc: descMatch ? descMatch[1].trim() : (rawSummary.slice(0, 100) + "...")
+      }; 
+  };
+
+  const getTagStyle = (tag: string) => { 
+      const t = tag.toUpperCase();
+      if(t.includes("INVOICE")) return 'bg-rose-50 text-rose-700 border-rose-200';
+      if(t.includes("RESEARCH") || t.includes("PAPER")) return 'bg-purple-50 text-purple-700 border-purple-200';
+      if(t.includes("FINANC")) return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+      if(t.includes("LEGAL")) return 'bg-blue-50 text-blue-700 border-blue-200';
+      if(t.includes("RECEIPT")) return 'bg-amber-50 text-amber-700 border-amber-200';
+      return 'bg-gray-100 text-gray-700 border-gray-200';
+  };
 
   // --- CHAT ---
   const toggleChat = (mode: 'simple' | 'deep') => {
@@ -321,9 +344,15 @@ export default function Dashboard() {
     </div>
   );
 
+  // Filter Logic
+  const filteredDocs = docs.filter(d => d.folder === currentFolder);
+  const uniqueTags = Array.from(new Set(filteredDocs.map(d => parseSummary(d.summary).tag))).filter(t => t);
+  const displayedDocs = selectedTag ? filteredDocs.filter(d => parseSummary(d.summary).tag === selectedTag) : filteredDocs;
+
   return (
-    <div className="flex h-screen bg-[#F3F4F6] overflow-hidden font-sans text-gray-900 relative">
+    <div className="flex h-screen bg-[#F9FAFB] overflow-hidden font-sans text-gray-900 relative">
       
+      {/* 1. SIDEBAR NAVIGATION */}
       <aside className="w-20 bg-white border-r border-gray-200 flex flex-col items-center py-8 gap-8 z-20 shrink-0">
         <Link href="/" className="w-10 h-10 bg-black rounded-xl flex items-center justify-center text-white font-serif italic font-bold text-xl shadow-lg">κ</Link>
         <div className="flex flex-col gap-4">
@@ -336,7 +365,10 @@ export default function Dashboard() {
         </div>
       </aside>
 
+      {/* 2. MAIN CONTENT AREA */}
       <div className={`flex-1 overflow-hidden transition-all duration-500 ${chatMode ? 'mr-[400px]' : ''} flex flex-col relative`}>
+        
+        {/* VIEW 1: PDF VIEWER (Active Doc) */}
         {activeDoc ? (
             <div className="flex-1 flex flex-col h-full bg-white relative">
                 <div className="h-16 border-b border-gray-200 flex items-center justify-between px-6 bg-white/95 backdrop-blur z-10">
@@ -359,32 +391,37 @@ export default function Dashboard() {
                 </div>
             </div>
         ) : (
-            <div className="flex-1 p-8 overflow-y-auto">
-                <div className="max-w-7xl mx-auto">
-                    <header className="flex flex-col gap-6 mb-10">
-                        <div className="flex justify-between items-center">
-                            <div className="flex items-center gap-4">
-                                {currentFolder && (
-                                    <button onClick={() => { setCurrentFolder(null); setChatMode(null); }} className="p-2 bg-white border border-gray-200 text-gray-500 hover:text-black rounded-full shadow-sm"><ArrowLeft size={20} /></button>
-                                )}
-                                <div>
-                                    <h1 className="text-3xl font-bold tracking-tight text-gray-900 line-clamp-1">{currentFolder || "My Library"}</h1>
-                                    <p className="text-xs text-gray-400 font-medium uppercase tracking-wider mt-1">{currentFolder ? "Folder View" : "Dashboard"}</p>
-                                </div>
-                            </div>
-                            <div className="flex gap-3">
-                                {!currentFolder && (
-                                    <button onClick={() => setShowNewFolderInput(true)} className="flex items-center gap-2 bg-white border border-gray-200 px-5 py-2.5 rounded-full hover:shadow-md transition text-sm font-bold"><Plus size={16} /> New Folder</button>
-                                )}
+            /* VIEW 2: DASHBOARD (FOLDERS OR FILE TABLE) */
+            <div className="flex-1 flex flex-col h-full overflow-hidden">
+                {/* Header Section */}
+                <div className="px-8 pt-8 pb-4 shrink-0">
+                    <div className="flex justify-between items-center mb-6">
+                        <div className="flex items-center gap-4">
+                            {currentFolder && (
+                                <button onClick={() => { setCurrentFolder(null); setChatMode(null); }} className="p-2 bg-white border border-gray-200 text-gray-500 hover:text-black rounded-full shadow-sm"><ArrowLeft size={20} /></button>
+                            )}
+                            <div>
+                                <h1 className="text-3xl font-bold tracking-tight text-gray-900 line-clamp-1">{currentFolder || "My Library"}</h1>
+                                <p className="text-xs text-gray-400 font-medium uppercase tracking-wider mt-1">{currentFolder ? "Folder View" : "Dashboard"}</p>
                             </div>
                         </div>
+                        
+                        <div className="flex gap-3">
+                            {!currentFolder && (
+                                <button onClick={() => setShowNewFolderInput(true)} className="flex items-center gap-2 bg-black text-white px-5 py-2.5 rounded-full hover:shadow-lg hover:scale-105 transition text-sm font-bold"><Plus size={16} /> New Folder</button>
+                            )}
+                        </div>
+                    </div>
 
-                        {currentFolder && (
-                            <div className="flex flex-wrap gap-3">
-                                <button onClick={() => toggleChat('simple')} className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition text-sm font-bold border shadow-sm ${chatMode === 'simple' ? 'bg-black text-white border-black ring-2 ring-black/20' : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-700'}`}>
+                    {/* NEW: FILTER BAR FOR FILES */}
+                    {currentFolder && (
+                        <div className="flex flex-col gap-4">
+                            {/* Action Row */}
+                            <div className="flex items-center gap-3">
+                                <button onClick={() => toggleChat('simple')} className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition text-sm font-bold border shadow-sm ${chatMode === 'simple' ? 'bg-black text-white border-black' : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-700'}`}>
                                     <Zap size={16} className={chatMode === 'simple' ? "fill-white" : "fill-none"} /> Fast Chat
                                 </button>
-                                <button onClick={() => toggleChat('deep')} className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition text-sm font-bold border shadow-sm ${chatMode === 'deep' ? 'bg-black text-white border-black ring-2 ring-black/20' : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-700'}`}>
+                                <button onClick={() => toggleChat('deep')} className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition text-sm font-bold border shadow-sm ${chatMode === 'deep' ? 'bg-black text-white border-black' : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-700'}`}>
                                     <BrainCircuit size={16} /> Deep Chat
                                 </button>
                                 <label className="flex items-center justify-center gap-2 bg-blue-600 text-white px-5 py-3 rounded-xl cursor-pointer hover:bg-blue-700 transition shadow-lg shadow-blue-200 text-sm font-bold relative overflow-hidden min-w-[140px]">
@@ -392,22 +429,49 @@ export default function Dashboard() {
                                     <input ref={fileInputRef} type="file" className="hidden" accept=".pdf" multiple onChange={handleFileSelect} />
                                 </label>
                             </div>
-                        )}
-                    </header>
 
-                    {showNewFolderInput && (
-                        <div className="mb-8 flex gap-3 animate-in fade-in slide-in-from-top-4">
+                            {/* Tag Filters */}
+                            {uniqueTags.length > 0 && (
+                                <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                                    <button 
+                                        onClick={() => setSelectedTag(null)}
+                                        className={`px-3 py-1.5 rounded-full text-xs font-medium border transition whitespace-nowrap ${!selectedTag ? 'bg-black text-white border-black' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
+                                    >
+                                        All Files
+                                    </button>
+                                    {uniqueTags.map(tag => (
+                                        <button 
+                                            key={tag}
+                                            onClick={() => setSelectedTag(tag === selectedTag ? null : tag)}
+                                            className={`px-3 py-1.5 rounded-full text-xs font-medium border transition whitespace-nowrap ${selectedTag === tag ? 'bg-black text-white border-black' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
+                                        >
+                                            {tag}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+
+                {/* NEW FOLDER INPUT */}
+                {showNewFolderInput && (
+                    <div className="px-8 pb-6 animate-in fade-in slide-in-from-top-4">
+                        <div className="flex gap-3">
                             <input className="border-2 border-gray-200 p-3 rounded-2xl w-72 shadow-sm focus:outline-none focus:border-black transition" placeholder="Folder Name..." value={newFolderName} onChange={e => setNewFolderName(e.target.value)} autoFocus />
                             <button onClick={handleCreateFolder} className="bg-black text-white px-6 rounded-2xl font-bold">Create</button>
                             <button onClick={() => setShowNewFolderInput(false)} className="text-gray-400 px-4 hover:text-black">Cancel</button>
                         </div>
-                    )}
+                    </div>
+                )}
 
-                    {!currentFolder && (
+                {/* CONTENT: FOLDER GRID or FILE TABLE */}
+                <div className="flex-1 overflow-y-auto px-8 pb-8">
+                    {!currentFolder ? (
+                        /* FOLDERS GRID */
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                             {folders.map(folder => (
                                 <div key={folder} onClick={() => setCurrentFolder(folder)} className="group bg-white p-6 rounded-[2rem] border border-gray-200 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all cursor-pointer relative overflow-hidden">
-                                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-purple-500 opacity-0 group-hover:opacity-100 transition"></div>
                                     <div className="flex justify-between items-start mb-4">
                                         <div className="w-12 h-12 bg-gray-50 rounded-2xl flex items-center justify-center text-gray-700 group-hover:bg-blue-50 group-hover:text-blue-600 transition"><Folder size={24} fill="currentColor" className="text-gray-300 group-hover:text-blue-200" /></div>
                                         {folder !== "General" && <button onClick={(e) => handleDeleteFolder(folder, e)} className="text-gray-300 hover:text-red-500 transition"><Trash2 size={16}/></button>}
@@ -417,47 +481,76 @@ export default function Dashboard() {
                                 </div>
                             ))}
                         </div>
-                    )}
-
-                    {currentFolder && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                            {docs.filter(doc => doc.folder === currentFolder).map((doc) => {
-                                const { tag, desc } = parseSummary(doc.summary);
-                                return (
-                                    <div key={doc.id} className="group bg-white p-5 rounded-3xl border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all flex items-start gap-4 relative overflow-hidden h-full">
-                                        {doc.status === 'processing' && <div className="absolute top-0 left-0 w-full h-1 bg-blue-100"><div className="h-full bg-blue-500 animate-progress origin-left"></div></div>}
-                                        <div className="flex flex-col gap-2 shrink-0 pt-1">
-                                            {doc.status !== 'processing' ? (
-                                                <>
-                                                    <Link href={`/chat/${doc.id}`} title="Chat with document">
-                                                        <button className="w-10 h-10 bg-black text-white rounded-xl flex items-center justify-center shadow-lg hover:bg-gray-800 hover:scale-105 transition">
-                                                            <ArrowRight size={18} className="-rotate-45" />
+                    ) : (
+                        /* SOTA FILES TABLE */
+                        <div className="bg-white border border-gray-200 rounded-3xl shadow-sm overflow-hidden">
+                            <table className="w-full text-left border-collapse">
+                                <thead>
+                                    <tr className="bg-gray-50/50 border-b border-gray-100 text-left">
+                                        <th className="py-4 px-6 text-xs font-bold text-gray-400 uppercase tracking-wider w-[35%]">Name</th>
+                                        <th className="py-4 px-6 text-xs font-bold text-gray-400 uppercase tracking-wider w-[30%]">Summary</th>
+                                        <th className="py-4 px-6 text-xs font-bold text-gray-400 uppercase tracking-wider w-[15%]">Tag</th>
+                                        <th className="py-4 px-6 text-xs font-bold text-gray-400 uppercase tracking-wider text-right w-[20%]">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-50">
+                                    {displayedDocs.map((doc) => {
+                                        const { tag, desc } = parseSummary(doc.summary);
+                                        return (
+                                            <tr key={doc.id} onClick={() => setActiveDoc({id: doc.id, title: doc.title})} className="group hover:bg-blue-50/30 transition-colors cursor-pointer">
+                                                <td className="py-4 px-6 align-top">
+                                                    <div className="flex items-start gap-3">
+                                                        <div className="w-8 h-8 rounded-lg bg-red-50 text-red-500 flex items-center justify-center shrink-0 border border-red-100">
+                                                            {doc.status === 'processing' ? <Loader2 size={16} className="animate-spin"/> : <FileText size={16} />}
+                                                        </div>
+                                                        <div>
+                                                            <div className="font-bold text-sm text-gray-900 line-clamp-1">{doc.title}</div>
+                                                            <div className="text-[10px] text-gray-400 font-medium mt-0.5 flex items-center gap-1">
+                                                                <Clock size={10} /> {doc.upload_date}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td className="py-4 px-6 align-top">
+                                                    <p className="text-xs text-gray-500 line-clamp-2 leading-relaxed">{desc}</p>
+                                                </td>
+                                                <td className="py-4 px-6 align-top">
+                                                    <span className={`inline-block px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide border ${getTagStyle(tag)}`}>
+                                                        {tag}
+                                                    </span>
+                                                </td>
+                                                <td className="py-4 px-6 align-top text-right">
+                                                    <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        {/* Single Chat Action */}
+                                                        {doc.status !== 'processing' && (
+                                                            <Link href={`/chat/${doc.id}`} onClick={(e) => e.stopPropagation()}>
+                                                                <button className="p-2 bg-white border border-gray-200 text-gray-600 rounded-lg hover:bg-black hover:text-white hover:border-black transition shadow-sm" title="Chat with this Doc">
+                                                                    <MessageSquare size={14} />
+                                                                </button>
+                                                            </Link>
+                                                        )}
+                                                        {/* Delete Action */}
+                                                        <button 
+                                                            onClick={(e) => handleDelete(doc.id, e)} 
+                                                            className="p-2 bg-white border border-gray-200 text-gray-400 rounded-lg hover:bg-red-50 hover:text-red-500 hover:border-red-200 transition shadow-sm"
+                                                            title="Delete"
+                                                        >
+                                                            <Trash2 size={14} />
                                                         </button>
-                                                    </Link>
-                                                    <button onClick={() => setActiveDoc({id: doc.id, title: doc.title})} className="w-10 h-10 bg-blue-50 text-blue-600 border border-blue-100 rounded-xl flex items-center justify-center shadow-sm hover:bg-blue-100 transition" title="Read in Split View">
-                                                        <Maximize2 size={18} />
-                                                    </button>
-                                                </>
-                                            ) : (
-                                                <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center"><Loader2 size={18} className="animate-spin text-gray-400"/></div>
-                                            )}
-                                            <button onClick={(e) => handleDelete(doc.id, e)} className="w-10 h-10 bg-white border border-gray-200 text-gray-400 hover:text-red-500 hover:bg-red-50 hover:border-red-100 rounded-xl flex items-center justify-center transition mt-auto" title="Delete"><Trash2 size={18} /></button>
-                                        </div>
-                                        <div className="min-w-0 flex-1 border-l border-gray-100 pl-4 py-1">
-                                            <div className="flex items-start gap-2 mb-2 flex-wrap">
-                                                <h3 className="font-bold text-gray-900 text-sm leading-snug break-words">{doc.title}</h3>
-                                                {tag && <span className={`shrink-0 px-2 py-0.5 rounded-lg text-[10px] font-extrabold border uppercase tracking-wider ${getTagColor(tag)}`}>{tag}</span>}
-                                            </div>
-                                            <p className="text-xs text-gray-500 leading-relaxed whitespace-normal break-words">{desc}</p>
-                                            <div className="flex gap-4 mt-4 text-[10px] font-bold text-gray-300 uppercase tracking-widest"><span className="flex items-center gap-1"><FileClock size={10}/> {doc.upload_date}</span></div>
-                                        </div>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                            
+                            {displayedDocs.length === 0 && (
+                                <div className="py-16 flex flex-col items-center justify-center text-center text-gray-400">
+                                    <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mb-3">
+                                        <FileSearch size={24} className="opacity-20" />
                                     </div>
-                                );
-                            })}
-                            {docs.filter(doc => doc.folder === currentFolder).length === 0 && (
-                                <div className="col-span-full flex flex-col items-center justify-center py-20 border-2 border-dashed border-gray-200 rounded-3xl text-gray-400">
-                                    <UploadCloud size={40} className="mb-4 text-gray-300"/>
-                                    <p className="font-medium">No files yet.</p>
+                                    <p className="text-sm font-medium">No files found.</p>
                                 </div>
                             )}
                         </div>
@@ -467,6 +560,7 @@ export default function Dashboard() {
         )}
       </div>
 
+      {/* 3. UPLOAD QUEUE */}
       {uploadQueue.length > 0 && (
           <div className="fixed bottom-6 right-6 w-80 bg-white rounded-2xl shadow-2xl border border-gray-200 z-50 overflow-hidden animate-in slide-in-from-bottom-10 fade-in duration-300">
               <div className="bg-black text-white p-3 flex justify-between items-center">
@@ -492,14 +586,10 @@ export default function Dashboard() {
                       </div>
                   ))}
               </div>
-              {uploadQueue.some(i => i.status === 'uploading' || i.status === 'pending') && (
-                  <div className="px-3 py-1.5 bg-blue-50 text-[10px] text-blue-600 font-medium text-center border-t border-blue-100">
-                      Processing files sequentially (10s delay to respect rate limits)
-                  </div>
-              )}
           </div>
       )}
 
+      {/* 4. CHAT SIDEBAR */}
       <aside className={`fixed top-0 right-0 h-full w-[400px] bg-white/90 backdrop-blur-2xl border-l border-gray-200 shadow-2xl z-30 transform transition-transform duration-500 ${chatMode ? 'translate-x-0' : 'translate-x-full'} flex flex-col`}>
         <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-white/80">
             <div className="flex items-center gap-3">
@@ -511,6 +601,7 @@ export default function Dashboard() {
                     <p className="text-xs text-gray-400 font-medium">{chatMode === 'simple' ? "Instant answers" : "Full analysis"}</p>
                 </div>
             </div>
+            
             <div className="flex items-center gap-1">
                 <button onClick={() => setShowPromptSettings(!showPromptSettings)} className={`p-2 rounded-full transition ${showPromptSettings ? 'bg-black text-white' : 'hover:bg-gray-100 text-gray-400'}`}>
                     <Settings size={18} />
