@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { 
   ArrowRight, Mic, Search, Share2, ShieldCheck, BrainCircuit, 
   FileText, CheckCircle2, Layers, Sparkles, Files, ScanSearch, 
-  GitMerge, MoveRight, Coins, Users, Database, BookOpen, UserCheck 
+  GitMerge, MoveRight, Coins, Users, Database, BookOpen 
 } from 'lucide-react';
 
 export default function LandingPage() {
@@ -49,26 +49,18 @@ export default function LandingPage() {
             </h1>
             
             <p className="text-xl text-gray-500 mb-8 max-w-lg leading-relaxed font-medium">
-              Manual PDF research drains productivity. Get evidence-backed insights, organize/search your document library, and reclaim thousands of hours.
+              Manual PDF research drains productivity. Get evidence-backed insights, organize/search your document library, and reclaim thousands of hours and dollars.
             </p>
 
-            <div className="flex items-center gap-3 p-4 bg-gray-50 border border-gray-200 rounded-2xl w-fit mb-10 text-gray-700 text-sm font-bold">
-                <ShieldCheck size={18} className="text-gray-900" />
+            <div className="flex items-center gap-3 p-4 bg-emerald-50 border border-emerald-100 rounded-2xl w-fit mb-10 text-emerald-900 text-sm font-bold">
+                <ShieldCheck size={18} className="text-emerald-600" />
                 <span>100% Verifiable Citations across your PDF library.</span>
             </div>
 
-            <div className="flex flex-wrap gap-4">
-              {/* PRIMARY ACTION */}
+            <div className="flex gap-4">
               <Link href="/dashboard">
                 <button className="px-10 py-5 bg-black text-white rounded-[1.5rem] font-bold text-lg hover:bg-gray-900 transition flex items-center gap-2 shadow-2xl shadow-gray-300 transform hover:-translate-y-1">
                   Start Researching <ArrowRight size={20}/>
-                </button>
-              </Link>
-
-              {/* NEW: HIRING KAI ACTION */}
-              <Link href="/dashboard?folder=Hiring%20Kai">
-                <button className="px-10 py-5 bg-white text-gray-900 border-2 border-gray-200 rounded-[1.5rem] font-bold text-lg hover:bg-gray-50 hover:border-gray-300 transition flex items-center gap-2 shadow-xl shadow-gray-100 transform hover:-translate-y-1 group">
-                  <UserCheck size={20} className="text-gray-500 group-hover:text-black transition"/> Hiring Kai
                 </button>
               </Link>
             </div>
@@ -81,7 +73,7 @@ export default function LandingPage() {
                     <div>
                         <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center mb-4"><ScanSearch size={20}/></div>
                         <h3 className="font-bold text-gray-900 text-lg">Verifiable Dialogue</h3>
-                        <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest mt-1">Evidence Over Hallucination</p>
+                        <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest mt-1">Evidence Over  Hallucation</p>
                     </div>
                     <div className="relative h-12 bg-gray-50 rounded-lg border border-gray-100 p-2 overflow-hidden">
                         <div className="w-full h-1.5 bg-gray-200 rounded opacity-20 mb-1"></div>
@@ -95,7 +87,7 @@ export default function LandingPage() {
                     <div>
                         <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center mb-4"><Database size={20}/></div>
                         <h3 className="font-bold text-gray-900 text-lg">Self-Sorting Library</h3>
-                        <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest mt-1">Tagged, Sorted, Searchable</p>
+                        <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest mt-1">Tagged, Sorted, Searchable Document Library</p>
                     </div>
                     <div className="flex justify-center gap-1">
                         <div className="w-4 h-6 bg-blue-100 rounded animate-magnet"></div>
@@ -109,7 +101,7 @@ export default function LandingPage() {
                     <div>
                         <div className="w-10 h-10 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center mb-4"><BrainCircuit size={20}/></div>
                         <h3 className="font-bold text-gray-900 text-lg">Institutional Intelligence</h3>
-                        <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest mt-1">Enterprise Document Brain</p>
+                        <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest mt-1">Build Your Enterprise Document Brain</p>
                     </div>
                     <div className="flex justify-center items-center gap-2">
                         <BookOpen size={16} className="text-amber-500 animate-pulse"/>
@@ -124,7 +116,6 @@ export default function LandingPage() {
                 {/* Q4: HUMAN VOICE DIALOGUE */}
                 <div className="bg-gray-900 p-6 rounded-[2.5rem] shadow-xl border border-gray-800 flex flex-col justify-between h-64 hover:shadow-2xl transition duration-500 group">
                     <div>
-                        {/* Changed indigo to slate/white for monochrome look */}
                         <div className="w-10 h-10 bg-white/10 text-white rounded-xl flex items-center justify-center mb-4"><Mic size={20}/></div>
                         <h3 className="font-bold text-white text-lg leading-tight">Human-Level Voice</h3>
                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">Talk To Your Documents</p>
@@ -156,7 +147,7 @@ export default function LandingPage() {
 
             <div className="grid md:grid-cols-2 gap-8">
                 
-                {/* CARD 1 */}
+                {/* CARD 1: PDF CHAT WITH VERIFIED EVIDENCE */}
                 <div className="bg-gray-50 rounded-[2.5rem] p-10 hover:bg-emerald-50/50 transition duration-500 border border-gray-100 group">
                     <div className="flex justify-between items-start mb-8">
                         <div className="bg-white p-4 rounded-2xl shadow-sm group-hover:scale-110 transition duration-300 text-emerald-600"><ScanSearch size={32}/></div>
@@ -166,9 +157,14 @@ export default function LandingPage() {
                     <p className="text-gray-600 text-sm font-medium mb-6 leading-relaxed">
                         Trust every answer. Skip the guesswork with responses that link directly to the exact page and paragraph in your PDF for total proof.
                     </p>
+                    <ul className="space-y-3 text-sm text-gray-500 font-bold">
+                        <li className="flex items-center gap-3"><ArrowRight size={16} className="text-emerald-500"/> Finance: Audit-ready metric extraction.</li>
+                        <li className="flex items-center gap-3"><ArrowRight size={16} className="text-emerald-500"/> Legal: Precise clause validation.</li>
+                        <li className="flex items-center gap-3"><ArrowRight size={16} className="text-emerald-500"/> Academic: Find cited proof across papers.</li>
+                    </ul>
                 </div>
 
-                {/* CARD 2 */}
+                {/* CARD 2: ORGANIZED LIBRARY */}
                 <div className="bg-gray-50 rounded-[2.5rem] p-10 hover:bg-blue-50/50 transition duration-500 border border-gray-100 group">
                     <div className="flex justify-between items-start mb-8">
                         <div className="bg-white p-4 rounded-2xl shadow-sm group-hover:scale-110 transition duration-300 text-blue-600"><Database size={32}/></div>
@@ -178,9 +174,14 @@ export default function LandingPage() {
                     <p className="text-gray-600 text-sm font-medium mb-6 leading-relaxed">
                         Stop drowning in PDFs. We automatically sort, tag, and organize your files so you can search across your entire library to find exactly what you need in seconds.
                     </p>
+                    <ul className="space-y-3 text-sm text-gray-500 font-bold">
+                        <li className="flex items-center gap-3"><ArrowRight size={16} className="text-blue-500"/> Analysts: Search across multiple documents.</li>
+                        <li className="flex items-center gap-3"><ArrowRight size={16} className="text-blue-500"/> HR: Rank 500+ resumes by skill set.</li>
+                        <li className="flex items-center gap-3"><ArrowRight size={16} className="text-blue-500"/> Ops: Instant retrieval of old bills.</li>
+                    </ul>
                 </div>
 
-                {/* CARD 3 */}
+                {/* CARD 3: ENTERPRISE KNOWLEDGE */}
                 <div className="bg-gray-50 rounded-[2.5rem] p-10 hover:bg-amber-50/50 transition duration-500 border border-gray-100 group">
                     <div className="flex justify-between items-start mb-8">
                         <div className="bg-white p-4 rounded-2xl shadow-sm group-hover:scale-110 transition duration-300 text-amber-600"><BrainCircuit size={32}/></div>
@@ -190,22 +191,83 @@ export default function LandingPage() {
                     <p className="text-gray-600 text-sm font-medium mb-6 leading-relaxed">
                         Build a shared brain for your team. Upload your manuals and policies once to give your entire company a single, reliable source of truth.
                     </p>
+                    <ul className="space-y-3 text-sm text-gray-500 font-bold">
+                        <li className="flex items-center gap-3"><ArrowRight size={16} className="text-amber-500"/> Policies: Instant standardized HR answers.</li>
+                        <li className="flex items-center gap-3"><ArrowRight size={16} className="text-amber-500"/> Training: Queryable coaching resources.</li>
+                        <li className="flex items-center gap-3"><ArrowRight size={16} className="text-amber-500"/> Manuals: A central home for every SOP.</li>
+                    </ul>
                 </div>
 
-                {/* CARD 4: HUMAN-LEVEL VOICE (Monochrome) */}
-                <div className="bg-gray-50 rounded-[2.5rem] p-10 hover:bg-gray-100 transition duration-500 border border-gray-100 group">
+                {/* CARD 4: HUMAN-LEVEL VOICE */}
+                <div className="bg-gray-50 rounded-[2.5rem] p-10 hover:bg-indigo-50/50 transition duration-500 border border-gray-100 group">
                     <div className="flex justify-between items-start mb-8">
-                        {/* Changed text-indigo-600 to text-slate-600 */}
-                        <div className="bg-white p-4 rounded-2xl shadow-sm group-hover:scale-110 transition duration-300 text-slate-600"><Mic size={32}/></div>
-                        <span className="bg-slate-200 text-slate-700 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">Mobility</span>
+                        <div className="bg-white p-4 rounded-2xl shadow-sm group-hover:scale-110 transition duration-300 text-indigo-600"><Mic size={32}/></div>
+                        <span className="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">Mobility</span>
                     </div>
                     <h3 className="text-2xl font-bold mb-4 tracking-tight text-gray-900">Human-Level Voice Input</h3>
                     <p className="text-gray-600 text-sm font-medium mb-6 leading-relaxed">
                         Talk to your documents. Use state-of-the-art audio input to naturally query your library and get deep research results entirely hands-free.
                     </p>
+                    <ul className="space-y-3 text-sm text-gray-500 font-bold">
+                        <li className="flex items-center gap-3"><ArrowRight size={16} className="text-indigo-500"/> Commute: Analyze PDFs while walking.</li>
+                        <li className="flex items-center gap-3"><ArrowRight size={16} className="text-indigo-500"/> Mobility: Cited summaries on the move.</li>
+                        <li className="flex items-center gap-3"><ArrowRight size={16} className="text-indigo-500"/> Efficiency: Keyboard-free interviews.</li>
+                    </ul>
                 </div>
 
             </div>
+        </div>
+      </section>
+
+      {/* 4. PRICING ANCHOR */}
+      <section className="py-24 px-6 max-w-5xl mx-auto">
+        <h2 className="text-xs font-bold text-center uppercase tracking-widest text-gray-400 mb-12">Flexible Pricing</h2>
+        
+        <div className="grid md:grid-cols-2 gap-8 items-stretch">
+            {/* INDIVIDUALS */}
+            <Link href="/dashboard" className="group h-full">
+                <div className="h-full p-10 rounded-[2.5rem] border-2 border-gray-100 hover:border-black hover:shadow-2xl transition duration-300 bg-white relative overflow-hidden flex flex-col">
+                    <div className="absolute top-0 right-0 bg-gray-900 text-white px-4 py-2 rounded-bl-2xl text-xs font-bold uppercase tracking-widest">Selected</div>
+                    
+                    <div className="mb-6 bg-gray-50 w-16 h-16 rounded-2xl flex items-center justify-center group-hover:bg-black group-hover:text-white transition duration-300 shadow-sm border border-gray-100">
+                        <FileText size={32} />
+                    </div>
+                    
+                    <h3 className="text-3xl font-bold mb-2 text-gray-900 tracking-tight">Individuals</h3>
+                    <p className="text-gray-500 mb-6 text-sm">Professional research for students and power users.</p>
+                    
+                    <div className="text-5xl font-bold mb-8 tracking-tighter text-gray-900">$3.99<span className="text-lg text-gray-400 font-medium tracking-normal">/mo</span></div>
+
+                    <ul className="space-y-4 text-gray-600 mb-8 text-sm font-bold flex-1">
+                        <li className="flex items-center gap-3"><CheckCircle2 size={18} className="text-black"/> 1,000 pages / month</li>
+                        <li className="flex items-center gap-3"><CheckCircle2 size={18} className="text-black"/> Deep Research & Citations</li>
+                        <li className="flex items-center gap-3"><CheckCircle2 size={18} className="text-black"/> Natural Audio Interaction</li>
+                    </ul>
+                    <span className="inline-block w-full text-center bg-gray-50 border border-gray-200 py-4 rounded-xl font-bold text-gray-900 group-hover:bg-black group-hover:text-white transition">Get Started &rarr;</span>
+                </div>
+            </Link>
+
+            {/* ENTERPRISE */}
+            <Link href="/dashboard" className="group h-full">
+                <div className="h-full p-10 rounded-[2.5rem] bg-black text-white hover:scale-[1.02] transition duration-300 shadow-2xl relative flex flex-col">
+                    
+                    <div className="mb-6 bg-white/10 w-16 h-16 rounded-2xl flex items-center justify-center backdrop-blur-sm border border-white/20">
+                        <BrainCircuit size={32} className="text-white"/>
+                    </div>
+
+                    <h3 className="text-3xl font-bold mb-2 tracking-tight">Enterprise</h3>
+                    <p className="text-gray-400 mb-6 text-sm font-medium">Shared intelligence for global high-performance teams.</p>
+                    
+                    <div className="text-5xl font-bold mb-8 tracking-tighter">Custom</div>
+
+                    <ul className="space-y-4 text-gray-300 mb-8 text-sm font-bold flex-1">
+                        <li className="flex items-center gap-3"><CheckCircle2 size={18} className="text-white"/> Shared Institutional Knowledge</li>
+                        <li className="flex items-center gap-3"><CheckCircle2 size={18} className="text-white"/> Bulk Invoice & Resume Matching</li>
+                        <li className="flex items-center gap-3"><CheckCircle2 size={18} className="text-white"/> API Access & SSO</li>
+                    </ul>
+                    <span className="inline-block w-full text-center bg-white/10 border border-white/20 py-4 rounded-xl font-bold text-white group-hover:bg-white group-hover:text-black transition">Launch Console &rarr;</span>
+                </div>
+            </Link>
         </div>
       </section>
 

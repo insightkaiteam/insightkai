@@ -4,9 +4,16 @@ import uuid
 import json
 from typing import List, Any
 from mistralai import Mistral
+from mistralai.extra import response_format_from_pydantic_model
 from openai import OpenAI
 from supabase import create_client, Client
 from pydantic import BaseModel, Field
+
+# --- SCHEMA DEFINITION ---
+class VisualContext(BaseModel):
+    image_description: str = Field(..., description="Detailed description of the image visual content.")
+    data_extraction: str = Field(..., description="If this is a chart/table, transcribe the key numbers, axis labels, and trends. If a diagram, describe the flow.")
+    comparative_analysis: str = Field(..., description="What is the key takeaway or insight from this figure?")
 
 class MistralEngine:
     def __init__(self):
@@ -19,120 +26,149 @@ class MistralEngine:
             raise ValueError("MISTRAL_API_KEY is missing!")
         self.client = Mistral(api_key=api_key)
 
-    # --- 1. EMBEDDINGS: KEEP OPENAI (CRITICAL FOR CHAT) ---
     def get_embedding(self, text: str) -> List[float]:
-        text = text.replace("\n", " ").strip()
-        if not text: return []
-        # Uses text-embedding-3-small (1536 dims) to match your existing DB
+        text = text.replace("\n", " ")
         return self.openai.embeddings.create(input=[text], model="text-embedding-3-small").data[0].embedding
 
-    def _generate_summary(self, text: str) -> str:
-        prompt = f"Summarize this document in 3 concise sentences. Capture the main topic, key entities, and purpose.\n\nText: {text[:10000]}"
+    def get_folder_files(self, folder_name: str) -> List[dict]:
         try:
-            res = self.client.chat.complete(model="mistral-small-latest", messages=[{"role": "user", "content": prompt}])
-            return res.choices[0].message.content
-        except: return "Summary unavailable."
+            res = self.supabase.table("documents")\
+                .select("id, title, summary")\
+                .eq("folder", folder_name)\
+                .execute()
+            
+            files = []
+            for doc in res.data:
+                raw = doc.get("summary", "")
+                if not raw: continue
+                clean = raw.split("---_SEPARATOR_---")[0].replace("**Content Summary:**", "").strip()
+                files.append({
+                    "id": doc["id"],
+                    "title": doc["title"],
+                    "summary": clean
+                })
+            return files
+        except Exception as e:
+            print(f"Error getting folder files: {e}")
+            return []
 
-    def _extract_resume_data(self, text: str) -> dict:
-        prompt = (
-            "You are a Technical Recruiter. Extract structured data from this resume text into JSON.\n"
-            "Format requirements:\n"
-            "- name: Candidate Name\n"
-            "- phone: Phone Number\n"
-            "- email: Email Address\n"
-            "- education: concise string (e.g. 'BTech - IIT Patna; PhD - IISC')\n"
-            "- experience: concise string (e.g. 'EY - 2yrs - Market Risk; Google - 1yr - Dev')\n"
-            "- skills: comma separated string of top 5 hard skills (e.g. 'Python, Calculus, React')\n"
-            "\n"
-            "Return ONLY the JSON object."
-        )
+    # --- SOTA UPGRADE: V2 Function + Coord Retrieval ---
+    def search_single_doc(self, query: str, doc_id: str) -> List[dict]:
+        query_vector = self.get_embedding(query)
+        params = {
+            "query_embedding": query_vector, 
+            "match_threshold": 0.01, 
+            "match_count": 45, 
+            "filter_doc_id": doc_id
+        }
+        
         try:
+            # Calling the updated V2 function
+            res = self.supabase.rpc("match_page_sections_v2", params).execute()
+            chunks = []
+            if res.data:
+                for row in res.data:
+                    content = row.get('content')
+                    if not content: continue
+                    chunks.append({
+                        "content": content,
+                        "page": row.get('page_number', 1),
+                        "similarity": row.get('similarity', 0),
+                        "bboxes": row.get('bboxes', []), # Retrieve coordinates (default empty)
+                        "id": row.get('id', uuid.uuid4().hex) 
+                    })
+            return chunks
+        except Exception as e:
+            print(f"Search Error: {e}")
+            return []
+
+    def _chunk_markdown(self, text: str) -> List[str]:
+        chunks = []
+        current_chunk = ""
+        lines = text.split('\n')
+        for line in lines:
+            # Simple chunking by header or length
+            if line.strip().startswith("#") and len(current_chunk) > 600:
+                chunks.append(current_chunk.strip()); current_chunk = line + "\n"
+            else: current_chunk += line + "\n"
+            if len(current_chunk) > 3500: chunks.append(current_chunk.strip()); current_chunk = ""
+        if current_chunk: chunks.append(current_chunk.strip())
+        return chunks
+
+    def _generate_summary(self, full_text: str) -> str:
+        try:
+            if not full_text.strip():
+                return "No content could be extracted from this document."
+                
+            preview_text = full_text[:8000]
+            system_prompt = (
+                "You are a sophisticated document analyzer. Analyze the text and return a summary in EXACTLY this format:\n\n"
+                "[TAG]: <Classify into one: INVOICE, RESEARCH, FINANCIAL, LEGAL, RECEIPT, OTHER>\n"
+                "[DESC]: <A single, concise sentence describing the file (e.g. 'August 2023 Power Bill for $150')>\n"
+                "[DETAILED]: <A dense, 5-10 line summary containing specific entities (company names, authors), dates, key outcomes, core themes, and numerical data. This will be used for search retrieval, so be specific.>"
+            )
             response = self.openai.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": prompt},
-                    {"role": "user", "content": text[:25000]} 
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"Analyze this document content:\n\n{preview_text}"}
                 ],
-                response_format={"type": "json_object"}
+                max_tokens=300
             )
-            content = response.choices[0].message.content
-            return json.loads(content)
+            return response.choices[0].message.content.strip()
         except Exception as e:
-            print(f"Resume Extraction Error: {e}")
-            return {"name": "Extraction Error", "education": "Failed to parse"}
+            return "[TAG]: OTHER\n[DESC]: Processed document.\n[DETAILED]: No summary available."
 
-    def process_pdf_background(self, doc_id: str, file_bytes: bytes, filename: str, folder: str):
+    async def process_pdf_background(self, doc_id: str, file_bytes: bytes, filename: str, folder: str):
         try:
-            print(f"Processing {filename} in {folder}")
+            # 1. Upload file
+            self.supabase.storage.from_("document-pages").upload(file=file_bytes, path=f"{doc_id}/source.pdf", file_options={"content-type": "application/pdf"})
             
-            # --- 2. UPLOAD TO SUPABASE (STORAGE BACKUP) ---
-            self.supabase.storage.from_("document-pages").upload(f"{doc_id}/source.pdf", file_bytes, {"content-type": "application/pdf"})
+            # 2. Get Signed URL for Mistral
+            uploaded_file = self.client.files.upload(file={"file_name": filename, "content": file_bytes}, purpose="ocr")
+            signed_url = self.client.files.get_signed_url(file_id=uploaded_file.id, expiry=1)
             
-            # --- 3. UPLOAD TO MISTRAL (REQUIRED FOR OCR) ---
-            # We must upload first. We pass raw bytes directly (not io.BytesIO).
-            print("Uploading to Mistral...")
-            uploaded_file = self.client.files.upload(
-                file={
-                    "file_name": filename,
-                    "content": file_bytes, 
-                },
-                purpose="ocr"
-            )
-            
-            # --- 4. RUN OCR ON FILE ID ---
-            print(f"Running OCR on file_id: {uploaded_file.id}...")
+            # 3. Process with Mistral OCR
             ocr_response = self.client.ocr.process(
-                model="mistral-ocr-latest",
-                document={
-                    "type": "document",
-                    "file_id": uploaded_file.id,
-                    "file_name": filename
-                },
-                include_image_base64=False
+                document={"type": "document_url", "document_url": signed_url.url}, 
+                model="mistral-ocr-latest", 
+                include_image_base64=True
             )
             
-            # --- 5. PROCESS TEXT & EMBEDDINGS ---
             full_document_text = ""
-            for page in ocr_response.pages:
-                page_text = page.markdown
-                full_document_text += page_text + "\n\n"
+            
+            # 4. Iterate over pages and extract MARKDOWN (Reliable)
+            for i, page in enumerate(ocr_response.pages):
+                page_num = i + 1
+                markdown = page.markdown # Use the reliable markdown field
                 
-                # Chunking
-                chunks = [page_text[i:i+1000] for i in range(0, len(page_text), 800)]
+                if not markdown.strip(): continue
+                
+                full_document_text += markdown + "\n"
+                
+                # Chunk the markdown
+                chunks = self._chunk_markdown(markdown)
+                
                 for chunk in chunks:
                     if not chunk.strip(): continue
+                    vector = self.get_embedding(chunk)
+                    
+                    # Insert into DB (bboxes is empty [] for now as Mistral Markdown doesn't provide them directly)
                     self.supabase.table("document_pages").insert({
-                        "document_id": doc_id,
-                        "content": chunk,
-                        "page_number": page.index + 1,
-                        "embedding": self.get_embedding(chunk), # Uses OpenAI
-                        "bboxes": [] 
+                        "document_id": doc_id, 
+                        "page_number": page_num, 
+                        "folder": folder,
+                        "content": chunk, 
+                        "embedding": vector, 
+                        "title": filename, 
+                        "image_url": "",
+                        "bboxes": [] # Safe empty list to satisfy the schema
                     }).execute()
             
-            # --- 6. ROUTING LOGIC (HIRING vs GENERAL) ---
-            final_summary_content = ""
-            clean_folder = folder.strip().lower() if folder else "general"
-            
-            if clean_folder == "hiring kai":
-                print("Running Resume Extraction Pipeline...")
-                structured_data = self._extract_resume_data(full_document_text)
-                text_summary = self._generate_summary(full_document_text)
-                final_summary_content = json.dumps({
-                    "type": "resume",
-                    "structured": structured_data,
-                    "fast_summary": text_summary
-                })
-            else:
-                print("Running Standard Summary Pipeline...")
-                summary = self._generate_summary(full_document_text)
-                final_summary_content = f"**Content Summary:** {summary}\n\nVerified."
-
-            # --- 7. FINALIZE ---
-            self.supabase.table("documents").update({
-                "status": "ready", 
-                "summary": final_summary_content
-            }).eq("id", doc_id).execute()
-            print(f"Success: {doc_id} is ready.")
+            # 5. Generate Summary
+            summary = self._generate_summary(full_document_text)
+            final_summary = f"**Content Summary:** {summary}\n\n---_SEPARATOR_---\n\nVerified."
+            self.supabase.table("documents").update({"status": "ready", "summary": final_summary}).eq("id", doc_id).execute()
             
         except Exception as e:
             print(f"Ingestion Error: {e}")
@@ -152,21 +188,8 @@ class MistralEngine:
         self.supabase.table("document_pages").delete().eq("document_id", doc_id).execute()
         self.supabase.table("documents").delete().eq("id", doc_id).execute()
 
-    def search_single_doc(self, query: str, doc_id: str, limit: int = 5):
-        query_embedding = self.get_embedding(query)
-        try:
-            return self.supabase.rpc("match_document_pages", {
-                "query_embedding": query_embedding,
-                "match_threshold": 0.5,
-                "match_count": limit,
-                "filter_doc_id": doc_id
-            }).execute().data
-        except Exception as e:
-            print(f"Search Error: {e}")
-            return []
-            
-    def get_folder_files(self, folder_name: str):
-        try:
-            res = self.supabase.table("documents").select("id, title, summary").eq("folder", folder_name).execute()
-            return res.data
-        except: return []
+    def debug_document(self, doc_id: str):
+        return {"status": "ok"} 
+
+    def debug_search(self, doc_id: str, query: str):
+        return {"status": "ok"}

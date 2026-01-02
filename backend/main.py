@@ -27,9 +27,7 @@ class ChatRequest(BaseModel):
     document_id: Optional[str] = None 
     folder_name: Optional[str] = None
     mode: Optional[str] = "simple"
-    history: Optional[List[Dict[str, str]]] = []
-    # NEW: Allow frontend to override the brain
-    custom_prompt: Optional[str] = None 
+    history: Optional[List[Dict[str, str]]] = [] 
 
 class FolderRequest(BaseModel):
     name: str
@@ -142,9 +140,7 @@ async def chat(request: ChatRequest):
         relevant_chunks, 
         request.message,
         mode=mode_arg,
-        history=request.history,
-        # PASS CUSTOM PROMPT
-        custom_prompt=request.custom_prompt 
+        history=request.history
     )
     
     return result

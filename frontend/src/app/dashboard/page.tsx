@@ -1,13 +1,11 @@
 "use client";
-import { useState, useEffect, useRef, Suspense } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
 import { 
   Folder, Trash2, Plus, ArrowLeft, ArrowRight,
   X, Send, Loader2, FileClock, BrainCircuit, UploadCloud, 
   LayoutGrid, LogOut, Quote, FileSearch, Mic, StopCircle, Zap,
-  CheckCircle2, AlertCircle, Clock, FileText, ChevronRight, ChevronDown, Maximize2, Settings,
-  Filter, MoreHorizontal, MessageSquare, File, User, GraduationCap, Briefcase, Code2, Phone, Mail
+  CheckCircle2, AlertCircle, Clock, FileText, ChevronRight, ChevronDown, Maximize2
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
@@ -20,29 +18,9 @@ import '@react-pdf-viewer/core/lib/styles/index.css';
 import '@react-pdf-viewer/page-navigation/lib/styles/index.css';
 import '@react-pdf-viewer/search/lib/styles/index.css';
 
+// ⚠️ REPLACE WITH YOUR RENDER URL
 const BACKEND_URL = "https://insightkai.onrender.com";
 const SITE_PASSWORD = "kai2025"; 
-
-// --- DEFAULT PROMPTS ---
-const DEFAULT_DEEP_PROMPT = `You are a Senior Financial Analyst. Answer based ONLY on the provided context.
-You must return a JSON object with two keys:
-1. 'answer': A markdown string formatted strictly as follows:
-   **Executive Summary**
-   [A 2-3 sentence high-level summary of the findings]
-
-   **Key Insights**
-   - **[Insight Title]:** [Detailed explanation of 2-3 sentences. Explain WHY this matters.]
-   - **[Insight Title]:** [Detailed explanation...]
-
-2. 'quotes': An array of strings. Copy the EXACT sentences used to derive the answer.
-   - Rule: Use CONTEXTUAL QUOTING. Do not just quote a number. Quote the full sentence containing the number so it is verifiable.
-   - Aim for 5-7 distinct citations if the text supports it.
-   - Do NOT modify the text inside the quotes.`;
-
-const DEFAULT_FAST_PROMPT = `You are a Digital Librarian. You have access to high-level SUMMARIES of files.
-Goal: Identify which file contains specific info or extract metadata.
-Rules: Be concise. Use the summaries to answer.
-Return JSON: { 'answer': '...', 'quotes': [] }`;
 
 interface Doc {
   id: string;
@@ -59,22 +37,27 @@ interface UploadItem {
   status: 'pending' | 'uploading' | 'completed' | 'error';
 }
 
+// --- TYPEWRITER COMPONENT ---
 const Typewriter = ({ content, animate = false }: { content: string, animate?: boolean }) => {
   const [displayedContent, setDisplayedContent] = useState(animate ? "" : content);
   const hasAnimated = useRef(!animate);
+
   useEffect(() => {
     if (hasAnimated.current) { setDisplayedContent(content); return; }
     let i = -1;
     const speed = 5; 
     const timer = setInterval(() => {
-      i++; if (i <= content.length) setDisplayedContent(content.slice(0, i));
+      i++;
+      if (i <= content.length) setDisplayedContent(content.slice(0, i));
       else { clearInterval(timer); hasAnimated.current = true; }
     }, speed);
     return () => clearInterval(timer);
   }, [content, animate]);
+
   return <ReactMarkdown>{displayedContent}</ReactMarkdown>;
 };
 
+// --- HELPER: Group Citations ---
 const groupCitations = (citations: any[]) => {
     const groups: { [key: string]: { docId: string, source: string, quotes: any[] } } = {};
     citations.forEach(cit => {
@@ -85,15 +68,12 @@ const groupCitations = (citations: any[]) => {
     return Object.values(groups);
 };
 
-function DashboardContent() {
-  const searchParams = useSearchParams();
-  const initialFolder = searchParams.get('folder');
-
+export default function Dashboard() {
   const [folders, setFolders] = useState<string[]>([]);
   const [docs, setDocs] = useState<Doc[]>([]);
-  const [currentFolder, setCurrentFolder] = useState<string | null>(initialFolder);
+  const [currentFolder, setCurrentFolder] = useState<string | null>(null);
   
-  // -- ACTIVE DOC STATE --
+  // -- NEW: ACTIVE DOC STATE (SPLIT VIEW) --
   const [activeDoc, setActiveDoc] = useState<{id: string, title: string, initialQuote?: string, page?: number} | null>(null);
   const [expandedSources, setExpandedSources] = useState<Set<string>>(new Set());
 
@@ -121,20 +101,14 @@ function DashboardContent() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
-  // Prompt Settings
-  const [customPrompt, setCustomPrompt] = useState("");
-  const [showPromptSettings, setShowPromptSettings] = useState(false);
-
-  // Filtering State
-  const [selectedTag, setSelectedTag] = useState<string | null>(null);
-
   // Auth
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
 
-  // --- PDF VIEWER LOGIC ---
+  // --- PDF VIEWER LOGIC (SWARM SEARCH) ---
   const handleDocumentLoad = (e: DocumentLoadEvent) => {
       setPdfDocument(e.doc);
+      // If we opened with a specific quote target, search for it now
       if (activeDoc?.initialQuote && activeDoc?.page) {
           setTimeout(() => performHighlight(activeDoc.initialQuote!, activeDoc.page!), 500);
       }
@@ -142,23 +116,30 @@ function DashboardContent() {
 
   const performHighlight = async (quote: string, pageNum: number) => {
     if (!pdfDocument) return;
+    
+    // 1. Jump to Page
     jumpToPage(pageNum - 1);
+
     try {
+        // 2. Get Page Text
         const page = await pdfDocument.getPage(pageNum);
         const textContent = await page.getTextContent();
         const pageString = textContent.items.map((item: any) => item.str).join(' ').replace(/\s+/g, ' ').toLowerCase();
         
+        // 3. Swarm Search Strategy
         const rawCit = quote.replace(/["“”]/g, "").trim(); 
         const words = rawCit.split(/\s+/);
         let matchFound = false;
         const validKeywords: SingleKeyword[] = [];
 
+        // Cascading Loop (6 words -> 3 words)
         for (let windowSize = 6; windowSize >= 3; windowSize--) {
             if (matchFound) break; 
             let i = 0;
             while (i <= words.length - windowSize) {
                 const chunkWords = words.slice(i, i + windowSize);
                 const chunkString = chunkWords.join(' ');
+                
                 if (pageString.includes(chunkString.toLowerCase())) {
                     validKeywords.push({ keyword: chunkString, matchCase: false });
                     matchFound = true; 
@@ -166,20 +147,28 @@ function DashboardContent() {
                 } else { i++; }
             }
         }
+
+        // Fallback
         if (!matchFound && words.length < 3) {
             if (pageString.includes(rawCit.toLowerCase())) {
                 validKeywords.push({ keyword: rawCit, matchCase: false });
             }
         }
+
         clearHighlights();
         if (validKeywords.length > 0) highlight(validKeywords);
+
     } catch (err) { console.error("Highlight error:", err); }
   };
 
+  // Handle clicking a citation in the sidebar
   const onCitationClick = (docId: string, sourceName: string, quote: string, page: number) => {
+      // 1. Check if we need to switch documents
       if (activeDoc?.id !== docId) {
+          // Switch Doc -> Wait for load -> Highlight happens in onDocumentLoad
           setActiveDoc({ id: docId, title: sourceName, initialQuote: quote, page });
       } else {
+          // Doc already open -> Just highlight
           performHighlight(quote, page);
       }
   };
@@ -264,72 +253,16 @@ function DashboardContent() {
     } catch (e) { alert("Microphone access denied."); }
   };
   const stopRecording = () => { if (mediaRecorderRef.current && isRecording) { mediaRecorderRef.current.stop(); setIsRecording(false); mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop()); } };
-  
-  // -- FIXED: ROBUST UPLOAD HANDLER --
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => { 
-      if (!e.target.files || e.target.files.length === 0) return; 
-      
-      const newFiles = Array.from(e.target.files).map(file => ({ 
-          id: Math.random().toString(36).substr(2, 9), 
-          file, 
-          status: 'pending' as const 
-      }));
-
-      setUploadQueue(prev => [...prev, ...newFiles]); 
-      
-      // Reset input to allow selecting same file again
-      if (fileInputRef.current) fileInputRef.current.value = ''; 
-  };
-  
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => { if (!e.target.files) return; setUploadQueue(prev => [...prev, ...Array.from(e.target.files!).map(file => ({ id: Math.random().toString(36).substr(2, 9), file, status: 'pending' as const }))]); if (fileInputRef.current) fileInputRef.current.value = ''; };
   const cancelUploads = () => setUploadQueue(prev => prev.filter(i => i.status !== 'pending'));
   const clearCompleted = () => setUploadQueue([]);
-  
-  // PARSING
-  const parseSummary = (rawSummary: string) => { 
-      if (!rawSummary) return { tag: "General", desc: "No description available." }; 
-      const tagMatch = rawSummary.match(/\[TAG\]:\s*(.*?)(?=\n|\[|$)/i); 
-      const descMatch = rawSummary.match(/\[DESC\]:\s*(.*?)(?=\n|\[|$)/i); 
-      return { 
-          tag: tagMatch ? tagMatch[1].trim() : "General", 
-          desc: descMatch ? descMatch[1].trim() : (rawSummary.slice(0, 100) + "...")
-      }; 
-  };
-
-  // -- UPDATED: NEUTRAL COLORS (MAC STYLE) --
-  const getTagStyle = (tag: string) => { 
-      const t = tag.toUpperCase();
-      if(t.includes("INVOICE")) return 'bg-gray-100 text-gray-700 border-gray-200';
-      if(t.includes("RESEARCH") || t.includes("PAPER")) return 'bg-zinc-50 text-zinc-700 border-zinc-200';
-      if(t.includes("FINANC")) return 'bg-slate-50 text-slate-700 border-slate-200';
-      if(t.includes("LEGAL")) return 'bg-gray-50 text-gray-800 border-gray-300';
-      return 'bg-gray-50 text-gray-600 border-gray-200';
-  };
-
-  // RESUME PARSER
-const safeParseResume = (jsonStr: string) => {
-    if (!jsonStr) return null;
-    try {
-        // Handle cases where the JSON might be wrapped in markdown code blocks
-        const cleanStr = jsonStr.replace(/```json/g, "").replace(/```/g, "").trim();
-        const parsed = JSON.parse(cleanStr);
-        if (parsed.structured) return parsed.structured;
-        // Fallback: maybe the whole object IS the structured data?
-        if (parsed.name && parsed.email) return parsed;
-    } catch (e) {
-        console.error("Failed to parse resume JSON:", e);
-    }
-    return null;
-};
+  const parseSummary = (rawSummary: string) => { if (!rawSummary) return { tag: null, desc: null }; const tagMatch = rawSummary.match(/\[TAG\]:\s*(.*?)(?=\n|\[|$)/i); const descMatch = rawSummary.match(/\[DESC\]:\s*(.*?)(?=\n|\[|$)/i); return { tag: tagMatch ? tagMatch[1].trim().toUpperCase() : "FILE", desc: descMatch ? descMatch[1].trim() : "No description." }; };
+  const getTagColor = (tag: string) => { const colors: any = { 'INVOICE': 'bg-rose-50 text-rose-600 border-rose-200', 'RESEARCH': 'bg-purple-50 text-purple-600 border-purple-200', 'FINANCIAL': 'bg-emerald-50 text-emerald-600 border-emerald-200', 'LEGAL': 'bg-blue-50 text-blue-600 border-blue-200', 'RECEIPT': 'bg-amber-50 text-amber-600 border-amber-200', 'OTHER': 'bg-gray-50 text-gray-600 border-gray-200' }; return colors[tag] || colors['OTHER']; };
 
   // --- CHAT ---
   const toggleChat = (mode: 'simple' | 'deep') => {
-    if (chatMode === mode) {
-        setChatMode(null);
-        setShowPromptSettings(false);
-    } else {
-        setChatMode(mode);
-        setCustomPrompt(mode === 'deep' ? DEFAULT_DEEP_PROMPT : DEFAULT_FAST_PROMPT);
-    }
+    if (chatMode === mode) setChatMode(null);
+    else setChatMode(mode);
   };
 
   const sendFolderMessage = async () => {
@@ -345,13 +278,7 @@ const safeParseResume = (jsonStr: string) => {
       const res = await fetch(`${BACKEND_URL}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-            message: msgToSend, 
-            folder_name: currentFolder, 
-            mode: chatMode, 
-            history: historyPayload,
-            custom_prompt: customPrompt
-        }),
+        body: JSON.stringify({ message: msgToSend, folder_name: currentFolder, mode: chatMode, history: historyPayload }),
       });
       const data = await res.json();
       setChatMessages(prev => [...prev, { role: 'ai', content: data.answer, citations: data.citations || [] }]);
@@ -369,22 +296,14 @@ const safeParseResume = (jsonStr: string) => {
     </div>
   );
 
-  // Filter Logic
-  const filteredDocs = docs.filter(d => d.folder === currentFolder);
-  const uniqueTags = Array.from(new Set(filteredDocs.map(d => parseSummary(d.summary).tag))).filter(t => t);
-  const displayedDocs = selectedTag ? filteredDocs.filter(d => parseSummary(d.summary).tag === selectedTag) : filteredDocs;
-
-  // VIEW MODE SWITCHER (Resume vs Standard)
-  const isResumeMode = currentFolder === "Hiring Kai";
-
   return (
-    <div className="flex h-screen bg-[#F9FAFB] overflow-hidden font-sans text-gray-900 relative">
+    <div className="flex h-screen bg-[#F3F4F6] overflow-hidden font-sans text-gray-900 relative">
       
       {/* 1. SIDEBAR NAVIGATION */}
       <aside className="w-20 bg-white border-r border-gray-200 flex flex-col items-center py-8 gap-8 z-20 shrink-0">
         <Link href="/" className="w-10 h-10 bg-black rounded-xl flex items-center justify-center text-white font-serif italic font-bold text-xl shadow-lg">κ</Link>
         <div className="flex flex-col gap-4">
-            <button onClick={() => { setCurrentFolder(null); setChatMode(null); setActiveDoc(null); }} className={`p-3 rounded-xl transition ${!currentFolder ? 'bg-zinc-100 text-black' : 'text-gray-400 hover:bg-gray-50'}`}>
+            <button onClick={() => { setCurrentFolder(null); setChatMode(null); setActiveDoc(null); }} className={`p-3 rounded-xl transition ${!currentFolder ? 'bg-blue-50 text-blue-600' : 'text-gray-400 hover:bg-gray-50'}`}>
                 <LayoutGrid size={24} />
             </button>
         </div>
@@ -393,7 +312,7 @@ const safeParseResume = (jsonStr: string) => {
         </div>
       </aside>
 
-      {/* 2. MAIN CONTENT AREA */}
+      {/* 2. MAIN CONTENT AREA (Split: Grid OR PDF) */}
       <div className={`flex-1 overflow-hidden transition-all duration-500 ${chatMode ? 'mr-[400px]' : ''} flex flex-col relative`}>
         
         {/* VIEW 1: PDF VIEWER (Active Doc) */}
@@ -419,102 +338,60 @@ const safeParseResume = (jsonStr: string) => {
                 </div>
             </div>
         ) : (
-            /* VIEW 2: DASHBOARD (FOLDERS OR FILE TABLE) */
-            <div className="flex-1 flex flex-col h-full overflow-hidden">
-                {/* Header Section */}
-                <div className="px-8 pt-8 pb-4 shrink-0">
-                    <div className="flex justify-between items-center mb-6">
-                        <div className="flex items-center gap-4">
-                            {currentFolder && (
-                                <button onClick={() => { setCurrentFolder(null); setChatMode(null); }} className="p-2 bg-white border border-gray-200 text-gray-500 hover:text-black rounded-full shadow-sm"><ArrowLeft size={20} /></button>
-                            )}
-                            <div>
-                                <h1 className="text-3xl font-bold tracking-tight text-gray-900 line-clamp-1">{currentFolder || "My Library"}</h1>
-                                <p className="text-xs text-gray-400 font-medium uppercase tracking-wider mt-1">{currentFolder ? "Folder View" : "Dashboard"}</p>
+            /* VIEW 2: DASHBOARD GRID */
+            <div className="flex-1 p-8 overflow-y-auto">
+                <div className="max-w-7xl mx-auto">
+                    <header className="flex flex-col gap-6 mb-10">
+                        <div className="flex justify-between items-center">
+                            <div className="flex items-center gap-4">
+                                {currentFolder && (
+                                    <button onClick={() => { setCurrentFolder(null); setChatMode(null); }} className="p-2 bg-white border border-gray-200 text-gray-500 hover:text-black rounded-full shadow-sm"><ArrowLeft size={20} /></button>
+                                )}
+                                <div>
+                                    <h1 className="text-3xl font-bold tracking-tight text-gray-900 line-clamp-1">{currentFolder || "My Library"}</h1>
+                                    <p className="text-xs text-gray-400 font-medium uppercase tracking-wider mt-1">{currentFolder ? "Folder View" : "Dashboard"}</p>
+                                </div>
+                            </div>
+                            
+                            <div className="flex gap-3">
+                                {!currentFolder && (
+                                    <button onClick={() => setShowNewFolderInput(true)} className="flex items-center gap-2 bg-white border border-gray-200 px-5 py-2.5 rounded-full hover:shadow-md transition text-sm font-bold"><Plus size={16} /> New Folder</button>
+                                )}
                             </div>
                         </div>
-                        
-                        <div className="flex gap-3">
-                            {!currentFolder && (
-                                <button onClick={() => setShowNewFolderInput(true)} className="flex items-center gap-2 bg-black text-white px-5 py-2.5 rounded-full hover:shadow-lg hover:scale-105 transition text-sm font-bold"><Plus size={16} /> New Folder</button>
-                            )}
-                        </div>
-                    </div>
 
-                    {/* NEW: FILTER BAR FOR FILES */}
-                    {currentFolder && (
-                        <div className="flex flex-col gap-4">
-                            {/* Action Row */}
-                            <div className="flex items-center gap-3 flex-wrap">
-                                
-                                {/* --- FIXED UPLOAD BUTTON (Separate Input from Button) --- */}
-                                <input 
-                                    ref={fileInputRef} 
-                                    type="file" 
-                                    className="hidden" 
-                                    accept=".pdf" 
-                                    multiple 
-                                    onChange={handleFileSelect} 
-                                />
-                                <button 
-                                    onClick={() => fileInputRef.current?.click()}
-                                    className="flex items-center justify-center gap-2 bg-black text-white px-5 py-3 rounded-xl hover:bg-gray-800 transition shadow-lg text-sm font-bold min-w-[160px] flex-1 active:scale-95"
-                                >
-                                    <UploadCloud size={16} /> {isResumeMode ? "Upload Resumes" : "Upload PDFs"}
+                        {currentFolder && (
+                            <div className="flex flex-wrap gap-3">
+                                <button onClick={() => toggleChat('simple')} className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition text-sm font-bold border shadow-sm ${chatMode === 'simple' ? 'bg-black text-white border-black ring-2 ring-black/20' : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-700'}`}>
+                                    <Zap size={16} className={chatMode === 'simple' ? "fill-white" : "fill-none"} /> Fast Chat
                                 </button>
-
-                                <button onClick={() => toggleChat('simple')} className={`flex-1 min-w-[140px] flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition text-sm font-bold border shadow-sm ${chatMode === 'simple' ? 'bg-white text-black border-black ring-2 ring-black/10' : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-700'}`}>
-                                    <Zap size={16} className={chatMode === 'simple' ? "fill-black" : "fill-none"} /> Fast Chat
-                                </button>
-                                <button onClick={() => toggleChat('deep')} className={`flex-1 min-w-[140px] flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition text-sm font-bold border shadow-sm ${chatMode === 'deep' ? 'bg-white text-black border-black ring-2 ring-black/10' : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-700'}`}>
+                                <button onClick={() => toggleChat('deep')} className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition text-sm font-bold border shadow-sm ${chatMode === 'deep' ? 'bg-black text-white border-black ring-2 ring-black/20' : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-700'}`}>
                                     <BrainCircuit size={16} /> Deep Chat
                                 </button>
+                                
+                                <label className="flex items-center justify-center gap-2 bg-blue-600 text-white px-5 py-3 rounded-xl cursor-pointer hover:bg-blue-700 transition shadow-lg shadow-blue-200 text-sm font-bold relative overflow-hidden min-w-[140px]">
+                                    <><UploadCloud size={16} /> Upload PDFs</>
+                                    <input ref={fileInputRef} type="file" className="hidden" accept=".pdf" multiple onChange={handleFileSelect} />
+                                </label>
                             </div>
+                        )}
+                    </header>
 
-                            {/* Tag Filters (Only for Standard View) */}
-                            {!isResumeMode && uniqueTags.length > 0 && (
-                                <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-                                    <button 
-                                        onClick={() => setSelectedTag(null)}
-                                        className={`px-3 py-1.5 rounded-full text-xs font-medium border transition whitespace-nowrap ${!selectedTag ? 'bg-black text-white border-black' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
-                                    >
-                                        All Files
-                                    </button>
-                                    {uniqueTags.map(tag => (
-                                        <button 
-                                            key={tag}
-                                            onClick={() => setSelectedTag(tag === selectedTag ? null : tag)}
-                                            className={`px-3 py-1.5 rounded-full text-xs font-medium border transition whitespace-nowrap ${selectedTag === tag ? 'bg-black text-white border-black' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
-                                        >
-                                            {tag}
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    )}
-                </div>
-
-                {/* NEW FOLDER INPUT */}
-                {showNewFolderInput && (
-                    <div className="px-8 pb-6 animate-in fade-in slide-in-from-top-4">
-                        <div className="flex gap-3">
+                    {showNewFolderInput && (
+                        <div className="mb-8 flex gap-3 animate-in fade-in slide-in-from-top-4">
                             <input className="border-2 border-gray-200 p-3 rounded-2xl w-72 shadow-sm focus:outline-none focus:border-black transition" placeholder="Folder Name..." value={newFolderName} onChange={e => setNewFolderName(e.target.value)} autoFocus />
                             <button onClick={handleCreateFolder} className="bg-black text-white px-6 rounded-2xl font-bold">Create</button>
                             <button onClick={() => setShowNewFolderInput(false)} className="text-gray-400 px-4 hover:text-black">Cancel</button>
                         </div>
-                    </div>
-                )}
+                    )}
 
-                {/* CONTENT: FOLDER GRID or FILE TABLE */}
-                <div className="flex-1 overflow-y-auto px-4 md:px-8 pb-8">
-                    {!currentFolder ? (
-                        /* FOLDERS GRID */
+                    {!currentFolder && (
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                             {folders.map(folder => (
                                 <div key={folder} onClick={() => setCurrentFolder(folder)} className="group bg-white p-6 rounded-[2rem] border border-gray-200 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all cursor-pointer relative overflow-hidden">
+                                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-purple-500 opacity-0 group-hover:opacity-100 transition"></div>
                                     <div className="flex justify-between items-start mb-4">
-                                        <div className="w-12 h-12 bg-gray-50 rounded-2xl flex items-center justify-center text-gray-700 group-hover:bg-zinc-100 group-hover:text-black transition"><Folder size={24} fill="currentColor" className="text-gray-300 group-hover:text-gray-400" /></div>
+                                        <div className="w-12 h-12 bg-gray-50 rounded-2xl flex items-center justify-center text-gray-700 group-hover:bg-blue-50 group-hover:text-blue-600 transition"><Folder size={24} fill="currentColor" className="text-gray-300 group-hover:text-blue-200" /></div>
                                         {folder !== "General" && <button onClick={(e) => handleDeleteFolder(folder, e)} className="text-gray-300 hover:text-red-500 transition"><Trash2 size={16}/></button>}
                                     </div>
                                     <h3 className="font-bold text-lg text-gray-900 mb-1">{folder}</h3>
@@ -522,113 +399,56 @@ const safeParseResume = (jsonStr: string) => {
                                 </div>
                             ))}
                         </div>
-                    ) : (
-                        <div className="bg-white border border-gray-200 rounded-3xl shadow-sm overflow-hidden">
-                            <table className="w-full text-left border-collapse">
-                                {/* DYNAMIC HEADERS */}
-                                <thead>
-                                    <tr className="bg-gray-50/50 border-b border-gray-100 text-left">
-                                        <th className="py-4 px-6 text-xs font-bold text-gray-400 uppercase tracking-wider w-[25%]">Name</th>
-                                        {isResumeMode ? (
-                                            <>
-                                                <th className="py-4 px-6 text-xs font-bold text-gray-400 uppercase tracking-wider w-[20%]">Contact</th>
-                                                <th className="py-4 px-6 text-xs font-bold text-gray-400 uppercase tracking-wider w-[20%]">Education</th>
-                                                <th className="py-4 px-6 text-xs font-bold text-gray-400 uppercase tracking-wider w-[20%]">Experience</th>
-                                                <th className="py-4 px-6 text-xs font-bold text-gray-400 uppercase tracking-wider w-[15%]">Skills</th>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <th className="py-4 px-6 text-xs font-bold text-gray-400 uppercase tracking-wider w-[40%]">Summary</th>
-                                                <th className="py-4 px-6 text-xs font-bold text-gray-400 uppercase tracking-wider w-[15%]">Tag</th>
-                                            </>
-                                        )}
-                                        <th className="py-4 px-6 text-xs font-bold text-gray-400 uppercase tracking-wider text-right">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-50">
-                                    {displayedDocs.map((doc) => {
-                                        const resumeData = isResumeMode ? safeParseResume(doc.summary) : null;
-                                        const { tag, desc } = parseSummary(doc.summary);
+                    )}
 
-                                        return (
-                                            <tr key={doc.id} onClick={() => setActiveDoc({id: doc.id, title: doc.title})} className="group hover:bg-gray-50 transition-colors cursor-pointer">
-                                                {/* 1. Name Column */}
-                                                <td className="py-4 px-6 align-top">
-                                                    <div className="flex items-start gap-3">
-                                                        <div className="w-8 h-8 rounded-lg bg-gray-50 text-gray-400 flex items-center justify-center shrink-0 border border-gray-200">
-                                                            {doc.status === 'processing' ? <Loader2 size={16} className="animate-spin"/> : (isResumeMode ? <User size={16} /> : <FileText size={16} />)}
-                                                        </div>
-                                                        <div className="min-w-0">
-                                                            <div className="font-bold text-sm text-gray-900 line-clamp-1">{resumeData ? resumeData.name : doc.title}</div>
-                                                            <div className="text-[10px] text-gray-400 font-medium mt-0.5 flex items-center gap-1 tabular-nums">
-                                                                <Clock size={10} /> {doc.upload_date}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </td>
-
-                                                {/* 2. Dynamic Content Columns */}
-                                                {isResumeMode && resumeData ? (
-                                                    <>
-                                                        <td className="py-4 px-6 align-top text-xs text-gray-500">
-                                                            <div className="flex flex-col gap-1">
-                                                                <span className="flex items-center gap-1"><Mail size={10}/> {resumeData.email}</span>
-                                                                <span className="flex items-center gap-1"><Phone size={10}/> {resumeData.phone}</span>
-                                                            </div>
-                                                        </td>
-                                                        <td className="py-4 px-6 align-top text-xs text-gray-600 leading-relaxed"><div className="line-clamp-3">{resumeData.education}</div></td>
-                                                        <td className="py-4 px-6 align-top text-xs text-gray-600 leading-relaxed"><div className="line-clamp-3">{resumeData.experience}</div></td>
-                                                        <td className="py-4 px-6 align-top">
-                                                            <div className="flex flex-wrap gap-1">
-                                                                {resumeData.skills?.split(',').slice(0,3).map((s:string, i:number) => (
-                                                                    <span key={i} className="px-1.5 py-0.5 bg-gray-100 rounded text-[10px] border border-gray-200 whitespace-nowrap">{s.trim()}</span>
-                                                                ))}
-                                                            </div>
-                                                        </td>
-                                                    </>
-                                                ) : (
-                                                    // Standard View
-                                                    <>
-                                                        <td className="py-4 px-6 align-top">
-                                                            <p className="text-xs text-gray-500 line-clamp-2 leading-relaxed">{desc}</p>
-                                                        </td>
-                                                        <td className="py-4 px-6 align-top">
-                                                            <span className={`inline-block px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide border ${getTagStyle(tag)}`}>
-                                                                {tag}
-                                                            </span>
-                                                        </td>
-                                                    </>
-                                                )}
-
-                                                <td className="py-4 px-6 align-top text-right">
-                                                    <div className="flex items-center justify-end gap-2">
-                                                        {doc.status !== 'processing' && (
-                                                            <Link href={`/chat/${doc.id}`} onClick={(e) => e.stopPropagation()}>
-                                                                <button className="px-3 py-1.5 bg-black text-white text-[10px] font-bold rounded-lg hover:scale-105 transition shadow-sm flex items-center gap-1.5" title="Chat with this Doc">
-                                                                    <MessageSquare size={12} /> Chat
-                                                                </button>
-                                                            </Link>
-                                                        )}
-                                                        <button 
-                                                            onClick={(e) => handleDelete(doc.id, e)} 
-                                                            className="p-1.5 bg-white border border-gray-200 text-gray-400 rounded-lg hover:bg-red-50 hover:text-red-500 hover:border-red-200 transition shadow-sm"
-                                                            title="Delete"
-                                                        >
-                                                            <Trash2 size={14} />
+                    {currentFolder && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                            {docs.filter(doc => doc.folder === currentFolder).map((doc) => {
+                                const { tag, desc } = parseSummary(doc.summary);
+                                return (
+                                    <div key={doc.id} className="group bg-white p-5 rounded-3xl border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all flex items-start gap-4 relative overflow-hidden h-full">
+                                        {doc.status === 'processing' && <div className="absolute top-0 left-0 w-full h-1 bg-blue-100"><div className="h-full bg-blue-500 animate-progress origin-left"></div></div>}
+                                        
+                                        {/* ACTIONS COLUMN - UPDATED */}
+                                        <div className="flex flex-col gap-2 shrink-0 pt-1">
+                                            {doc.status !== 'processing' ? (
+                                                <>
+                                                    {/* 1. CHAT (Restored Primary Action) */}
+                                                    <Link href={`/chat/${doc.id}`} title="Chat with document">
+                                                        <button className="w-10 h-10 bg-black text-white rounded-xl flex items-center justify-center shadow-lg hover:bg-gray-800 hover:scale-105 transition">
+                                                            <ArrowRight size={18} className="-rotate-45" />
                                                         </button>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
-                            {displayedDocs.length === 0 && (
-                                <div className="py-16 flex flex-col items-center justify-center text-center text-gray-400">
-                                    <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mb-3">
-                                        <FileSearch size={24} className="opacity-20" />
+                                                    </Link>
+                                                    
+                                                    {/* 2. READ IN DASHBOARD (Secondary Action) */}
+                                                    <button onClick={() => setActiveDoc({id: doc.id, title: doc.title})} className="w-10 h-10 bg-blue-50 text-blue-600 border border-blue-100 rounded-xl flex items-center justify-center shadow-sm hover:bg-blue-100 transition" title="Read in Split View">
+                                                        <Maximize2 size={18} />
+                                                    </button>
+                                                </>
+                                            ) : (
+                                                <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center"><Loader2 size={18} className="animate-spin text-gray-400"/></div>
+                                            )}
+                                            
+                                            <button onClick={(e) => handleDelete(doc.id, e)} className="w-10 h-10 bg-white border border-gray-200 text-gray-400 hover:text-red-500 hover:bg-red-50 hover:border-red-100 rounded-xl flex items-center justify-center transition mt-auto" title="Delete">
+                                                <Trash2 size={18} />
+                                            </button>
+                                        </div>
+
+                                        <div className="min-w-0 flex-1 border-l border-gray-100 pl-4 py-1">
+                                            <div className="flex items-start gap-2 mb-2 flex-wrap">
+                                                <h3 className="font-bold text-gray-900 text-sm leading-snug break-words">{doc.title}</h3>
+                                                {tag && <span className={`shrink-0 px-2 py-0.5 rounded-lg text-[10px] font-extrabold border uppercase tracking-wider ${getTagColor(tag)}`}>{tag}</span>}
+                                            </div>
+                                            <p className="text-xs text-gray-500 leading-relaxed whitespace-normal break-words">{desc}</p>
+                                            <div className="flex gap-4 mt-4 text-[10px] font-bold text-gray-300 uppercase tracking-widest"><span className="flex items-center gap-1"><FileClock size={10}/> {doc.upload_date}</span></div>
+                                        </div>
                                     </div>
-                                    <p className="text-sm font-medium">No files found.</p>
+                                );
+                            })}
+                            {docs.filter(doc => doc.folder === currentFolder).length === 0 && (
+                                <div className="col-span-full flex flex-col items-center justify-center py-20 border-2 border-dashed border-gray-200 rounded-3xl text-gray-400">
+                                    <UploadCloud size={40} className="mb-4 text-gray-300"/>
+                                    <p className="font-medium">No files yet.</p>
                                 </div>
                             )}
                         </div>
@@ -651,19 +471,7 @@ const safeParseResume = (jsonStr: string) => {
                       <button onClick={clearCompleted} className="hover:text-gray-300"><X size={14}/></button>
                   </div>
               </div>
-              <div className="max-h-48 overflow-y-auto p-2 space-y-1">
-                  {uploadQueue.map((item) => (
-                      <div key={item.id} className="flex items-center justify-between p-2 rounded-lg bg-gray-50 text-xs">
-                          <span className="truncate max-w-[180px] font-medium text-gray-700">{item.file.name}</span>
-                          <span>
-                              {item.status === 'pending' && <Clock size={14} className="text-gray-400" />}
-                              {item.status === 'uploading' && <Loader2 size={14} className="animate-spin text-blue-500" />}
-                              {item.status === 'completed' && <CheckCircle2 size={14} className="text-green-500" />}
-                              {item.status === 'error' && <AlertCircle size={14} className="text-red-500" />}
-                          </span>
-                      </div>
-                  ))}
-              </div>
+              {/* Queue items... */}
           </div>
       )}
 
@@ -671,7 +479,7 @@ const safeParseResume = (jsonStr: string) => {
       <aside className={`fixed top-0 right-0 h-full w-[400px] bg-white/90 backdrop-blur-2xl border-l border-gray-200 shadow-2xl z-30 transform transition-transform duration-500 ${chatMode ? 'translate-x-0' : 'translate-x-full'} flex flex-col`}>
         <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-white/80">
             <div className="flex items-center gap-3">
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-white shadow-md ${chatMode === 'simple' ? 'bg-black' : 'bg-gradient-to-br from-gray-700 to-gray-900'}`}>
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-white shadow-md ${chatMode === 'simple' ? 'bg-black' : 'bg-gradient-to-br from-blue-600 to-purple-600'}`}>
                     {chatMode === 'simple' ? <Zap size={16} /> : <BrainCircuit size={16} />}
                 </div>
                 <div>
@@ -679,24 +487,8 @@ const safeParseResume = (jsonStr: string) => {
                     <p className="text-xs text-gray-400 font-medium">{chatMode === 'simple' ? "Instant answers" : "Full analysis"}</p>
                 </div>
             </div>
-            <div className="flex items-center gap-1">
-                <button onClick={() => setShowPromptSettings(!showPromptSettings)} className={`p-2 rounded-full transition ${showPromptSettings ? 'bg-black text-white' : 'hover:bg-gray-100 text-gray-400'}`}>
-                    <Settings size={18} />
-                </button>
-                <button onClick={() => setChatMode(null)} className="p-2 hover:bg-gray-100 rounded-full transition"><X size={20} className="text-gray-400"/></button>
-            </div>
+            <button onClick={() => setChatMode(null)} className="p-2 hover:bg-gray-100 rounded-full transition"><X size={20} className="text-gray-400"/></button>
         </div>
-
-        {showPromptSettings && (
-            <div className="bg-gray-50 p-4 border-b border-gray-200 animate-in slide-in-from-top-2">
-                <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">System Instructions (The Brain)</p>
-                <textarea 
-                    className="w-full text-xs font-mono p-3 rounded-xl border border-gray-300 focus:border-black focus:ring-0 h-32 bg-white"
-                    value={customPrompt}
-                    onChange={(e) => setCustomPrompt(e.target.value)}
-                />
-            </div>
-        )}
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6 scroll-smooth">
             {chatMessages.map((m, i) => (
@@ -705,6 +497,7 @@ const safeParseResume = (jsonStr: string) => {
                         {m.role === 'ai' ? <div className="prose prose-sm"><Typewriter content={m.content} animate={i === chatMessages.length - 1} /></div> : <div className="prose prose-sm prose-invert"><ReactMarkdown>{m.content}</ReactMarkdown></div>}
                     </div>
                     
+                    {/* CITATIONS */}
                     {m.role === 'ai' && m.citations && m.citations.length > 0 && (
                         <div className="mt-4 w-full animate-in fade-in slide-in-from-top-2 duration-500 space-y-4">
                             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1"><Quote size={10} /> Verified Sources</p>
@@ -718,7 +511,7 @@ const safeParseResume = (jsonStr: string) => {
                                     <div key={gIdx} className="bg-gray-50 border border-gray-200 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-all">
                                         <div onClick={() => onCitationClick(group.docId, group.source, group.quotes[0].content, group.quotes[0].page)} className="bg-white border-b border-gray-100 px-3 py-2 flex items-center justify-between cursor-pointer hover:bg-blue-50 transition group/header">
                                             <div className="flex items-center gap-2 overflow-hidden">
-                                                <div className="bg-gray-100 p-1 rounded text-gray-600"><FileText size={12}/></div>
+                                                <div className="bg-blue-100 p-1 rounded text-blue-600"><FileText size={12}/></div>
                                                 <span className="text-xs font-bold text-gray-700 truncate">{group.source}</span>
                                             </div>
                                             <ChevronRight size={14} className="text-gray-300 group-hover/header:text-blue-500"/>
@@ -734,6 +527,7 @@ const safeParseResume = (jsonStr: string) => {
                                                 </div>
                                             ))}
                                             
+                                            {/* EXPAND BUTTON */}
                                             {hiddenCount > 0 && !isExpanded && (
                                                 <button onClick={() => toggleSourceExpansion(groupKey)} className="w-full p-2 text-center text-[10px] text-gray-400 font-bold uppercase tracking-wider hover:bg-gray-100 hover:text-black transition flex items-center justify-center gap-1">
                                                     <ChevronDown size={10} /> Show {hiddenCount} more
@@ -763,13 +557,5 @@ const safeParseResume = (jsonStr: string) => {
         </div>
       </aside>
     </div>
-  );
-}
-
-export default function Dashboard() {
-  return (
-    <Suspense fallback={<div className="flex items-center justify-center h-screen"><Loader2 className="animate-spin text-gray-400" /></div>}>
-      <DashboardContent />
-    </Suspense>
   );
 }
