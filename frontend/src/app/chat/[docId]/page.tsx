@@ -62,11 +62,10 @@ const groupCitations = (citations: any[]) => {
 };
 
 export default function ChatPage({ params }: { params: any }) {
-  // SAFE UNWRAP PARAMS
+  // SAFE UNWRAP PARAMS (Compatible with Next 13, 14, 15)
   const [docId, setDocId] = useState<string>("");
   
   useEffect(() => {
-    // Handle both Promise (Next 15) and Object (Next 14) params
     Promise.resolve(params).then((p) => setDocId(p.docId));
   }, [params]);
 
@@ -192,7 +191,7 @@ export default function ChatPage({ params }: { params: any }) {
     finally { setIsLoading(false); }
   };
 
-  if (!docId) return <div className="flex h-screen items-center justify-center"><Loader2 className="animate-spin"/></div>;
+  if (!docId) return <div className="flex h-screen items-center justify-center"><Loader2 className="animate-spin text-gray-400"/></div>;
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden font-sans">

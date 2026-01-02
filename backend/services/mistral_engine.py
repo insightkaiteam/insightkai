@@ -50,7 +50,7 @@ class MistralEngine:
                 model="gpt-4o-mini",
                 messages=[
                     {"role": "system", "content": prompt},
-                    {"role": "user", "content": text[:20000]} 
+                    {"role": "user", "content": text[:25000]} # Increased context window
                 ],
                 response_format={"type": "json_object"}
             )
@@ -64,17 +64,32 @@ class MistralEngine:
         try:
             print(f"Processing File: {filename} in Folder: {folder}")
             
-            # 1. Upload Source PDF
+            # 1. Upload Source PDF to Supabase (Storage)
             self.supabase.storage.from_("document-pages").upload(f"{doc_id}/source.pdf", file_bytes, {"content-type": "application/pdf"})
             
-            # 2. Mistral OCR
+            # 2. Upload to Mistral (REQUIRED for OCR)
+            # We must upload the file to Mistral first to get a file_id
+            print("Uploading to Mistral...")
+            uploaded_file = self.client.files.upload(
+                file={
+                    "file_name": filename,
+                    "content": io.BytesIO(file_bytes),
+                },
+                purpose="ocr"
+            )
+            
+            # 3. Mistral OCR
+            print(f"Running OCR on file_id: {uploaded_file.id}...")
             ocr_response = self.client.ocr.process(
                 model="mistral-ocr-latest",
-                document={"file_name": filename, "content": file_bytes},
+                document={
+                    "type": "document",
+                    "file_id": uploaded_file.id
+                },
                 include_image_base64=False
             )
             
-            # 3. Aggregate Text & Save Vectors
+            # 4. Aggregate Text & Save Vectors
             full_document_text = ""
             for page in ocr_response.pages:
                 page_text = page.markdown
@@ -91,9 +106,9 @@ class MistralEngine:
                         "bboxes": [] 
                     }).execute()
             
-            # 4. ROBUST ROUTING LOGIC (Case Insensitive)
+            # 5. ROBUST ROUTING LOGIC (Case Insensitive)
             final_summary_content = ""
-            clean_folder = folder.strip().lower() # Normalize
+            clean_folder = folder.strip().lower()
             
             if clean_folder == "hiring kai":
                 print("Running Resume Extraction Pipeline...")
@@ -109,7 +124,7 @@ class MistralEngine:
                 summary = self._generate_summary(full_document_text)
                 final_summary_content = f"**Content Summary:** {summary}\n\nVerified."
 
-            # 5. Update Status
+            # 6. Update Status
             self.supabase.table("documents").update({
                 "status": "ready", 
                 "summary": final_summary_content
@@ -137,7 +152,6 @@ class MistralEngine:
     def search_single_doc(self, query: str, doc_id: str, limit: int = 5):
         query_embedding = self.get_embedding(query)
         try:
-            # THIS RPC MUST MATCH THE SQL ABOVE
             return self.supabase.rpc("match_document_pages", {
                 "query_embedding": query_embedding,
                 "match_threshold": 0.5,
