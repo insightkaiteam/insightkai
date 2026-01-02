@@ -1,15 +1,11 @@
 "use client";
-import { useState, useEffect, useRef, Suspense } from 'react';
-import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
-import { 
-  Folder, Trash2, Plus, ArrowLeft, ArrowRight,
-  X, Send, Loader2, FileClock, BrainCircuit, UploadCloud, 
-  LayoutGrid, LogOut, Quote, FileSearch, Mic, StopCircle, Zap,
-  CheckCircle2, AlertCircle, Clock, FileText, ChevronRight, ChevronDown, Maximize2, Settings,
-  Filter, MoreHorizontal, MessageSquare, File as FileIcon, User, GraduationCap, Briefcase, Code2, Phone, Mail
-} from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
+import { Mic, Send, ArrowLeft, StopCircle, Loader2, Quote, MapPin, FileText, ChevronRight, Settings } from 'lucide-react';
+import Link from 'next/link';
 
 // PDF VIEWER IMPORTS
 import { Worker, Viewer, DocumentLoadEvent } from '@react-pdf-viewer/core';
@@ -20,11 +16,9 @@ import '@react-pdf-viewer/core/lib/styles/index.css';
 import '@react-pdf-viewer/page-navigation/lib/styles/index.css';
 import '@react-pdf-viewer/search/lib/styles/index.css';
 
-const BACKEND_URL = "https://insightkai.onrender.com";
-const SITE_PASSWORD = "kai2025"; 
+const BACKEND_URL = "https://insightkai.onrender.com"; 
 
-// --- DEFAULT PROMPTS ---
-const DEFAULT_DEEP_PROMPT = `You are a Senior Financial Analyst. Answer based ONLY on the provided context.
+const DEFAULT_SINGLE_DOC_PROMPT = `You are a Senior Financial Analyst. Answer based ONLY on the provided context.
 You must return a JSON object with two keys:
 1. 'answer': A markdown string formatted strictly as follows:
    **Executive Summary**
@@ -39,40 +33,6 @@ You must return a JSON object with two keys:
    - Aim for 5-7 distinct citations if the text supports it.
    - Do NOT modify the text inside the quotes.`;
 
-const DEFAULT_FAST_PROMPT = `You are a Digital Librarian. You have access to high-level SUMMARIES of files.
-Goal: Identify which file contains specific info or extract metadata.
-Rules: Be concise. Use the summaries to answer.
-Return JSON: { 'answer': '...', 'quotes': [] }`;
-
-// --- CONFIGURATION FOR FOLDER VIEWS ---
-const FOLDER_TABLE_CONFIG: any = {
-  "Hiring Kai": {
-    headers: [
-      { label: "Candidate", width: "25%" },
-      { label: "Contact", width: "15%" },
-      { label: "Education", width: "20%" },
-      { label: "Experience", width: "25%" },
-      { label: "Skills", width: "15%" },
-    ],
-    mode: "resume"
-  },
-  "default": {
-    headers: [
-      { label: "Name", width: "35%" },
-      { label: "Summary", width: "30%" },
-      { label: "Tag", width: "15%" },
-    ],
-    mode: "standard"
-  }
-};
-
-interface Doc {
-  id: string; title: string; folder: string; status: string; summary: string; upload_date: string;
-}
-interface UploadItem {
-  id: string; file: File; status: 'pending' | 'uploading' | 'completed' | 'error';
-}
-
 const Typewriter = ({ content, animate = false }: { content: string, animate?: boolean }) => {
   const [displayedContent, setDisplayedContent] = useState(animate ? "" : content);
   const hasAnimated = useRef(!animate);
@@ -81,161 +41,54 @@ const Typewriter = ({ content, animate = false }: { content: string, animate?: b
     let i = -1;
     const speed = 5; 
     const timer = setInterval(() => {
-      i++; if (i <= content.length) setDisplayedContent(content.slice(0, i));
+      i++;
+      if (i <= content.length) setDisplayedContent(content.slice(0, i));
       else { clearInterval(timer); hasAnimated.current = true; }
     }, speed);
     return () => clearInterval(timer);
   }, [content, animate]);
-  return <ReactMarkdown>{displayedContent}</ReactMarkdown>;
+  return <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{displayedContent}</ReactMarkdown>;
 };
 
 const groupCitations = (citations: any[]) => {
     const groups: { [key: string]: { docId: string, source: string, quotes: any[] } } = {};
     citations.forEach(cit => {
-        const key = cit.document_id || cit.source;
+        const key = cit.document_id || cit.source || "Current Doc";
         if (!groups[key]) groups[key] = { docId: cit.document_id, source: cit.source, quotes: [] };
         groups[key].quotes.push(cit);
     });
     return Object.values(groups);
 };
 
-function DashboardContent() {
-  const searchParams = useSearchParams();
-  const initialFolder = searchParams.get('folder');
+export default function ChatPage({ params }: { params: any }) {
+  const [docId, setDocId] = useState<string>("");
+  
+  useEffect(() => {
+    Promise.resolve(params).then((p) => setDocId(p.docId));
+  }, [params]);
 
-  const [folders, setFolders] = useState<string[]>([]);
-  const [docs, setDocs] = useState<Doc[]>([]);
-  const [currentFolder, setCurrentFolder] = useState<string | null>(initialFolder);
-  const [activeDoc, setActiveDoc] = useState<{id: string, title: string, initialQuote?: string, page?: number} | null>(null);
-  const [expandedSources, setExpandedSources] = useState<Set<string>>(new Set());
+  const [messages, setMessages] = useState<{role: string, content: string, citations?: any[]}[]>([]);
+  const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [customPrompt, setCustomPrompt] = useState(DEFAULT_SINGLE_DOC_PROMPT);
+  const [showPromptSettings, setShowPromptSettings] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const [pdfDocument, setPdfDocument] = useState<any>(null); 
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
-  // PDF Viewer Plugins
   const pageNavigationPluginInstance = pageNavigationPlugin();
   const { jumpToPage } = pageNavigationPluginInstance;
   const searchPluginInstance = searchPlugin();
   const { highlight, clearHighlights } = searchPluginInstance;
-  const [pdfDocument, setPdfDocument] = useState<any>(null);
-
-  // Upload/Chat State
-  const [uploadQueue, setUploadQueue] = useState<UploadItem[]>([]);
-  const [isProcessingQueue, setIsProcessingQueue] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [newFolderName, setNewFolderName] = useState("");
-  const [showNewFolderInput, setShowNewFolderInput] = useState(false);
-  const [chatMode, setChatMode] = useState<'simple' | 'deep' | null>(null);
-  const [chatMessages, setChatMessages] = useState<{role: string, content: string, citations?: any[]}[]>([]);
-  const [chatInput, setChatInput] = useState("");
-  const [isChatLoading, setIsChatLoading] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
-  
-  // REFS
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-
-  const [customPrompt, setCustomPrompt] = useState("");
-  const [showPromptSettings, setShowPromptSettings] = useState(false);
-  const [selectedTag, setSelectedTag] = useState<string | null>(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [passwordInput, setPasswordInput] = useState('');
 
   const handleDocumentLoad = (e: DocumentLoadEvent) => {
       setPdfDocument(e.doc);
-      if (activeDoc?.initialQuote && activeDoc?.page) setTimeout(() => performHighlight(activeDoc.initialQuote!, activeDoc.page!), 500);
   };
 
-  const performHighlight = async (quote: string, pageNum: number) => {
-    if (!pdfDocument) return;
-    jumpToPage(pageNum - 1);
-    try {
-        const page = await pdfDocument.getPage(pageNum);
-        const textContent = await page.getTextContent();
-        const pageString = textContent.items.map((item: any) => item.str).join(' ').replace(/\s+/g, ' ').toLowerCase();
-        const rawCit = quote.replace(/["“”]/g, "").trim(); 
-        const words = rawCit.split(/\s+/);
-        let matchFound = false;
-        const validKeywords: SingleKeyword[] = [];
-        for (let windowSize = 6; windowSize >= 3; windowSize--) {
-            if (matchFound) break; 
-            let i = 0;
-            while (i <= words.length - windowSize) {
-                const chunkWords = words.slice(i, i + windowSize);
-                const chunkString = chunkWords.join(' ');
-                if (pageString.includes(chunkString.toLowerCase())) {
-                    validKeywords.push({ keyword: chunkString, matchCase: false });
-                    matchFound = true; i += windowSize;
-                } else { i++; }
-            }
-        }
-        if (!matchFound && words.length < 3) {
-            if (pageString.includes(rawCit.toLowerCase())) { validKeywords.push({ keyword: rawCit, matchCase: false }); }
-        }
-        clearHighlights();
-        if (validKeywords.length > 0) highlight(validKeywords);
-    } catch (err) { console.error("Highlight error:", err); }
-  };
-
-  const onCitationClick = (docId: string, sourceName: string, quote: string, page: number) => {
-      if (activeDoc?.id !== docId) { setActiveDoc({ id: docId, title: sourceName, initialQuote: quote, page }); } 
-      else { performHighlight(quote, page); }
-  };
-
-  const toggleSourceExpansion = (sourceKey: string) => {
-      const newSet = new Set(expandedSources);
-      if (newSet.has(sourceKey)) newSet.delete(sourceKey);
-      else newSet.add(sourceKey);
-      setExpandedSources(newSet);
-  };
-
-  useEffect(() => { if (localStorage.getItem('auth_token') === SITE_PASSWORD) { setIsAuthenticated(true); refreshData(); } }, []);
-
-  useEffect(() => {
-    const processNext = async () => {
-      if (isProcessingQueue) return;
-      const nextItemIndex = uploadQueue.findIndex(item => item.status === 'pending');
-      if (nextItemIndex === -1) return;
-      setIsProcessingQueue(true);
-      const item = uploadQueue[nextItemIndex];
-      setUploadQueue(prev => prev.map((i, idx) => idx === nextItemIndex ? { ...i, status: 'uploading' } : i));
-      try {
-        const formData = new FormData();
-        formData.append('file', item.file);
-        formData.append('folder', currentFolder || "General");
-        const res = await fetch(`${BACKEND_URL}/upload`, { method: 'POST', body: formData });
-        if (!res.ok) throw new Error("Upload failed");
-        setUploadQueue(prev => prev.map((i, idx) => idx === nextItemIndex ? { ...i, status: 'completed' } : i));
-        refreshData();
-      } catch (e) { setUploadQueue(prev => prev.map((i, idx) => idx === nextItemIndex ? { ...i, status: 'error' } : i)); }
-      if (uploadQueue.filter(i => i.status === 'pending').length > 1) await new Promise(resolve => setTimeout(resolve, 1000));
-      setIsProcessingQueue(false);
-    };
-    processNext();
-  }, [uploadQueue, isProcessingQueue, currentFolder]);
-
-  const refreshData = async () => {
-    try {
-        const [resFolders, resDocs] = await Promise.all([ fetch(`${BACKEND_URL}/folders`), fetch(`${BACKEND_URL}/documents`) ]);
-        setFolders((await resFolders.json()).folders || ["General"]);
-        setDocs((await resDocs.json()).documents || []);
-    } catch (e) { console.error("Error fetching data", e); }
-  };
-
-  const handleLogin = () => {
-    if (passwordInput === SITE_PASSWORD) { localStorage.setItem('auth_token', SITE_PASSWORD); setIsAuthenticated(true); refreshData(); } else { alert("Incorrect Password"); }
-  };
-
-  const handleCreateFolder = async () => { if(!newFolderName.trim()) return; await fetch(`${BACKEND_URL}/folders`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ name: newFolderName }) }); setNewFolderName(""); setShowNewFolderInput(false); refreshData(); };
-  const handleDeleteFolder = async (folderName: string, e: React.MouseEvent) => { e.stopPropagation(); if (!confirm(`Delete?`)) return; await fetch(`${BACKEND_URL}/folders/${folderName}`, { method: 'DELETE' }); refreshData(); };
-  const handleDelete = async (docId: string, e: React.MouseEvent) => { e.stopPropagation(); if(!confirm("Delete?")) return; await fetch(`${BACKEND_URL}/documents/${docId}`, { method: 'DELETE' }); refreshData(); };
-  
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => { 
-      if (!e.target.files) return; 
-      setUploadQueue(prev => [...prev, ...Array.from(e.target.files!).map(file => ({ id: Math.random().toString(36).substr(2, 9), file, status: 'pending' as const }))]); 
-      if (fileInputRef.current) fileInputRef.current.value = ''; 
-  };
-  
-  const cancelUploads = () => setUploadQueue(prev => prev.filter(i => i.status !== 'pending'));
-  const clearCompleted = () => setUploadQueue([]);
-  
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -246,213 +99,199 @@ function DashboardContent() {
         const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm' });
         const formData = new FormData();
         formData.append("file", audioBlob, "recording.webm");
-        setChatInput("Transcribing...");
-        try { const res = await fetch(`${BACKEND_URL}/transcribe`, { method: "POST", body: formData }); const data = await res.json(); setChatInput(data.text); } catch (e) { setChatInput(""); alert("Transcription failed"); }
+        setInput("Transcribing...");
+        try {
+          const res = await fetch(`${BACKEND_URL}/transcribe`, { method: "POST", body: formData });
+          const data = await res.json();
+          setInput(data.text);
+        } catch (e) { setInput(""); alert("Transcription failed"); }
       };
       mediaRecorderRef.current.start();
       setIsRecording(true);
     } catch (e) { alert("Microphone access denied."); }
   };
-  const stopRecording = () => { if (mediaRecorderRef.current && isRecording) { mediaRecorderRef.current.stop(); setIsRecording(false); mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop()); } };
 
-  const sendFolderMessage = async () => {
-    if (!chatInput.trim() || !chatMode) return;
-    const userMsg = { role: 'user', content: chatInput };
-    setChatMessages(prev => [...prev, userMsg]);
-    const msgToSend = chatInput;
-    setChatInput("");
-    setIsChatLoading(true);
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+    }
+  };
+
+  const handleCitationClick = async (cit: any) => {
+    if (!cit.page) return;
+    jumpToPage(cit.page - 1);
+
+    if (pdfDocument && cit.content) {
+        try {
+            const page = await pdfDocument.getPage(cit.page);
+            const textContent = await page.getTextContent();
+            const pageString = textContent.items.map((item: any) => item.str).join(' ').replace(/\s+/g, ' ').toLowerCase();
+            const rawCit = cit.content.replace(/["“”]/g, "").trim(); 
+            const words = rawCit.split(/\s+/);
+            let matchFound = false;
+            const validKeywords: SingleKeyword[] = [];
+
+            for (let windowSize = 6; windowSize >= 3; windowSize--) {
+                if (matchFound) break; 
+                let i = 0;
+                while (i <= words.length - windowSize) {
+                    const chunkWords = words.slice(i, i + windowSize);
+                    const chunkString = chunkWords.join(' ');
+                    if (pageString.includes(chunkString.toLowerCase())) {
+                        validKeywords.push({ keyword: chunkString, matchCase: false });
+                        matchFound = true; 
+                        i += windowSize;
+                    } else { i++; }
+                }
+            }
+            if (!matchFound && words.length < 3) {
+                if (pageString.includes(rawCit.toLowerCase())) {
+                    validKeywords.push({ keyword: rawCit, matchCase: false });
+                }
+            }
+            clearHighlights();
+            if (validKeywords.length > 0) highlight(validKeywords);
+        } catch (err) { console.error("Error finding text match:", err); }
+    }
+  };
+
+  const sendMessage = async (textOverride?: string) => {
+    const messageToSend = typeof textOverride === 'string' ? textOverride : input;
+    if (!messageToSend.trim()) return;
+    const userMsg = { role: 'user', content: messageToSend };
+    setMessages(prev => [...prev, userMsg]);
+    setInput(''); 
+    setIsLoading(true);
     try {
-      const historyPayload = chatMessages.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }));
-      const res = await fetch(`${BACKEND_URL}/chat`, {
+      const historyPayload = messages.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }));
+      const response = await fetch(`${BACKEND_URL}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: msgToSend, folder_name: currentFolder, mode: chatMode, history: historyPayload, custom_prompt: customPrompt }),
+        body: JSON.stringify({ 
+            message: messageToSend, 
+            document_id: docId, 
+            history: historyPayload,
+            custom_prompt: customPrompt 
+        }),
       });
-      const data = await res.json();
-      setChatMessages(prev => [...prev, { role: 'ai', content: data.answer, citations: data.citations || [] }]);
-    } catch (e) { setChatMessages(prev => [...prev, { role: 'ai', content: "Error reaching backend." }]); } 
-    finally { setIsChatLoading(false); }
+      const data = await response.json();
+      setMessages(prev => [...prev, { role: 'ai', content: data.answer, citations: data.citations }]);
+    } catch (error) { setMessages(prev => [...prev, { role: 'ai', content: "Sorry, something went wrong." }]); }
+    finally { setIsLoading(false); }
   };
 
-  // --- SMART PARSING LOGIC ---
-  const parseCellData = (doc: Doc) => {
-      try {
-          const cleanStr = doc.summary.replace(/```json/g, "").replace(/```/g, "").trim();
-          if (cleanStr.startsWith("{")) {
-              const json = JSON.parse(cleanStr);
-              if (json.structured && json.type === 'resume') {
-                  return { type: 'resume', data: json.structured };
-              }
-          }
-      } catch(e) {}
-      
-      const tagMatch = doc.summary.match(/\[TAG\]:\s*(.*?)(?=\n|\[|$)/i); 
-      const descMatch = doc.summary.match(/\[DESC\]:\s*(.*?)(?=\n|\[|$)/i); 
-      return { 
-          type: 'standard', 
-          tag: tagMatch ? tagMatch[1].trim() : "General", 
-          desc: descMatch ? descMatch[1].trim() : (doc.summary.length > 50 ? doc.summary.slice(0, 100) + "..." : "Processing...")
-      };
-  };
-
-  const getTagStyle = (tag: string) => { 
-      const t = tag.toUpperCase();
-      if(t.includes("INVOICE")) return 'bg-gray-100 text-gray-700 border-gray-200';
-      if(t.includes("RESEARCH") || t.includes("PAPER")) return 'bg-zinc-50 text-zinc-700 border-zinc-200';
-      if(t.includes("FINANC")) return 'bg-slate-50 text-slate-700 border-slate-200';
-      if(t.includes("LEGAL")) return 'bg-gray-50 text-gray-800 border-gray-300';
-      return 'bg-gray-50 text-gray-600 border-gray-200';
-  };
-
-  if (!isAuthenticated) return <div className="min-h-screen flex items-center justify-center"><input className="border p-2" type="password" value={passwordInput} onChange={e=>setPasswordInput(e.target.value)} /><button onClick={handleLogin} className="ml-2 bg-black text-white p-2">Login</button></div>;
-
-  const currentConfig = FOLDER_TABLE_CONFIG[currentFolder || ""] || FOLDER_TABLE_CONFIG["default"];
-  const filteredDocs = docs.filter(d => d.folder === currentFolder);
-  const uniqueTags = currentConfig.mode === 'standard' ? Array.from(new Set(filteredDocs.map(d => parseCellData(d).tag))).filter((t): t is string => !!t) : [];
-  const displayedDocs = selectedTag && currentConfig.mode !== 'resume' ? filteredDocs.filter(d => parseCellData(d).tag === selectedTag) : filteredDocs;
+  if (!docId) return <div className="flex h-screen items-center justify-center"><Loader2 className="animate-spin text-gray-400"/></div>;
 
   return (
-    <div className="flex h-screen bg-[#F9FAFB] overflow-hidden font-sans text-gray-900 relative">
-      {/* SIDEBAR */}
-      <aside className="w-20 bg-white border-r border-gray-200 flex flex-col items-center py-8 gap-8 z-20 shrink-0">
-        <Link href="/" className="w-10 h-10 bg-black rounded-xl flex items-center justify-center text-white font-serif italic font-bold text-xl shadow-lg">κ</Link>
-        <button onClick={() => { setCurrentFolder(null); setChatMode(null); setActiveDoc(null); }} className={`p-3 rounded-xl transition ${!currentFolder ? 'bg-zinc-100 text-black' : 'text-gray-400 hover:bg-gray-50'}`}><LayoutGrid size={24} /></button>
-      </aside>
-
-      {/* MAIN */}
-      <div className={`flex-1 overflow-hidden flex flex-col relative ${chatMode ? 'mr-[400px]' : ''}`}>
-        {activeDoc ? (
-            <div className="flex-1 flex flex-col h-full bg-white relative">
-                <div className="h-16 border-b border-gray-200 flex items-center px-6"><button onClick={() => setActiveDoc(null)}><ArrowLeft size={20}/></button><span className="ml-4 font-bold">{activeDoc.title}</span></div>
-                <Worker workerUrl="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js">
-                    <Viewer fileUrl={`${BACKEND_URL}/documents/${activeDoc.id}/download`} plugins={[pageNavigationPluginInstance, searchPluginInstance]} onDocumentLoad={handleDocumentLoad} />
-                </Worker>
-            </div>
-        ) : (
-            <div className="flex-1 flex flex-col h-full overflow-hidden">
-                {/* HEADER */}
-                <div className="px-8 pt-8 pb-4 shrink-0">
-                    <div className="flex justify-between items-center mb-6">
-                        <h1 className="text-3xl font-bold tracking-tight">{currentFolder || "My Library"}</h1>
-                        {!currentFolder && <button onClick={() => setShowNewFolderInput(true)} className="bg-black text-white px-4 py-2 rounded-full flex gap-2"><Plus size={16} /> Folder</button>}
-                    </div>
-                    {currentFolder && (
-                        <div className="flex gap-3 items-center">
-                            <input ref={fileInputRef} type="file" className="hidden" accept=".pdf" multiple onChange={handleFileSelect} />
-                            <button onClick={() => fileInputRef.current?.click()} className="bg-black text-white px-5 py-2 rounded-lg text-sm font-bold flex items-center gap-2"><UploadCloud size={16}/> {currentConfig.mode === 'resume' ? "Upload Resumes" : "Upload PDFs"}</button>
-                            <button onClick={() => {setChatMode('simple'); setCustomPrompt(DEFAULT_FAST_PROMPT)}} className="border px-4 py-2 rounded-lg text-sm font-bold flex gap-2"><Zap size={16}/> Fast Chat</button>
-                            <button onClick={() => {setChatMode('deep'); setCustomPrompt(DEFAULT_DEEP_PROMPT)}} className="border px-4 py-2 rounded-lg text-sm font-bold flex gap-2"><BrainCircuit size={16}/> Deep Chat</button>
-                            
-                            {/* TAG FILTER (Only for Standard) */}
-                            {currentConfig.mode !== 'resume' && uniqueTags.length > 0 && (
-                                <div className="flex gap-2 ml-4">
-                                    <button onClick={() => setSelectedTag(null)} className={`px-3 py-1.5 rounded-full text-xs font-bold border ${!selectedTag ? 'bg-black text-white' : 'bg-white'}`}>All</button>
-                                    {uniqueTags.map((tag: string) => <button key={tag} onClick={() => setSelectedTag(tag === selectedTag ? null : tag)} className={`px-3 py-1.5 rounded-full text-xs font-bold border ${selectedTag === tag ? 'bg-black text-white' : 'bg-white'}`}>{tag}</button>)}
-                                </div>
-                            )}
-                        </div>
-                    )}
-                    {showNewFolderInput && <div className="mt-4 flex gap-2"><input className="border p-2 rounded" placeholder="Name" value={newFolderName} onChange={e=>setNewFolderName(e.target.value)} /><button onClick={handleCreateFolder} className="bg-black text-white px-4 rounded">Create</button></div>}
-                </div>
-
-                {/* CONTENT */}
-                <div className="flex-1 overflow-y-auto px-8 pb-8">
-                    {!currentFolder ? (
-                        <div className="grid grid-cols-4 gap-6">
-                            {folders.map(f => (
-                                <div key={f} onClick={() => setCurrentFolder(f)} className="bg-white p-6 rounded-2xl border shadow-sm hover:shadow-lg cursor-pointer">
-                                    <div className="flex justify-between"><Folder className="text-gray-400"/><Trash2 size={16} onClick={(e) => handleDeleteFolder(f, e)} className="hover:text-red-500"/></div>
-                                    <h3 className="mt-2 font-bold">{f}</h3>
-                                </div>
-                            ))}
-                        </div>
-                    ) : (
-                        <div className="bg-white border rounded-xl overflow-hidden">
-                            <table className="w-full text-left">
-                                <thead className="bg-gray-50 border-b">
-                                    <tr>
-                                        {currentConfig.headers.map((h: any, i: number) => <th key={i} style={{width: h.width}} className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">{h.label}</th>)}
-                                        <th className="px-6 py-3 text-right">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y">
-                                    {displayedDocs.map(doc => {
-                                        const parsed = parseCellData(doc);
-                                        return (
-                                            <tr key={doc.id} onClick={() => setActiveDoc({id: doc.id, title: doc.title})} className="hover:bg-gray-50 cursor-pointer group">
-                                                {/* NAME (Common) */}
-                                                <td className="px-6 py-4 align-top"><div className="font-bold text-sm">{parsed.type === 'resume' ? parsed.data.name : doc.title}</div><div className="text-xs text-gray-400">{doc.upload_date}</div></td>
-                                                
-                                                {/* DYNAMIC COLUMNS */}
-                                                {parsed.type === 'resume' ? (
-                                                    <>
-                                                        <td className="px-6 py-4 text-xs text-gray-500">{parsed.data.email}<br/>{parsed.data.phone}</td>
-                                                        <td className="px-6 py-4 text-xs whitespace-pre-line">{parsed.data.education}</td>
-                                                        <td className="px-6 py-4 text-xs whitespace-pre-line">{parsed.data.experience}</td>
-                                                        <td className="px-6 py-4 text-xs">{parsed.data.skills}</td>
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <td className="px-6 py-4 text-xs text-gray-500 line-clamp-2">{parsed.desc}</td>
-                                                        <td className="px-6 py-4"><span className={`px-2 py-1 rounded text-xs border ${getTagStyle(parsed.tag)}`}>{parsed.tag}</span></td>
-                                                    </>
-                                                )}
-                                                
-                                                <td className="px-6 py-4 text-right">
-                                                    <div className="flex justify-end gap-2">
-                                                        <Link href={`/chat/${doc.id}`} onClick={e => e.stopPropagation()}><button className="p-2 border rounded hover:bg-black hover:text-white"><MessageSquare size={14}/></button></Link>
-                                                        <button onClick={(e) => handleDelete(doc.id, e)} className="p-2 border rounded hover:text-red-500"><Trash2 size={14}/></button>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
-                        </div>
-                    )}
-                </div>
-            </div>
-        )}
+    <div className="flex h-screen bg-gray-50 overflow-hidden font-sans">
+      
+      {/* LEFT: SOTA PDF VIEWER */}
+      <div className="w-1/2 h-full border-r border-gray-200 bg-white relative">
+        <Worker workerUrl="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js">
+          <Viewer
+            fileUrl={`${BACKEND_URL}/documents/${docId}/download`}
+            plugins={[pageNavigationPluginInstance, searchPluginInstance]}
+            onDocumentLoad={handleDocumentLoad} 
+          />
+        </Worker>
+        <div className="absolute top-4 left-4 z-20">
+            <Link href="/dashboard" className="p-2 bg-white/90 backdrop-blur border border-gray-200 rounded-xl hover:bg-black hover:text-white transition shadow-sm flex items-center justify-center">
+                <ArrowLeft size={20} />
+            </Link>
+        </div>
       </div>
 
-      {/* CHAT SIDEBAR */}
-      <aside className={`fixed top-0 right-0 h-full w-[400px] bg-white border-l shadow-2xl transition-transform ${chatMode ? 'translate-x-0' : 'translate-x-full'} flex flex-col z-30`}>
-         <div className="p-4 border-b flex justify-between items-center"><h2 className="font-bold">Chat</h2><div className="flex gap-2"><button onClick={() => setShowPromptSettings(!showPromptSettings)}><Settings size={18}/></button><button onClick={() => setChatMode(null)}><X size={20}/></button></div></div>
-         
-         {showPromptSettings && <div className="p-4 bg-gray-50 border-b"><p className="text-xs font-bold mb-2">Brain Instructions</p><textarea className="w-full text-xs p-2 border rounded h-24" value={customPrompt} onChange={e => setCustomPrompt(e.target.value)} /></div>}
+      {/* RIGHT: CHAT INTERFACE */}
+      <div className="w-full md:w-1/2 flex flex-col h-full bg-white">
+        <div className="p-6 border-b border-gray-100 bg-white/80 backdrop-blur-md sticky top-0 z-10 flex justify-between items-center">
+            <div>
+                <h1 className="font-bold text-xl tracking-tight text-gray-900">Document Chat</h1>
+                <p className="text-xs text-gray-400 font-medium mt-1">SOTA Analyst Mode</p>
+            </div>
+            <button onClick={() => setShowPromptSettings(!showPromptSettings)} className={`p-2 rounded-full transition ${showPromptSettings ? 'bg-black text-white' : 'hover:bg-gray-100 text-gray-400'}`}>
+                <Settings size={18} />
+            </button>
+        </div>
 
-         <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            {chatMessages.map((m, i) => (
-                <div key={i}>
-                    <div className={`p-4 rounded-xl text-sm ${m.role === 'user' ? 'bg-black text-white self-end' : 'bg-gray-100'}`}>
-                        <ReactMarkdown>{m.content}</ReactMarkdown>
+        {showPromptSettings && (
+            <div className="bg-gray-50 p-4 border-b border-gray-200 animate-in slide-in-from-top-2">
+                <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">System Instructions (The Brain)</p>
+                <textarea 
+                    className="w-full text-xs font-mono p-3 rounded-xl border border-gray-300 focus:border-black focus:ring-0 h-32 bg-white"
+                    value={customPrompt}
+                    onChange={(e) => setCustomPrompt(e.target.value)}
+                />
+            </div>
+        )}
+
+        <div className="flex-1 overflow-y-auto p-6 space-y-6 scroll-smooth bg-[#fafafa]">
+            {messages.map((m, i) => (
+                <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
+                    <div className={`p-4 max-w-[85%] rounded-2xl text-sm leading-relaxed shadow-sm ${m.role === 'user' ? 'bg-black text-white rounded-br-none' : 'bg-white border border-gray-200 text-gray-800 rounded-bl-none'}`}>
+                        {m.role === 'ai' ? <div className="prose prose-sm"><Typewriter content={m.content} animate={i === messages.length - 1} /></div> : <div className="prose prose-sm prose-invert"><ReactMarkdown>{m.content}</ReactMarkdown></div>}
                     </div>
+
                     {m.role === 'ai' && m.citations && m.citations.length > 0 && (
-                        <div className="mt-2 text-xs text-gray-500">
-                            <p className="font-bold mb-1 flex items-center gap-1"><Quote size={10}/> Sources:</p>
-                            {groupCitations(m.citations).map((g, gi) => (
-                                <div key={gi} className="mb-1 pl-2 border-l-2 cursor-pointer hover:text-black" onClick={() => onCitationClick(g.docId, g.source, g.quotes[0].content, g.quotes[0].page)}>
-                                    <span className="font-bold">{g.source}</span> (p.{g.quotes[0].page})
+                        <div className="mt-3 w-[85%] space-y-2">
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1"><MapPin size={10} /> Source Highlights</p>
+                            {groupCitations(m.citations).map((group, gIdx) => (
+                                <div key={gIdx} className="bg-gray-50 border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+                                    <div className="bg-white border-b border-gray-100 px-3 py-2 flex items-center justify-between">
+                                        <div className="flex items-center gap-2 overflow-hidden">
+                                            <div className="bg-blue-100 p-1 rounded text-blue-600"><FileText size={12}/></div>
+                                            <span className="text-xs font-bold text-gray-700 truncate">{group.source || "This Document"}</span>
+                                        </div>
+                                    </div>
+                                    <div className="divide-y divide-gray-100">
+                                        {group.quotes.slice(0, 5).map((cit, cIdx) => (
+                                            <div key={cIdx} onClick={() => handleCitationClick(cit)} className="block p-3 hover:bg-gray-100 transition-colors cursor-pointer group/quote">
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <span className="text-[10px] font-mono bg-white border border-gray-200 px-1.5 rounded text-gray-500 group-hover/quote:border-blue-200 group-hover/quote:text-blue-500">Page {cit.page}</span>
+                                                </div>
+                                                <p className="text-xs text-gray-600 italic line-clamp-2 border-l-2 border-transparent pl-2 group-hover/quote:border-blue-400 group-hover/quote:text-gray-900 transition-all">"{cit.content}"</p>
+                                            </div>
+                                        ))}
+                                    </div>
                                 </div>
                             ))}
                         </div>
                     )}
                 </div>
             ))}
-            {isChatLoading && <div className="text-xs text-gray-400 animate-pulse">Thinking...</div>}
-         </div>
-         <div className="p-4 border-t flex gap-2">
-            <button onMouseDown={startRecording} onMouseUp={stopRecording} className={`p-2 rounded ${isRecording ? 'bg-red-500 text-white' : 'bg-gray-100'}`}>{isRecording ? <StopCircle size={20}/> : <Mic size={20}/>}</button>
-            <input className="flex-1 border p-2 rounded" value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendFolderMessage()} placeholder="Ask something..." />
-            <button onClick={sendFolderMessage}><Send size={20}/></button>
-         </div>
-      </aside>
+            <div ref={messagesEndRef} />
+            {isLoading && <div className="flex items-center gap-2 text-xs text-gray-400 px-4 animate-pulse"><Loader2 size={12} className="animate-spin" /> Analyzing document...</div>}
+        </div>
+
+        <div className="p-5 border-t border-gray-100 bg-white">
+            <div className={`flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-2xl p-2 focus-within:ring-4 focus-within:ring-blue-50`}>
+                
+                <button 
+                    onMouseDown={startRecording} 
+                    onMouseUp={stopRecording} 
+                    onMouseLeave={stopRecording} 
+                    disabled={isLoading}
+                    className={`p-3 rounded-xl transition-all duration-200 flex-shrink-0 ${isRecording ? 'bg-red-500 text-white scale-110 shadow-lg shadow-red-200 ring-4 ring-red-100' : 'bg-gray-100 text-gray-500 hover:bg-black hover:text-white'}`}
+                >
+                    {isRecording ? <StopCircle size={20} className="animate-pulse" /> : <Mic size={20} />}
+                </button>
+
+                <textarea 
+                    className="flex-1 bg-transparent border-none focus:ring-0 p-3 text-sm resize-none max-h-32 placeholder:text-gray-400 focus:outline-none" 
+                    rows={1}
+                    value={input} 
+                    onChange={e=>setInput(e.target.value)} 
+                    onKeyDown={e=>{ if(e.key==='Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+                    placeholder={isRecording ? "Listening..." : "Ask a question..."}
+                    disabled={isRecording}
+                />
+                <button onClick={() => sendMessage()} className="w-12 h-12 bg-black text-white rounded-xl hover:scale-105 active:scale-95 transition shadow-lg flex items-center justify-center">
+                    <Send size={18} />
+                </button>
+            </div>
+        </div>
+      </div>
     </div>
   );
-}
-
-export default function Dashboard() {
-  return <Suspense fallback={<div>Loading...</div>}><DashboardContent /></Suspense>;
 }

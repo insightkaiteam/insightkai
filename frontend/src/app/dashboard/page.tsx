@@ -128,7 +128,7 @@ function DashboardContent() {
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   
-  // REFS
+  // FIX: Explicitly defined refs
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
@@ -309,7 +309,7 @@ function DashboardContent() {
 
   const currentConfig = FOLDER_TABLE_CONFIG[currentFolder || ""] || FOLDER_TABLE_CONFIG["default"];
   const filteredDocs = docs.filter(d => d.folder === currentFolder);
-  // FIX: Type Guard to filter out undefined tags
+  // FIX: Added type guard filter
   const uniqueTags = currentConfig.mode === 'standard' ? Array.from(new Set(filteredDocs.map(d => parseCellData(d).tag))).filter((t): t is string => !!t) : [];
   const displayedDocs = selectedTag && currentConfig.mode !== 'resume' ? filteredDocs.filter(d => parseCellData(d).tag === selectedTag) : filteredDocs;
 
@@ -397,7 +397,7 @@ function DashboardContent() {
                                                     <>
                                                         <td className="px-6 py-4 text-xs text-gray-500 line-clamp-2">{parsed.desc}</td>
                                                         <td className="px-6 py-4">
-                                                            {/* FIX: Ensure tag is a string */}
+                                                            {/* FIX: Handle undefined tag */}
                                                             <span className={`px-2 py-1 rounded text-xs border ${getTagStyle(parsed.tag || "General")}`}>
                                                                 {parsed.tag || "General"}
                                                             </span>

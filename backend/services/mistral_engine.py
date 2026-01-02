@@ -109,9 +109,10 @@ class MistralEngine:
             
             # 3. Mistral OCR
             print(f"Running OCR on file_id: {uploaded_file.id}...")
+            # FIX: type="file" is mandatory for the new Mistral SDK
             ocr_response = self.client.ocr.process(
                 model="mistral-ocr-latest",
-                document={"type": "document", "file_id": uploaded_file.id},
+                document={"type": "file", "file_id": uploaded_file.id},
                 include_image_base64=True
             )
             
