@@ -8,7 +8,7 @@ from openai import OpenAI
 from supabase import create_client, Client
 from pydantic import BaseModel, Field
 
-# --- RESTORED: SCHEMA DEFINITION ---
+# --- SCHEMA DEFINITION (RESTORED) ---
 class VisualContext(BaseModel):
     image_description: str = Field(..., description="Detailed description of the image visual content.")
     data_extraction: str = Field(..., description="If this is a chart/table, transcribe the key numbers, axis labels, and trends. If a diagram, describe the flow.")
@@ -57,7 +57,6 @@ class MistralEngine:
     # --- RESTORED: Specific Search Logic ---
     def search_single_doc(self, query: str, doc_id: str) -> List[dict]:
         query_vector = self.get_embedding(query)
-        # Tries to use the V2 function if available, falls back gracefully if you haven't defined it yet
         try:
             params = {
                 "query_embedding": query_vector, 
@@ -121,7 +120,7 @@ class MistralEngine:
             print(f"Summary Error: {e}")
             return "Summary unavailable."
 
-    # --- FIXED: PROCESSOR WITH FILE UPLOAD ---
+    # --- PROCESSOR LOGIC ---
     def process_pdf_background(self, doc_id: str, file_bytes: bytes, filename: str, folder: str):
         try:
             print(f"Processing {filename} in {folder}")
@@ -129,8 +128,7 @@ class MistralEngine:
             # 1. Upload to Supabase (Storage Backup)
             self.supabase.storage.from_("document-pages").upload(f"{doc_id}/source.pdf", file_bytes, {"content-type": "application/pdf"})
             
-            # 2. Upload to Mistral (REQUIRED FIX)
-            # We must upload the file to Mistral first to get a file_id
+            # 2. Upload to Mistral (REQUIRED)
             print("Uploading to Mistral...")
             uploaded_file = self.client.files.upload(
                 file={
@@ -140,25 +138,25 @@ class MistralEngine:
                 purpose="ocr"
             )
             
-            # 3. Mistral OCR using file_id
+            # 3. Mistral OCR using file_id (FIXED TYPE HERE)
             print(f"Running OCR on file_id: {uploaded_file.id}...")
             ocr_response = self.client.ocr.process(
                 model="mistral-ocr-latest",
                 document={
-                    "type": "document",
+                    "type": "file",  # <--- CRITICAL FIX: Must be 'file', not 'document'
                     "file_id": uploaded_file.id,
                     "file_name": filename
                 },
                 include_image_base64=True
             )
             
-            # 4. Processing & Chunking (Using RESTORED Logic)
+            # 4. Processing & Chunking
             full_document_text = ""
             for page in ocr_response.pages:
                 page_text = page.markdown
                 full_document_text += page_text + "\n\n"
             
-            # Use the semantic chunker you wanted
+            # Use the semantic chunker
             chunks = self._chunk_markdown(full_document_text)
             
             for i, chunk in enumerate(chunks):
@@ -166,12 +164,12 @@ class MistralEngine:
                 self.supabase.table("document_pages").insert({
                     "document_id": doc_id,
                     "content": chunk,
-                    "page_number": 1, # Simplified for Markdown chunks
+                    "page_number": 1, 
                     "embedding": self.get_embedding(chunk),
                     "bboxes": [] 
                 }).execute()
             
-            # 5. Generate Summary (Using RESTORED Prompt)
+            # 5. Generate Summary
             summary = self._generate_summary(full_document_text)
             
             # 6. Final Update
