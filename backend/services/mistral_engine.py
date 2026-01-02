@@ -54,7 +54,7 @@ class MistralEngine:
                 "You are a sophisticated document analyzer. Analyze the text and return a summary in EXACTLY this format:\n\n"
                 "[TAG]: <Classify into one: INVOICE, RESEARCH, FINANCIAL, LEGAL, RECEIPT, OTHER>\n"
                 "[DESC]: <A single, concise sentence describing the file (e.g. 'August 2023 Power Bill for $150')>\n"
-                "[DETAILED]: <A dense, 5-10 line summary containing specific entities, dates, key outcomes, and numerical data.>"
+                "[DETAILED]: <A dense, 5-10 line summary containing specific entities (company names, authors), dates, key outcomes, and numerical data.>"
             )
             response = self.openai.chat.completions.create(
                 model="gpt-4o-mini",

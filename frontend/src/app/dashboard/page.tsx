@@ -3,10 +3,11 @@ import { useState, useEffect, useRef, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { 
-  Folder, Trash2, Plus, ArrowLeft, X, Send, Loader2, BrainCircuit, UploadCloud, 
+  Folder, Trash2, Plus, ArrowLeft, ArrowRight,
+  X, Send, Loader2, FileClock, BrainCircuit, UploadCloud, 
   LayoutGrid, LogOut, Quote, FileSearch, Mic, StopCircle, Zap,
-  CheckCircle2, AlertCircle, Clock, FileText, ChevronRight, ChevronDown, Settings,
-  MessageSquare, File, User, Phone, Mail
+  CheckCircle2, AlertCircle, Clock, FileText, ChevronRight, ChevronDown, Maximize2, Settings,
+  Filter, MoreHorizontal, MessageSquare, File, User, GraduationCap, Briefcase, Code2, Phone, Mail
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
@@ -21,6 +22,28 @@ import '@react-pdf-viewer/search/lib/styles/index.css';
 
 const BACKEND_URL = "https://insightkai.onrender.com";
 const SITE_PASSWORD = "kai2025"; 
+
+// --- DEFAULT PROMPTS ---
+const DEFAULT_DEEP_PROMPT = `You are a Senior Financial Analyst. Answer based ONLY on the provided context.
+You must return a JSON object with two keys:
+1. 'answer': A markdown string formatted strictly as follows:
+   **Executive Summary**
+   [A 2-3 sentence high-level summary of the findings]
+
+   **Key Insights**
+   - **[Insight Title]:** [Detailed explanation of 2-3 sentences. Explain WHY this matters.]
+   - **[Insight Title]:** [Detailed explanation...]
+
+2. 'quotes': An array of strings. Copy the EXACT sentences used to derive the answer.
+   - Rule: Use CONTEXTUAL QUOTING. Do not just quote a number. Quote the full sentence containing the number so it is verifiable.
+   - Aim for 5-7 distinct citations if the text supports it.
+   - Do NOT modify the text inside the quotes.`;
+
+// --- FIX: ADDED MISSING CONSTANT ---
+const DEFAULT_FAST_PROMPT = `You are a Digital Librarian. You have access to high-level SUMMARIES of files.
+Goal: Identify which file contains specific info or extract metadata.
+Rules: Be concise. Use the summaries to answer.
+Return JSON: { 'answer': '...', 'quotes': [] }`;
 
 // --- CONFIGURATION FOR FOLDER VIEWS ---
 const FOLDER_TABLE_CONFIG: any = {
@@ -51,7 +74,6 @@ interface UploadItem {
   id: string; file: File; status: 'pending' | 'uploading' | 'completed' | 'error';
 }
 
-// --- HELPER COMPONENTS ---
 const Typewriter = ({ content, animate = false }: { content: string, animate?: boolean }) => {
   const [displayedContent, setDisplayedContent] = useState(animate ? "" : content);
   const hasAnimated = useRef(!animate);
@@ -107,7 +129,6 @@ function DashboardContent() {
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
   const [customPrompt, setCustomPrompt] = useState("");
   const [showPromptSettings, setShowPromptSettings] = useState(false);
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
@@ -153,6 +174,13 @@ function DashboardContent() {
   const onCitationClick = (docId: string, sourceName: string, quote: string, page: number) => {
       if (activeDoc?.id !== docId) { setActiveDoc({ id: docId, title: sourceName, initialQuote: quote, page }); } 
       else { performHighlight(quote, page); }
+  };
+
+  const toggleSourceExpansion = (sourceKey: string) => {
+      const newSet = new Set(expandedSources);
+      if (newSet.has(sourceKey)) newSet.delete(sourceKey);
+      else newSet.add(sourceKey);
+      setExpandedSources(newSet);
   };
 
   useEffect(() => { if (localStorage.getItem('auth_token') === SITE_PASSWORD) { setIsAuthenticated(true); refreshData(); } }, []);
@@ -202,6 +230,28 @@ function DashboardContent() {
       if (fileInputRef.current) fileInputRef.current.value = ''; 
   };
   
+  const cancelUploads = () => setUploadQueue(prev => prev.filter(i => i.status !== 'pending'));
+  const clearCompleted = () => setUploadQueue([]);
+  
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorderRef.current = new MediaRecorder(stream);
+      chunksRef.current = [];
+      mediaRecorderRef.current.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+      mediaRecorderRef.current.onstop = async () => {
+        const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm' });
+        const formData = new FormData();
+        formData.append("file", audioBlob, "recording.webm");
+        setChatInput("Transcribing...");
+        try { const res = await fetch(`${BACKEND_URL}/transcribe`, { method: "POST", body: formData }); const data = await res.json(); setChatInput(data.text); } catch (e) { setChatInput(""); alert("Transcription failed"); }
+      };
+      mediaRecorderRef.current.start();
+      setIsRecording(true);
+    } catch (e) { alert("Microphone access denied."); }
+  };
+  const stopRecording = () => { if (mediaRecorderRef.current && isRecording) { mediaRecorderRef.current.stop(); setIsRecording(false); mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop()); } };
+
   const sendFolderMessage = async () => {
     if (!chatInput.trim() || !chatMode) return;
     const userMsg = { role: 'user', content: chatInput };
@@ -225,19 +275,33 @@ function DashboardContent() {
   // --- SMART PARSING LOGIC ---
   const parseCellData = (doc: Doc) => {
       try {
-          const json = JSON.parse(doc.summary);
-          if (json.structured && json.type === 'resume') {
-              return { type: 'resume', data: json.structured };
+          // Robust parsing that handles markdown code blocks if present
+          const cleanStr = doc.summary.replace(/```json/g, "").replace(/```/g, "").trim();
+          if (cleanStr.startsWith("{")) {
+              const json = JSON.parse(cleanStr);
+              if (json.structured && json.type === 'resume') {
+                  return { type: 'resume', data: json.structured };
+              }
           }
       } catch(e) {}
+      
       // Fallback: Standard Text
       const tagMatch = doc.summary.match(/\[TAG\]:\s*(.*?)(?=\n|\[|$)/i); 
       const descMatch = doc.summary.match(/\[DESC\]:\s*(.*?)(?=\n|\[|$)/i); 
       return { 
           type: 'standard', 
           tag: tagMatch ? tagMatch[1].trim() : "General", 
-          desc: descMatch ? descMatch[1].trim() : doc.summary.slice(0, 100) + "..."
+          desc: descMatch ? descMatch[1].trim() : (doc.summary.length > 50 ? doc.summary.slice(0, 100) + "..." : "Processing...")
       };
+  };
+
+  const getTagStyle = (tag: string) => { 
+      const t = tag.toUpperCase();
+      if(t.includes("INVOICE")) return 'bg-gray-100 text-gray-700 border-gray-200';
+      if(t.includes("RESEARCH") || t.includes("PAPER")) return 'bg-zinc-50 text-zinc-700 border-zinc-200';
+      if(t.includes("FINANC")) return 'bg-slate-50 text-slate-700 border-slate-200';
+      if(t.includes("LEGAL")) return 'bg-gray-50 text-gray-800 border-gray-300';
+      return 'bg-gray-50 text-gray-600 border-gray-200';
   };
 
   if (!isAuthenticated) return <div className="min-h-screen flex items-center justify-center"><input className="border p-2" type="password" value={passwordInput} onChange={e=>setPasswordInput(e.target.value)} /><button onClick={handleLogin} className="ml-2 bg-black text-white p-2">Login</button></div>;
@@ -245,7 +309,7 @@ function DashboardContent() {
   const currentConfig = FOLDER_TABLE_CONFIG[currentFolder || ""] || FOLDER_TABLE_CONFIG["default"];
   const filteredDocs = docs.filter(d => d.folder === currentFolder);
   const uniqueTags = currentConfig.mode === 'standard' ? Array.from(new Set(filteredDocs.map(d => parseCellData(d).tag))).filter(t => t) : [];
-  const displayedDocs = selectedTag ? filteredDocs.filter(d => parseCellData(d).tag === selectedTag) : filteredDocs;
+  const displayedDocs = selectedTag && currentConfig.mode !== 'resume' ? filteredDocs.filter(d => parseCellData(d).tag === selectedTag) : filteredDocs;
 
   return (
     <div className="flex h-screen bg-[#F9FAFB] overflow-hidden font-sans text-gray-900 relative">
@@ -266,6 +330,7 @@ function DashboardContent() {
             </div>
         ) : (
             <div className="flex-1 flex flex-col h-full overflow-hidden">
+                {/* HEADER */}
                 <div className="px-8 pt-8 pb-4 shrink-0">
                     <div className="flex justify-between items-center mb-6">
                         <h1 className="text-3xl font-bold tracking-tight">{currentFolder || "My Library"}</h1>
@@ -277,11 +342,20 @@ function DashboardContent() {
                             <button onClick={() => fileInputRef.current?.click()} className="bg-black text-white px-5 py-2 rounded-lg text-sm font-bold flex items-center gap-2"><UploadCloud size={16}/> {currentConfig.mode === 'resume' ? "Upload Resumes" : "Upload PDFs"}</button>
                             <button onClick={() => {setChatMode('simple'); setCustomPrompt(DEFAULT_FAST_PROMPT)}} className="border px-4 py-2 rounded-lg text-sm font-bold flex gap-2"><Zap size={16}/> Fast Chat</button>
                             <button onClick={() => {setChatMode('deep'); setCustomPrompt(DEFAULT_DEEP_PROMPT)}} className="border px-4 py-2 rounded-lg text-sm font-bold flex gap-2"><BrainCircuit size={16}/> Deep Chat</button>
+                            
+                            {/* TAG FILTER (Only for Standard) */}
+                            {currentConfig.mode !== 'resume' && uniqueTags.length > 0 && (
+                                <div className="flex gap-2 ml-4">
+                                    <button onClick={() => setSelectedTag(null)} className={`px-3 py-1.5 rounded-full text-xs font-bold border ${!selectedTag ? 'bg-black text-white' : 'bg-white'}`}>All</button>
+                                    {uniqueTags.map(tag => <button key={tag} onClick={() => setSelectedTag(tag === selectedTag ? null : tag)} className={`px-3 py-1.5 rounded-full text-xs font-bold border ${selectedTag === tag ? 'bg-black text-white' : 'bg-white'}`}>{tag}</button>)}
+                                </div>
+                            )}
                         </div>
                     )}
                     {showNewFolderInput && <div className="mt-4 flex gap-2"><input className="border p-2 rounded" placeholder="Name" value={newFolderName} onChange={e=>setNewFolderName(e.target.value)} /><button onClick={handleCreateFolder} className="bg-black text-white px-4 rounded">Create</button></div>}
                 </div>
 
+                {/* CONTENT */}
                 <div className="flex-1 overflow-y-auto px-8 pb-8">
                     {!currentFolder ? (
                         <div className="grid grid-cols-4 gap-6">
@@ -306,10 +380,10 @@ function DashboardContent() {
                                         const parsed = parseCellData(doc);
                                         return (
                                             <tr key={doc.id} onClick={() => setActiveDoc({id: doc.id, title: doc.title})} className="hover:bg-gray-50 cursor-pointer group">
-                                                {/* NAME */}
+                                                {/* NAME (Common) */}
                                                 <td className="px-6 py-4 align-top"><div className="font-bold text-sm">{parsed.type === 'resume' ? parsed.data.name : doc.title}</div><div className="text-xs text-gray-400">{doc.upload_date}</div></td>
                                                 
-                                                {/* DYNAMIC CELLS */}
+                                                {/* DYNAMIC COLUMNS */}
                                                 {parsed.type === 'resume' ? (
                                                     <>
                                                         <td className="px-6 py-4 text-xs text-gray-500">{parsed.data.email}<br/>{parsed.data.phone}</td>
@@ -342,19 +416,35 @@ function DashboardContent() {
         )}
       </div>
 
-      {/* CHAT SIDEBAR (Same as before) */}
+      {/* CHAT SIDEBAR */}
       <aside className={`fixed top-0 right-0 h-full w-[400px] bg-white border-l shadow-2xl transition-transform ${chatMode ? 'translate-x-0' : 'translate-x-full'} flex flex-col z-30`}>
-         <div className="p-4 border-b flex justify-between items-center"><h2 className="font-bold">Chat</h2><button onClick={() => setChatMode(null)}><X size={20}/></button></div>
+         <div className="p-4 border-b flex justify-between items-center"><h2 className="font-bold">Chat</h2><div className="flex gap-2"><button onClick={() => setShowPromptSettings(!showPromptSettings)}><Settings size={18}/></button><button onClick={() => setChatMode(null)}><X size={20}/></button></div></div>
+         
+         {showPromptSettings && <div className="p-4 bg-gray-50 border-b"><p className="text-xs font-bold mb-2">Brain Instructions</p><textarea className="w-full text-xs p-2 border rounded h-24" value={customPrompt} onChange={e => setCustomPrompt(e.target.value)} /></div>}
+
          <div className="flex-1 overflow-y-auto p-4 space-y-4">
             {chatMessages.map((m, i) => (
-                <div key={i} className={`p-4 rounded-xl text-sm ${m.role === 'user' ? 'bg-black text-white self-end' : 'bg-gray-100'}`}>
-                    <ReactMarkdown>{m.content}</ReactMarkdown>
+                <div key={i}>
+                    <div className={`p-4 rounded-xl text-sm ${m.role === 'user' ? 'bg-black text-white self-end' : 'bg-gray-100'}`}>
+                        <ReactMarkdown>{m.content}</ReactMarkdown>
+                    </div>
+                    {m.role === 'ai' && m.citations && m.citations.length > 0 && (
+                        <div className="mt-2 text-xs text-gray-500">
+                            <p className="font-bold mb-1 flex items-center gap-1"><Quote size={10}/> Sources:</p>
+                            {groupCitations(m.citations).map((g, gi) => (
+                                <div key={gi} className="mb-1 pl-2 border-l-2 cursor-pointer hover:text-black" onClick={() => onCitationClick(g.docId, g.source, g.quotes[0].content, g.quotes[0].page)}>
+                                    <span className="font-bold">{g.source}</span> (p.{g.quotes[0].page})
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
             ))}
             {isChatLoading && <div className="text-xs text-gray-400 animate-pulse">Thinking...</div>}
          </div>
          <div className="p-4 border-t flex gap-2">
-            <input className="flex-1 border p-2 rounded" value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendFolderMessage()} />
+            <button onMouseDown={startRecording} onMouseUp={stopRecording} className={`p-2 rounded ${isRecording ? 'bg-red-500 text-white' : 'bg-gray-100'}`}>{isRecording ? <StopCircle size={20}/> : <Mic size={20}/>}</button>
+            <input className="flex-1 border p-2 rounded" value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendFolderMessage()} placeholder="Ask something..." />
             <button onClick={sendFolderMessage}><Send size={20}/></button>
          </div>
       </aside>
