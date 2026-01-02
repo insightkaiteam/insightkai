@@ -306,13 +306,20 @@ function DashboardContent() {
   };
 
   // RESUME PARSER
-  const safeParseResume = (jsonStr: string) => {
-      try {
-          const parsed = JSON.parse(jsonStr);
-          if (parsed.structured) return parsed.structured;
-      } catch (e) {}
-      return null;
-  };
+const safeParseResume = (jsonStr: string) => {
+    if (!jsonStr) return null;
+    try {
+        // Handle cases where the JSON might be wrapped in markdown code blocks
+        const cleanStr = jsonStr.replace(/```json/g, "").replace(/```/g, "").trim();
+        const parsed = JSON.parse(cleanStr);
+        if (parsed.structured) return parsed.structured;
+        // Fallback: maybe the whole object IS the structured data?
+        if (parsed.name && parsed.email) return parsed;
+    } catch (e) {
+        console.error("Failed to parse resume JSON:", e);
+    }
+    return null;
+};
 
   // --- CHAT ---
   const toggleChat = (mode: 'simple' | 'deep') => {

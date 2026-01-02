@@ -22,6 +22,7 @@ class MistralEngine:
     def get_embedding(self, text: str) -> List[float]:
         text = text.replace("\n", " ").strip()
         if not text: return []
+        # Mistral Embeddings are 1024 dimensions
         return self.client.embeddings.create(model="mistral-embed", inputs=[text]).data[0].embedding
 
     def _generate_summary(self, text: str) -> str:
@@ -61,7 +62,9 @@ class MistralEngine:
 
     def process_pdf_background(self, doc_id: str, file_bytes: bytes, filename: str, folder: str):
         try:
-            # 1. Upload to Storage
+            print(f"Processing File: {filename} in Folder: {folder}")
+            
+            # 1. Upload Source PDF
             self.supabase.storage.from_("document-pages").upload(f"{doc_id}/source.pdf", file_bytes, {"content-type": "application/pdf"})
             
             # 2. Mistral OCR
@@ -71,13 +74,12 @@ class MistralEngine:
                 include_image_base64=False
             )
             
-            # 3. Aggregate Markdown & Embeddings
+            # 3. Aggregate Text & Save Vectors
             full_document_text = ""
             for page in ocr_response.pages:
                 page_text = page.markdown
                 full_document_text += page_text + "\n\n"
                 
-                # Chunking
                 chunks = [page_text[i:i+1000] for i in range(0, len(page_text), 800)]
                 for chunk in chunks:
                     if not chunk.strip(): continue
@@ -89,11 +91,12 @@ class MistralEngine:
                         "bboxes": [] 
                     }).execute()
             
-            # 4. Routing Logic (Robust Strip)
+            # 4. ROBUST ROUTING LOGIC (Case Insensitive)
             final_summary_content = ""
-            clean_folder = folder.strip()
+            clean_folder = folder.strip().lower() # Normalize
             
-            if clean_folder == "Hiring Kai":
+            if clean_folder == "hiring kai":
+                print("Running Resume Extraction Pipeline...")
                 structured_data = self._extract_resume_data(full_document_text)
                 text_summary = self._generate_summary(full_document_text)
                 final_summary_content = json.dumps({
@@ -102,6 +105,7 @@ class MistralEngine:
                     "fast_summary": text_summary
                 })
             else:
+                print("Running Standard Summary Pipeline...")
                 summary = self._generate_summary(full_document_text)
                 final_summary_content = f"**Content Summary:** {summary}\n\nVerified."
 
@@ -110,6 +114,7 @@ class MistralEngine:
                 "status": "ready", 
                 "summary": final_summary_content
             }).eq("id", doc_id).execute()
+            print(f"Success: {doc_id} is ready.")
             
         except Exception as e:
             print(f"Ingestion Error: {e}")
@@ -132,6 +137,7 @@ class MistralEngine:
     def search_single_doc(self, query: str, doc_id: str, limit: int = 5):
         query_embedding = self.get_embedding(query)
         try:
+            # THIS RPC MUST MATCH THE SQL ABOVE
             return self.supabase.rpc("match_document_pages", {
                 "query_embedding": query_embedding,
                 "match_threshold": 0.5,
