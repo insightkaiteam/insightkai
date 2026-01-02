@@ -31,62 +31,12 @@ class MistralEngine:
         # Uses OpenAI to match your existing vector DB schema
         return self.openai.embeddings.create(input=[text], model="text-embedding-3-small").data[0].embedding
 
-    def get_folder_files(self, folder_name: str) -> List[dict]:
-        try:
-            res = self.supabase.table("documents")\
-                .select("id, title, summary")\
-                .eq("folder", folder_name)\
-                .execute()
-            
-            files = []
-            for doc in res.data:
-                raw = doc.get("summary", "")
-                if not raw: continue
-                # Handle your custom separator logic
-                clean = raw.split("---_SEPARATOR_---")[0].replace("**Content Summary:**", "").strip()
-                files.append({
-                    "id": doc["id"],
-                    "title": doc["title"],
-                    "summary": clean
-                })
-            return files
-        except Exception as e:
-            print(f"Error getting folder files: {e}")
-            return []
-
-    # --- RESTORED: Specific Search Logic ---
-    def search_single_doc(self, query: str, doc_id: str) -> List[dict]:
-        query_vector = self.get_embedding(query)
-        try:
-            params = {
-                "query_embedding": query_vector, 
-                "match_threshold": 0.01, 
-                "match_count": 25, 
-                "filter_doc_id": doc_id
-            }
-            res = self.supabase.rpc("match_document_pages", params).execute()
-            
-            chunks = []
-            if res.data:
-                for row in res.data:
-                    chunks.append({
-                        "content": row.get('content'),
-                        "page": row.get('page_number', 1),
-                        "similarity": row.get('similarity', 0),
-                        "id": row.get('id', uuid.uuid4().hex) 
-                    })
-            return chunks
-        except Exception as e:
-            print(f"Search Error: {e}")
-            return []
-
     # --- RESTORED: Semantic Chunking ---
     def _chunk_markdown(self, text: str) -> List[str]:
         chunks = []
         current_chunk = ""
         lines = text.split('\n')
         for line in lines:
-            # Simple chunking by header or length
             if line.strip().startswith("#") and len(current_chunk) > 600:
                 chunks.append(current_chunk.strip()); current_chunk = line + "\n"
             else: current_chunk += line + "\n"
@@ -98,16 +48,14 @@ class MistralEngine:
     def _generate_summary(self, full_text: str) -> str:
         try:
             if not full_text.strip():
-                return "No content could be extracted from this document."
-                
+                return "No content could be extracted."
             preview_text = full_text[:8000]
             system_prompt = (
                 "You are a sophisticated document analyzer. Analyze the text and return a summary in EXACTLY this format:\n\n"
                 "[TAG]: <Classify into one: INVOICE, RESEARCH, FINANCIAL, LEGAL, RECEIPT, OTHER>\n"
                 "[DESC]: <A single, concise sentence describing the file (e.g. 'August 2023 Power Bill for $150')>\n"
-                "[DETAILED]: <A dense, 5-10 line summary containing specific entities (company names, authors), dates, key outcomes, core themes, and numerical data. This will be used for search retrieval, so be specific.>"
+                "[DETAILED]: <A dense, 5-10 line summary containing specific entities, dates, key outcomes, and numerical data.>"
             )
-            
             response = self.openai.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
@@ -120,45 +68,59 @@ class MistralEngine:
             print(f"Summary Error: {e}")
             return "Summary unavailable."
 
-    # --- PROCESSOR LOGIC ---
+    # --- NEW: Hiring Kai Extraction Strategy ---
+    def _extract_resume_data(self, text: str) -> dict:
+        prompt = (
+            "You are an expert Technical Recruiter. Extract key candidate details from this resume text into a structured JSON object.\n"
+            "Output JSON Structure:\n"
+            "{\n"
+            "  \"name\": \"Candidate Name\",\n"
+            "  \"phone\": \"Phone Number or N/A\",\n"
+            "  \"email\": \"Email or N/A\",\n"
+            "  \"education\": \"Bulleted summary of degrees/schools. Eg: '• BTech - IIT\\n• MS - Stanford'\",\n"
+            "  \"experience\": \"Bulleted summary of roles. Eg: '• Senior Dev - Google (2y)\\n• Analyst - GS (1y)'\",\n"
+            "  \"skills\": \"Comma-separated top 5-7 hard skills\"\n"
+            "}\n"
+        )
+        try:
+            response = self.openai.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "system", "content": prompt}, {"role": "user", "content": text[:20000]}],
+                response_format={"type": "json_object"}
+            )
+            return json.loads(response.choices[0].message.content)
+        except Exception as e:
+            return {"name": "Error", "education": "Extraction Failed"}
+
+    # --- MAIN PROCESSOR ---
     def process_pdf_background(self, doc_id: str, file_bytes: bytes, filename: str, folder: str):
         try:
             print(f"Processing {filename} in {folder}")
             
-            # 1. Upload to Supabase (Storage Backup)
+            # 1. Upload to Supabase
             self.supabase.storage.from_("document-pages").upload(f"{doc_id}/source.pdf", file_bytes, {"content-type": "application/pdf"})
             
-            # 2. Upload to Mistral (REQUIRED)
+            # 2. Upload to Mistral (REQUIRED FIX)
             print("Uploading to Mistral...")
             uploaded_file = self.client.files.upload(
-                file={
-                    "file_name": filename,
-                    "content": file_bytes, 
-                },
+                file={"file_name": filename, "content": file_bytes},
                 purpose="ocr"
             )
             
-            # 3. Mistral OCR using file_id (FIXED TYPE HERE)
+            # 3. Mistral OCR
             print(f"Running OCR on file_id: {uploaded_file.id}...")
             ocr_response = self.client.ocr.process(
                 model="mistral-ocr-latest",
-                document={
-                    "type": "file",  # <--- CRITICAL FIX: Must be 'file', not 'document'
-                    "file_id": uploaded_file.id,
-                    "file_name": filename
-                },
+                document={"type": "document", "file_id": uploaded_file.id},
                 include_image_base64=True
             )
             
-            # 4. Processing & Chunking
+            # 4. Chunk & Embed
             full_document_text = ""
             for page in ocr_response.pages:
-                page_text = page.markdown
-                full_document_text += page_text + "\n\n"
+                full_document_text += page.markdown + "\n\n"
             
-            # Use the semantic chunker
             chunks = self._chunk_markdown(full_document_text)
-            
             for i, chunk in enumerate(chunks):
                 if not chunk.strip(): continue
                 self.supabase.table("document_pages").insert({
@@ -169,13 +131,27 @@ class MistralEngine:
                     "bboxes": [] 
                 }).execute()
             
-            # 5. Generate Summary
-            summary = self._generate_summary(full_document_text)
+            # 5. STRATEGY SELECTION
+            clean_folder = folder.strip() if folder else "General"
+            final_summary = ""
             
-            # 6. Final Update
+            if clean_folder == "Hiring Kai":
+                # Strategy: Resume Extraction
+                structured = self._extract_resume_data(full_document_text)
+                fast_summary = self._generate_summary(full_document_text) # Generate standard summary for chat
+                final_summary = json.dumps({
+                    "type": "resume", 
+                    "structured": structured, 
+                    "fast_summary": fast_summary 
+                })
+            else:
+                # Strategy: Standard Document
+                final_summary = self._generate_summary(full_document_text)
+
+            # 6. Update
             self.supabase.table("documents").update({
                 "status": "ready", 
-                "summary": summary
+                "summary": final_summary
             }).eq("id", doc_id).execute()
             print(f"Success: {doc_id} is ready.")
             
@@ -196,3 +172,20 @@ class MistralEngine:
     def delete_document(self, doc_id: str):
         self.supabase.table("document_pages").delete().eq("document_id", doc_id).execute()
         self.supabase.table("documents").delete().eq("id", doc_id).execute()
+
+    def search_single_doc(self, query: str, doc_id: str, limit: int = 5):
+        query_embedding = self.get_embedding(query)
+        try:
+            return self.supabase.rpc("match_document_pages", {
+                "query_embedding": query_embedding,
+                "match_threshold": 0.5,
+                "match_count": limit,
+                "filter_doc_id": doc_id
+            }).execute().data
+        except Exception as e:
+            return []
+    
+    def get_folder_files(self, folder_name: str):
+        try:
+            return self.supabase.table("documents").select("id, title, summary").eq("folder", folder_name).execute().data
+        except: return []
