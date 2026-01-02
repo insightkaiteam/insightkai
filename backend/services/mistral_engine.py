@@ -19,10 +19,11 @@ class MistralEngine:
             raise ValueError("MISTRAL_API_KEY is missing!")
         self.client = Mistral(api_key=api_key)
 
-    # RESTORED: Use OpenAI for embeddings (matches your DB schema)
+    # --- 1. EMBEDDINGS: KEEP OPENAI (CRITICAL FOR CHAT) ---
     def get_embedding(self, text: str) -> List[float]:
         text = text.replace("\n", " ").strip()
         if not text: return []
+        # Uses text-embedding-3-small (1536 dims) to match your existing DB
         return self.openai.embeddings.create(input=[text], model="text-embedding-3-small").data[0].embedding
 
     def _generate_summary(self, text: str) -> str:
@@ -32,7 +33,6 @@ class MistralEngine:
             return res.choices[0].message.content
         except: return "Summary unavailable."
 
-    # NEW: Resume Extraction Logic
     def _extract_resume_data(self, text: str) -> dict:
         prompt = (
             "You are a Technical Recruiter. Extract structured data from this resume text into JSON.\n"
@@ -51,7 +51,7 @@ class MistralEngine:
                 model="gpt-4o-mini",
                 messages=[
                     {"role": "system", "content": prompt},
-                    {"role": "user", "content": text[:20000]} 
+                    {"role": "user", "content": text[:25000]} 
                 ],
                 response_format={"type": "json_object"}
             )
@@ -65,20 +65,33 @@ class MistralEngine:
         try:
             print(f"Processing {filename} in {folder}")
             
-            # 1. Upload Source PDF
+            # --- 2. UPLOAD TO SUPABASE (STORAGE BACKUP) ---
             self.supabase.storage.from_("document-pages").upload(f"{doc_id}/source.pdf", file_bytes, {"content-type": "application/pdf"})
             
-            # 2. Mistral OCR (RESTORED: Direct Byte Transmission)
+            # --- 3. UPLOAD TO MISTRAL (REQUIRED FOR OCR) ---
+            # We must upload first. We pass raw bytes directly (not io.BytesIO).
+            print("Uploading to Mistral...")
+            uploaded_file = self.client.files.upload(
+                file={
+                    "file_name": filename,
+                    "content": file_bytes, 
+                },
+                purpose="ocr"
+            )
+            
+            # --- 4. RUN OCR ON FILE ID ---
+            print(f"Running OCR on file_id: {uploaded_file.id}...")
             ocr_response = self.client.ocr.process(
                 model="mistral-ocr-latest",
                 document={
-                    "file_name": filename, 
-                    "content": file_bytes 
+                    "type": "document",
+                    "file_id": uploaded_file.id,
+                    "file_name": filename
                 },
                 include_image_base64=False
             )
             
-            # 3. Aggregate Text & Save Vectors
+            # --- 5. PROCESS TEXT & EMBEDDINGS ---
             full_document_text = ""
             for page in ocr_response.pages:
                 page_text = page.markdown
@@ -92,11 +105,11 @@ class MistralEngine:
                         "document_id": doc_id,
                         "content": chunk,
                         "page_number": page.index + 1,
-                        "embedding": self.get_embedding(chunk),
+                        "embedding": self.get_embedding(chunk), # Uses OpenAI
                         "bboxes": [] 
                     }).execute()
             
-            # 4. Routing Logic (Case Insensitive)
+            # --- 6. ROUTING LOGIC (HIRING vs GENERAL) ---
             final_summary_content = ""
             clean_folder = folder.strip().lower() if folder else "general"
             
@@ -114,7 +127,7 @@ class MistralEngine:
                 summary = self._generate_summary(full_document_text)
                 final_summary_content = f"**Content Summary:** {summary}\n\nVerified."
 
-            # 5. Update Status
+            # --- 7. FINALIZE ---
             self.supabase.table("documents").update({
                 "status": "ready", 
                 "summary": final_summary_content
