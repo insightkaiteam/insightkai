@@ -77,7 +77,6 @@ class OpenAIService:
             return json.loads(res.choices[0].message.content).get("selected_ids", [])
         except: return []
 
-    # MODIFIED: Accepts optional custom_prompt
     def get_answer(self, context_chunks: List[dict], question: str, mode: str = "single_doc", history: List[Dict[str, str]] = [], custom_prompt: str = None) -> Dict[str, Any]:
         
         final_chunks = context_chunks
@@ -105,13 +104,10 @@ class OpenAIService:
             else:
                 context_text = "No file summaries found."
 
-        # --- PROMPT SELECTION ---
+        # --- PROMPT SELECTION (RESTORED LOGIC) ---
         if custom_prompt:
-            # 1. USER OVERRIDE
             system_prompt = custom_prompt
-        
         elif mode in ["single_doc", "folder_deep"]:
-            # 2. DEFAULT DEEP ANALYST
             system_prompt = (
                 "You are a Senior Financial Analyst. Answer based ONLY on the provided context.\n"
                 "You must return a JSON object with two keys:\n"
@@ -126,9 +122,7 @@ class OpenAIService:
                 "   - Aim for 5-7 distinct citations if the text supports it.\n"
                 "   - Do NOT modify the text inside the quotes."
             )
-
         elif mode == "folder_fast" or mode == "simple":
-            # 3. DEFAULT LIBRARIAN
             system_prompt = (
                 "You are a Digital Librarian. You have access to high-level SUMMARIES of files.\n"
                 "Goal: Identify which file contains specific info or extract metadata.\n"
@@ -163,7 +157,7 @@ class OpenAIService:
                         "page": best_match.get('page', 1),
                         "source": best_match.get('source', 'Document'),
                         "id": best_match.get('id', 0),
-                        "document_id": best_match.get('document_id', None) # PASS THROUGH
+                        "document_id": best_match.get('document_id', None) 
                     })
 
             return {"answer": data.get("answer", ""), "citations": formatted_citations}

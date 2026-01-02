@@ -19,11 +19,11 @@ class MistralEngine:
             raise ValueError("MISTRAL_API_KEY is missing!")
         self.client = Mistral(api_key=api_key)
 
+    # RESTORED: Use OpenAI for embeddings (matches your DB schema)
     def get_embedding(self, text: str) -> List[float]:
         text = text.replace("\n", " ").strip()
         if not text: return []
-        # Mistral Embeddings are 1024 dimensions
-        return self.client.embeddings.create(model="mistral-embed", inputs=[text]).data[0].embedding
+        return self.openai.embeddings.create(input=[text], model="text-embedding-3-small").data[0].embedding
 
     def _generate_summary(self, text: str) -> str:
         prompt = f"Summarize this document in 3 concise sentences. Capture the main topic, key entities, and purpose.\n\nText: {text[:10000]}"
@@ -32,6 +32,7 @@ class MistralEngine:
             return res.choices[0].message.content
         except: return "Summary unavailable."
 
+    # NEW: Resume Extraction Logic
     def _extract_resume_data(self, text: str) -> dict:
         prompt = (
             "You are a Technical Recruiter. Extract structured data from this resume text into JSON.\n"
@@ -50,7 +51,7 @@ class MistralEngine:
                 model="gpt-4o-mini",
                 messages=[
                     {"role": "system", "content": prompt},
-                    {"role": "user", "content": text[:25000]} # Increased context window
+                    {"role": "user", "content": text[:20000]} 
                 ],
                 response_format={"type": "json_object"}
             )
@@ -62,39 +63,28 @@ class MistralEngine:
 
     def process_pdf_background(self, doc_id: str, file_bytes: bytes, filename: str, folder: str):
         try:
-            print(f"Processing File: {filename} in Folder: {folder}")
+            print(f"Processing {filename} in {folder}")
             
-            # 1. Upload Source PDF to Supabase (Storage)
+            # 1. Upload Source PDF
             self.supabase.storage.from_("document-pages").upload(f"{doc_id}/source.pdf", file_bytes, {"content-type": "application/pdf"})
             
-            # 2. Upload to Mistral (REQUIRED for OCR)
-            # We must upload the file to Mistral first to get a file_id
-            print("Uploading to Mistral...")
-            uploaded_file = self.client.files.upload(
-                file={
-                    "file_name": filename,
-                    "content": io.BytesIO(file_bytes),
-                },
-                purpose="ocr"
-            )
-            
-            # 3. Mistral OCR
-            print(f"Running OCR on file_id: {uploaded_file.id}...")
+            # 2. Mistral OCR (RESTORED: Direct Byte Transmission)
             ocr_response = self.client.ocr.process(
                 model="mistral-ocr-latest",
                 document={
-                    "type": "document",
-                    "file_id": uploaded_file.id
+                    "file_name": filename, 
+                    "content": file_bytes 
                 },
                 include_image_base64=False
             )
             
-            # 4. Aggregate Text & Save Vectors
+            # 3. Aggregate Text & Save Vectors
             full_document_text = ""
             for page in ocr_response.pages:
                 page_text = page.markdown
                 full_document_text += page_text + "\n\n"
                 
+                # Chunking
                 chunks = [page_text[i:i+1000] for i in range(0, len(page_text), 800)]
                 for chunk in chunks:
                     if not chunk.strip(): continue
@@ -106,9 +96,9 @@ class MistralEngine:
                         "bboxes": [] 
                     }).execute()
             
-            # 5. ROBUST ROUTING LOGIC (Case Insensitive)
+            # 4. Routing Logic (Case Insensitive)
             final_summary_content = ""
-            clean_folder = folder.strip().lower()
+            clean_folder = folder.strip().lower() if folder else "general"
             
             if clean_folder == "hiring kai":
                 print("Running Resume Extraction Pipeline...")
@@ -124,7 +114,7 @@ class MistralEngine:
                 summary = self._generate_summary(full_document_text)
                 final_summary_content = f"**Content Summary:** {summary}\n\nVerified."
 
-            # 6. Update Status
+            # 5. Update Status
             self.supabase.table("documents").update({
                 "status": "ready", 
                 "summary": final_summary_content
