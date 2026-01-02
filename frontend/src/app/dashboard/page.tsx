@@ -7,7 +7,7 @@ import {
   X, Send, Loader2, FileClock, BrainCircuit, UploadCloud, 
   LayoutGrid, LogOut, Quote, FileSearch, Mic, StopCircle, Zap,
   CheckCircle2, AlertCircle, Clock, FileText, ChevronRight, ChevronDown, Maximize2, Settings,
-  Filter, MoreHorizontal, MessageSquare, File, User, GraduationCap, Briefcase, Code2, Phone, Mail
+  Filter, MoreHorizontal, MessageSquare, File as FileIcon, User, GraduationCap, Briefcase, Code2, Phone, Mail
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
@@ -39,7 +39,6 @@ You must return a JSON object with two keys:
    - Aim for 5-7 distinct citations if the text supports it.
    - Do NOT modify the text inside the quotes.`;
 
-// --- FIX: ADDED MISSING CONSTANT ---
 const DEFAULT_FAST_PROMPT = `You are a Digital Librarian. You have access to high-level SUMMARIES of files.
 Goal: Identify which file contains specific info or extract metadata.
 Rules: Be concise. Use the summaries to answer.
@@ -128,7 +127,11 @@ function DashboardContent() {
   const [chatInput, setChatInput] = useState("");
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  
+  // FIX: DEFINED REFS
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+
   const [customPrompt, setCustomPrompt] = useState("");
   const [showPromptSettings, setShowPromptSettings] = useState(false);
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
