@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { 
   ArrowRight, Mic, Search, Share2, ShieldCheck, BrainCircuit, 
   FileText, CheckCircle2, Layers, Sparkles, Files, ScanSearch, 
-  GitMerge, MoveRight, Coins, Users, Database, BookOpen, UserCheck 
+  GitMerge, MoveRight, Coins, Users, Database, BookOpen 
 } from 'lucide-react';
 
 export default function LandingPage() {
@@ -20,81 +20,254 @@ export default function LandingPage() {
           </div>
           <div className="flex items-center gap-6 text-sm font-bold">
             <Link href="#" className="text-gray-500 hover:text-black transition">Enterprise</Link>
-            <Link href="/dashboard" className="bg-black text-white px-5 py-2 rounded-full hover:scale-105 transition">Launch Console</Link>
+            <Link href="/dashboard">
+              <button className="bg-black text-white px-5 py-2 rounded-full hover:bg-gray-800 transition shadow-lg hover:shadow-xl hover:-translate-y-0.5 transform duration-200">
+                Launch Console
+              </button>
+            </Link>
           </div>
         </div>
       </nav>
 
       {/* 2. HERO SECTION */}
-      <section className="pt-32 pb-20 px-6">
-        <div className="max-w-4xl mx-auto text-center space-y-8">
-            <div className="inline-flex items-center gap-2 bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider border border-gray-200 animate-in fade-in slide-in-from-bottom-4 duration-1000">
-                <Sparkles size={12} /> New: Mistral OCR Integration
+      <section className="pt-32 pb-20 px-6 max-w-7xl mx-auto">
+        <div className="grid lg:grid-cols-2 gap-16 items-center">
+          
+          {/* LEFT: STRATEGIC MESSAGING */}
+          <div>
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gray-100 border border-gray-200 text-gray-600 text-xs font-bold uppercase tracking-wider mb-8">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              SOTA Intelligence Engine v2.0
             </div>
             
-            <h1 className="text-6xl md:text-7xl font-bold tracking-tighter leading-[1.1] animate-in fade-in slide-in-from-bottom-8 duration-1000">
-                The Operating System for <br/>
-                <span className="text-transparent bg-clip-text bg-gradient-to-r from-gray-900 via-gray-600 to-black">Institutional Knowledge</span>
+            <h1 className="text-5xl md:text-6xl font-extrabold tracking-tighter leading-[1.1] mb-6 text-gray-900">
+              Advanced Document <br/>
+              Intelligence.
             </h1>
             
-            <p className="text-xl text-gray-500 max-w-2xl mx-auto leading-relaxed animate-in fade-in slide-in-from-bottom-10 duration-1000 delay-100">
-                Turn your static PDF archives into a live, queryable intelligence network. 
-                Perform deep research, extract financial data, and audit documents in milliseconds.
+            <p className="text-xl text-gray-500 mb-8 max-w-lg leading-relaxed font-medium">
+              Manual PDF research drains productivity. Get evidence-backed insights, organize/search your document library, and reclaim thousands of hours and dollars.
             </p>
 
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4 animate-in fade-in slide-in-from-bottom-12 duration-1000 delay-200">
-                <Link href="/dashboard" className="px-8 py-4 bg-black text-white rounded-2xl font-bold text-lg hover:scale-105 active:scale-95 transition shadow-xl shadow-black/10 flex items-center gap-2">
-                    <BrainCircuit size={20} /> Start Researching
-                </Link>
-                
-                {/* --- NEW HIRING KAI BUTTON --- */}
-                <Link href="/dashboard?folder=Hiring%20Kai" className="px-8 py-4 bg-white text-gray-900 border border-gray-200 rounded-2xl font-bold text-lg hover:bg-gray-50 hover:border-gray-300 transition flex items-center gap-2 group shadow-sm">
-                    <UserCheck size={20} className="text-gray-600 group-hover:scale-110 transition"/> Hiring Kai
-                </Link>
+            <div className="flex items-center gap-3 p-4 bg-emerald-50 border border-emerald-100 rounded-2xl w-fit mb-10 text-emerald-900 text-sm font-bold">
+                <ShieldCheck size={18} className="text-emerald-600" />
+                <span>100% Verifiable Citations across your PDF library.</span>
+            </div>
+
+            <div className="flex gap-4">
+              <Link href="/dashboard">
+                <button className="px-10 py-5 bg-black text-white rounded-[1.5rem] font-bold text-lg hover:bg-gray-900 transition flex items-center gap-2 shadow-2xl shadow-gray-300 transform hover:-translate-y-1">
+                  Start Researching <ArrowRight size={20}/>
+                </button>
+              </Link>
+            </div>
+          </div>
+
+          {/* RIGHT: DYNAMIC FEATURE QUADRANT */}
+          <div className="relative grid grid-cols-2 gap-4">
+                {/* Q1: VERIFIABLE DIALOGUE */}
+                <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-gray-100 flex flex-col justify-between h-64 hover:shadow-2xl transition duration-500 group">
+                    <div>
+                        <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center mb-4"><ScanSearch size={20}/></div>
+                        <h3 className="font-bold text-gray-900 text-lg">Verifiable Dialogue</h3>
+                        <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest mt-1">Evidence Over  Hallucation</p>
+                    </div>
+                    <div className="relative h-12 bg-gray-50 rounded-lg border border-gray-100 p-2 overflow-hidden">
+                        <div className="w-full h-1.5 bg-gray-200 rounded opacity-20 mb-1"></div>
+                        <div className="w-3/4 h-1.5 bg-emerald-200 rounded animate-highlight"></div>
+                        <div className="absolute top-2 right-2 bg-emerald-600 text-white text-[7px] px-1.5 py-0.5 rounded-full animate-proof-snap shadow-md font-bold">PROOF: p.14</div>
+                    </div>
+                </div>
+
+                {/* Q2: SELF-SORTING HUB */}
+                <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-gray-100 flex flex-col justify-between h-64 hover:shadow-2xl transition duration-500 group">
+                    <div>
+                        <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center mb-4"><Database size={20}/></div>
+                        <h3 className="font-bold text-gray-900 text-lg">Self-Sorting Library</h3>
+                        <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest mt-1">Tagged, Sorted, Searchable Document Library</p>
+                    </div>
+                    <div className="flex justify-center gap-1">
+                        <div className="w-4 h-6 bg-blue-100 rounded animate-magnet"></div>
+                        <div className="w-4 h-6 bg-blue-50 rounded animate-magnet" style={{animationDelay:'0.5s'}}></div>
+                        <div className="w-4 h-6 bg-blue-100 rounded animate-magnet" style={{animationDelay:'1s'}}></div>
+                    </div>
+                </div>
+
+                {/* Q3: INSTITUTIONAL INTELLIGENCE */}
+                <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-gray-100 flex flex-col justify-between h-64 hover:shadow-2xl transition duration-500 group">
+                    <div>
+                        <div className="w-10 h-10 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center mb-4"><BrainCircuit size={20}/></div>
+                        <h3 className="font-bold text-gray-900 text-lg">Institutional Intelligence</h3>
+                        <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest mt-1">Build Your Enterprise Document Brain</p>
+                    </div>
+                    <div className="flex justify-center items-center gap-2">
+                        <BookOpen size={16} className="text-amber-500 animate-pulse"/>
+                        <MoveRight size={12} className="text-gray-300"/>
+                        <div className="flex gap-0.5">
+                            <div className="w-2 h-2 rounded-full bg-gray-200"></div>
+                            <div className="w-2 h-2 rounded-full bg-gray-200"></div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Q4: HUMAN VOICE DIALOGUE */}
+                <div className="bg-gray-900 p-6 rounded-[2.5rem] shadow-xl border border-gray-800 flex flex-col justify-between h-64 hover:shadow-2xl transition duration-500 group">
+                    <div>
+                        <div className="w-10 h-10 bg-white/10 text-white rounded-xl flex items-center justify-center mb-4"><Mic size={20}/></div>
+                        <h3 className="font-bold text-white text-lg leading-tight">Human-Level Voice</h3>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">Talk To Your Documents</p>
+                    </div>
+                    <div className="flex gap-1 items-center justify-center h-8">
+                        {[...Array(6)].map((_,i) => (
+                            <div key={i} className="w-1 bg-white rounded-full animate-wave-liquid" style={{animationDelay: `${i*0.15}s`}}></div>
+                        ))}
+                    </div>
+                </div>
+          </div>
+        </div>
+        
+        {/* Individuals Anchor */}
+        <div className="max-w-7xl mx-auto px-6 mt-12 flex justify-center md:justify-start">
+            <div className="flex items-center gap-2 px-4 py-2 bg-white rounded-full border border-gray-200 shadow-sm text-sm font-bold text-gray-600">
+                <Coins size={14} className="text-amber-500"/> Individuals: Starts at <strong>$3.99/mo</strong>
             </div>
         </div>
       </section>
 
-      {/* 3. FEATURE BENTO GRID */}
-      <section className="py-20 px-6">
-        <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="md:col-span-2 bg-gray-50 rounded-[2.5rem] p-10 border border-gray-200 relative overflow-hidden group hover:shadow-lg transition duration-500">
-                <div className="absolute top-0 right-0 p-10 opacity-10 group-hover:opacity-20 transition transform group-hover:scale-110 duration-700">
-                    <Files size={200} />
-                </div>
-                <div className="relative z-10">
-                    <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center mb-6 shadow-sm"><Layers size={24}/></div>
-                    <h3 className="text-2xl font-bold mb-3">Multi-Modal Ingestion</h3>
-                    <p className="text-gray-500 max-w-md">Drag & drop PDFs, Scan Images, or Excel sheets. Our pipeline auto-classifies, OCRs, and indexes content into a semantic knowledge graph.</p>
-                </div>
-                <div className="mt-10 flex gap-4">
-                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-3 animate-stack-1">
-                        <div className="bg-red-100 p-2 rounded-lg text-red-600"><FileText size={16}/></div>
-                        <div className="h-2 w-20 bg-gray-100 rounded-full"></div>
-                    </div>
-                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-3 animate-stack-2">
-                        <div className="bg-blue-100 p-2 rounded-lg text-blue-600"><ScanSearch size={16}/></div>
-                        <div className="h-2 w-20 bg-gray-100 rounded-full"></div>
-                    </div>
-                </div>
+      {/* 3. WORKFLOW GALLERY (REFINED CARDS) */}
+      <section className="py-24 px-6 bg-white border-y border-gray-100">
+        <div className="max-w-7xl mx-auto">
+            <div className="text-center mb-16 max-w-2xl mx-auto">
+                <h2 className="text-4xl font-bold mb-4 tracking-tight">No one understands documents like us.</h2>
+                <p className="text-gray-500 font-bold text-lg">Built and loved by researchers, financial analysts, and startups.</p>
             </div>
 
-            <div className="bg-black text-white rounded-[2.5rem] p-10 relative overflow-hidden group">
-                <div className="absolute inset-0 bg-gradient-to-br from-gray-800 to-black opacity-50"></div>
-                <div className="relative z-10 h-full flex flex-col justify-between">
-                    <div>
-                        <div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center mb-6 backdrop-blur-sm"><Search size={24}/></div>
-                        <h3 className="text-2xl font-bold mb-3">Neural Retrieval</h3>
-                        <p className="text-gray-400">Not just keywords. Ask complex questions like "Compare the risk factors between Q1 and Q4".</p>
+            <div className="grid md:grid-cols-2 gap-8">
+                
+                {/* CARD 1: PDF CHAT WITH VERIFIED EVIDENCE */}
+                <div className="bg-gray-50 rounded-[2.5rem] p-10 hover:bg-emerald-50/50 transition duration-500 border border-gray-100 group">
+                    <div className="flex justify-between items-start mb-8">
+                        <div className="bg-white p-4 rounded-2xl shadow-sm group-hover:scale-110 transition duration-300 text-emerald-600"><ScanSearch size={32}/></div>
+                        <span className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">Verification</span>
                     </div>
-                    <div className="mt-8 bg-white/10 rounded-xl p-4 backdrop-blur-md border border-white/10">
-                        <div className="flex gap-3 items-center">
-                            <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                            <span className="text-xs font-mono text-gray-300">Processing Query...</span>
-                        </div>
-                    </div>
+                    <h3 className="text-2xl font-bold mb-4 tracking-tight text-gray-900">PDF Chat with Verified Evidence</h3>
+                    <p className="text-gray-600 text-sm font-medium mb-6 leading-relaxed">
+                        Trust every answer. Skip the guesswork with responses that link directly to the exact page and paragraph in your PDF for total proof.
+                    </p>
+                    <ul className="space-y-3 text-sm text-gray-500 font-bold">
+                        <li className="flex items-center gap-3"><ArrowRight size={16} className="text-emerald-500"/> Finance: Audit-ready metric extraction.</li>
+                        <li className="flex items-center gap-3"><ArrowRight size={16} className="text-emerald-500"/> Legal: Precise clause validation.</li>
+                        <li className="flex items-center gap-3"><ArrowRight size={16} className="text-emerald-500"/> Academic: Find cited proof across papers.</li>
+                    </ul>
                 </div>
+
+                {/* CARD 2: ORGANIZED LIBRARY */}
+                <div className="bg-gray-50 rounded-[2.5rem] p-10 hover:bg-blue-50/50 transition duration-500 border border-gray-100 group">
+                    <div className="flex justify-between items-start mb-8">
+                        <div className="bg-white p-4 rounded-2xl shadow-sm group-hover:scale-110 transition duration-300 text-blue-600"><Database size={32}/></div>
+                        <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">Retrieval</span>
+                    </div>
+                    <h3 className="text-2xl font-bold mb-4 tracking-tight text-gray-900">Organized and Searchable Document Library</h3>
+                    <p className="text-gray-600 text-sm font-medium mb-6 leading-relaxed">
+                        Stop drowning in PDFs. We automatically sort, tag, and organize your files so you can search across your entire library to find exactly what you need in seconds.
+                    </p>
+                    <ul className="space-y-3 text-sm text-gray-500 font-bold">
+                        <li className="flex items-center gap-3"><ArrowRight size={16} className="text-blue-500"/> Analysts: Search across multiple documents.</li>
+                        <li className="flex items-center gap-3"><ArrowRight size={16} className="text-blue-500"/> HR: Rank 500+ resumes by skill set.</li>
+                        <li className="flex items-center gap-3"><ArrowRight size={16} className="text-blue-500"/> Ops: Instant retrieval of old bills.</li>
+                    </ul>
+                </div>
+
+                {/* CARD 3: ENTERPRISE KNOWLEDGE */}
+                <div className="bg-gray-50 rounded-[2.5rem] p-10 hover:bg-amber-50/50 transition duration-500 border border-gray-100 group">
+                    <div className="flex justify-between items-start mb-8">
+                        <div className="bg-white p-4 rounded-2xl shadow-sm group-hover:scale-110 transition duration-300 text-amber-600"><BrainCircuit size={32}/></div>
+                        <span className="bg-amber-100 text-amber-700 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">Enterprise</span>
+                    </div>
+                    <h3 className="text-2xl font-bold mb-4 tracking-tight text-gray-900">Enterprise Knowledge Engine</h3>
+                    <p className="text-gray-600 text-sm font-medium mb-6 leading-relaxed">
+                        Build a shared brain for your team. Upload your manuals and policies once to give your entire company a single, reliable source of truth.
+                    </p>
+                    <ul className="space-y-3 text-sm text-gray-500 font-bold">
+                        <li className="flex items-center gap-3"><ArrowRight size={16} className="text-amber-500"/> Policies: Instant standardized HR answers.</li>
+                        <li className="flex items-center gap-3"><ArrowRight size={16} className="text-amber-500"/> Training: Queryable coaching resources.</li>
+                        <li className="flex items-center gap-3"><ArrowRight size={16} className="text-amber-500"/> Manuals: A central home for every SOP.</li>
+                    </ul>
+                </div>
+
+                {/* CARD 4: HUMAN-LEVEL VOICE */}
+                <div className="bg-gray-50 rounded-[2.5rem] p-10 hover:bg-indigo-50/50 transition duration-500 border border-gray-100 group">
+                    <div className="flex justify-between items-start mb-8">
+                        <div className="bg-white p-4 rounded-2xl shadow-sm group-hover:scale-110 transition duration-300 text-indigo-600"><Mic size={32}/></div>
+                        <span className="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">Mobility</span>
+                    </div>
+                    <h3 className="text-2xl font-bold mb-4 tracking-tight text-gray-900">Human-Level Voice Input</h3>
+                    <p className="text-gray-600 text-sm font-medium mb-6 leading-relaxed">
+                        Talk to your documents. Use state-of-the-art audio input to naturally query your library and get deep research results entirely hands-free.
+                    </p>
+                    <ul className="space-y-3 text-sm text-gray-500 font-bold">
+                        <li className="flex items-center gap-3"><ArrowRight size={16} className="text-indigo-500"/> Commute: Analyze PDFs while walking.</li>
+                        <li className="flex items-center gap-3"><ArrowRight size={16} className="text-indigo-500"/> Mobility: Cited summaries on the move.</li>
+                        <li className="flex items-center gap-3"><ArrowRight size={16} className="text-indigo-500"/> Efficiency: Keyboard-free interviews.</li>
+                    </ul>
+                </div>
+
             </div>
+        </div>
+      </section>
+
+      {/* 4. PRICING ANCHOR */}
+      <section className="py-24 px-6 max-w-5xl mx-auto">
+        <h2 className="text-xs font-bold text-center uppercase tracking-widest text-gray-400 mb-12">Flexible Pricing</h2>
+        
+        <div className="grid md:grid-cols-2 gap-8 items-stretch">
+            {/* INDIVIDUALS */}
+            <Link href="/dashboard" className="group h-full">
+                <div className="h-full p-10 rounded-[2.5rem] border-2 border-gray-100 hover:border-black hover:shadow-2xl transition duration-300 bg-white relative overflow-hidden flex flex-col">
+                    <div className="absolute top-0 right-0 bg-gray-900 text-white px-4 py-2 rounded-bl-2xl text-xs font-bold uppercase tracking-widest">Selected</div>
+                    
+                    <div className="mb-6 bg-gray-50 w-16 h-16 rounded-2xl flex items-center justify-center group-hover:bg-black group-hover:text-white transition duration-300 shadow-sm border border-gray-100">
+                        <FileText size={32} />
+                    </div>
+                    
+                    <h3 className="text-3xl font-bold mb-2 text-gray-900 tracking-tight">Individuals</h3>
+                    <p className="text-gray-500 mb-6 text-sm">Professional research for students and power users.</p>
+                    
+                    <div className="text-5xl font-bold mb-8 tracking-tighter text-gray-900">$3.99<span className="text-lg text-gray-400 font-medium tracking-normal">/mo</span></div>
+
+                    <ul className="space-y-4 text-gray-600 mb-8 text-sm font-bold flex-1">
+                        <li className="flex items-center gap-3"><CheckCircle2 size={18} className="text-black"/> 1,000 pages / month</li>
+                        <li className="flex items-center gap-3"><CheckCircle2 size={18} className="text-black"/> Deep Research & Citations</li>
+                        <li className="flex items-center gap-3"><CheckCircle2 size={18} className="text-black"/> Natural Audio Interaction</li>
+                    </ul>
+                    <span className="inline-block w-full text-center bg-gray-50 border border-gray-200 py-4 rounded-xl font-bold text-gray-900 group-hover:bg-black group-hover:text-white transition">Get Started &rarr;</span>
+                </div>
+            </Link>
+
+            {/* ENTERPRISE */}
+            <Link href="/dashboard" className="group h-full">
+                <div className="h-full p-10 rounded-[2.5rem] bg-black text-white hover:scale-[1.02] transition duration-300 shadow-2xl relative flex flex-col">
+                    
+                    <div className="mb-6 bg-white/10 w-16 h-16 rounded-2xl flex items-center justify-center backdrop-blur-sm border border-white/20">
+                        <BrainCircuit size={32} className="text-white"/>
+                    </div>
+
+                    <h3 className="text-3xl font-bold mb-2 tracking-tight">Enterprise</h3>
+                    <p className="text-gray-400 mb-6 text-sm font-medium">Shared intelligence for global high-performance teams.</p>
+                    
+                    <div className="text-5xl font-bold mb-8 tracking-tighter">Custom</div>
+
+                    <ul className="space-y-4 text-gray-300 mb-8 text-sm font-bold flex-1">
+                        <li className="flex items-center gap-3"><CheckCircle2 size={18} className="text-white"/> Shared Institutional Knowledge</li>
+                        <li className="flex items-center gap-3"><CheckCircle2 size={18} className="text-white"/> Bulk Invoice & Resume Matching</li>
+                        <li className="flex items-center gap-3"><CheckCircle2 size={18} className="text-white"/> API Access & SSO</li>
+                    </ul>
+                    <span className="inline-block w-full text-center bg-white/10 border border-white/20 py-4 rounded-xl font-bold text-white group-hover:bg-white group-hover:text-black transition">Launch Console &rarr;</span>
+                </div>
+            </Link>
         </div>
       </section>
 

@@ -1,10 +1,10 @@
 "use client";
-import { useState, useRef, useEffect } from 'react';
+import { useState, use, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
-import { Mic, Send, ArrowLeft, StopCircle, Loader2, Quote, MapPin, FileText, ChevronRight, Settings } from 'lucide-react';
+import { Mic, Send, ArrowLeft, StopCircle, Loader2, Quote, MapPin, FileText, ChevronRight } from 'lucide-react';
 import Link from 'next/link';
 
 // PDF VIEWER IMPORTS
@@ -16,22 +16,8 @@ import '@react-pdf-viewer/core/lib/styles/index.css';
 import '@react-pdf-viewer/page-navigation/lib/styles/index.css';
 import '@react-pdf-viewer/search/lib/styles/index.css';
 
+// ⚠️ REPLACE WITH YOUR RENDER URL
 const BACKEND_URL = "https://insightkai.onrender.com"; 
-
-const DEFAULT_SINGLE_DOC_PROMPT = `You are a Senior Financial Analyst. Answer based ONLY on the provided context.
-You must return a JSON object with two keys:
-1. 'answer': A markdown string formatted strictly as follows:
-   **Executive Summary**
-   [A 2-3 sentence high-level summary of the findings]
-
-   **Key Insights**
-   - **[Insight Title]:** [Detailed explanation of 2-3 sentences. Explain WHY this matters.]
-   - **[Insight Title]:** [Detailed explanation...]
-
-2. 'quotes': An array of strings. Copy the EXACT sentences used to derive the answer.
-   - Rule: Use CONTEXTUAL QUOTING. Do not just quote a number. Quote the full sentence containing the number so it is verifiable.
-   - Aim for 5-7 distinct citations if the text supports it.
-   - Do NOT modify the text inside the quotes.`;
 
 const Typewriter = ({ content, animate = false }: { content: string, animate?: boolean }) => {
   const [displayedContent, setDisplayedContent] = useState(animate ? "" : content);
@@ -50,6 +36,7 @@ const Typewriter = ({ content, animate = false }: { content: string, animate?: b
   return <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{displayedContent}</ReactMarkdown>;
 };
 
+// --- HELPER: Group Citations (Reused for consistency) ---
 const groupCitations = (citations: any[]) => {
     const groups: { [key: string]: { docId: string, source: string, quotes: any[] } } = {};
     citations.forEach(cit => {
@@ -60,35 +47,36 @@ const groupCitations = (citations: any[]) => {
     return Object.values(groups);
 };
 
-export default function ChatPage({ params }: { params: any }) {
-  const [docId, setDocId] = useState<string>("");
-  
-  useEffect(() => {
-    Promise.resolve(params).then((p) => setDocId(p.docId));
-  }, [params]);
-
+export default function ChatPage({ params }: { params: Promise<{ docId: string }> }) {
+  const { docId } = use(params);
   const [messages, setMessages] = useState<{role: string, content: string, citations?: any[]}[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [customPrompt, setCustomPrompt] = useState(DEFAULT_SINGLE_DOC_PROMPT);
-  const [showPromptSettings, setShowPromptSettings] = useState(false);
+  
+  // Audio State
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+
+  // PDF State
   const [pdfDocument, setPdfDocument] = useState<any>(null); 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
+  // 1. INITIALIZE PLUGINS
   const pageNavigationPluginInstance = pageNavigationPlugin();
   const { jumpToPage } = pageNavigationPluginInstance;
+
   const searchPluginInstance = searchPlugin();
   const { highlight, clearHighlights } = searchPluginInstance;
 
+  // 2. CAPTURE PDF DOCUMENT ON LOAD
   const handleDocumentLoad = (e: DocumentLoadEvent) => {
       setPdfDocument(e.doc);
   };
 
+  // 3. AUDIO LOGIC
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -119,26 +107,35 @@ export default function ChatPage({ params }: { params: any }) {
     }
   };
 
+  // 4. SOTA "SMART DE-DUPLICATION" HIGHLIGHTER
   const handleCitationClick = async (cit: any) => {
     if (!cit.page) return;
+    
+    // A. Jump to the page first
     jumpToPage(cit.page - 1);
 
     if (pdfDocument && cit.content) {
         try {
+            // 1. Get raw text of the specific page
             const page = await pdfDocument.getPage(cit.page);
             const textContent = await page.getTextContent();
             const pageString = textContent.items.map((item: any) => item.str).join(' ').replace(/\s+/g, ' ').toLowerCase();
+            
+            // 2. Prepare Citation
             const rawCit = cit.content.replace(/["“”]/g, "").trim(); 
             const words = rawCit.split(/\s+/);
+            
             let matchFound = false;
             const validKeywords: SingleKeyword[] = [];
 
+            // 3. Cascading Loop
             for (let windowSize = 6; windowSize >= 3; windowSize--) {
                 if (matchFound) break; 
                 let i = 0;
                 while (i <= words.length - windowSize) {
                     const chunkWords = words.slice(i, i + windowSize);
                     const chunkString = chunkWords.join(' ');
+                    
                     if (pageString.includes(chunkString.toLowerCase())) {
                         validKeywords.push({ keyword: chunkString, matchCase: false });
                         matchFound = true; 
@@ -146,13 +143,23 @@ export default function ChatPage({ params }: { params: any }) {
                     } else { i++; }
                 }
             }
+
+            // Fallback
             if (!matchFound && words.length < 3) {
                 if (pageString.includes(rawCit.toLowerCase())) {
                     validKeywords.push({ keyword: rawCit, matchCase: false });
                 }
             }
-            clearHighlights();
-            if (validKeywords.length > 0) highlight(validKeywords);
+
+            // C. Execute Highlight
+            const executeHighlight = () => {
+                clearHighlights();
+                if (validKeywords.length > 0) highlight(validKeywords);
+            };
+            executeHighlight();
+            setTimeout(executeHighlight, 500);
+            setTimeout(executeHighlight, 1000);
+
         } catch (err) { console.error("Error finding text match:", err); }
     }
   };
@@ -169,20 +176,13 @@ export default function ChatPage({ params }: { params: any }) {
       const response = await fetch(`${BACKEND_URL}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-            message: messageToSend, 
-            document_id: docId, 
-            history: historyPayload,
-            custom_prompt: customPrompt 
-        }),
+        body: JSON.stringify({ message: messageToSend, document_id: docId, history: historyPayload }),
       });
       const data = await response.json();
       setMessages(prev => [...prev, { role: 'ai', content: data.answer, citations: data.citations }]);
     } catch (error) { setMessages(prev => [...prev, { role: 'ai', content: "Sorry, something went wrong." }]); }
     finally { setIsLoading(false); }
   };
-
-  if (!docId) return <div className="flex h-screen items-center justify-center"><Loader2 className="animate-spin text-gray-400"/></div>;
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden font-sans">
@@ -205,26 +205,10 @@ export default function ChatPage({ params }: { params: any }) {
 
       {/* RIGHT: CHAT INTERFACE */}
       <div className="w-full md:w-1/2 flex flex-col h-full bg-white">
-        <div className="p-6 border-b border-gray-100 bg-white/80 backdrop-blur-md sticky top-0 z-10 flex justify-between items-center">
-            <div>
-                <h1 className="font-bold text-xl tracking-tight text-gray-900">Document Chat</h1>
-                <p className="text-xs text-gray-400 font-medium mt-1">SOTA Analyst Mode</p>
-            </div>
-            <button onClick={() => setShowPromptSettings(!showPromptSettings)} className={`p-2 rounded-full transition ${showPromptSettings ? 'bg-black text-white' : 'hover:bg-gray-100 text-gray-400'}`}>
-                <Settings size={18} />
-            </button>
+        <div className="p-6 border-b border-gray-100 bg-white/80 backdrop-blur-md sticky top-0 z-10">
+            <h1 className="font-bold text-xl tracking-tight text-gray-900">Document Chat</h1>
+            <p className="text-xs text-gray-400 font-medium mt-1">SOTA Analyst Mode</p>
         </div>
-
-        {showPromptSettings && (
-            <div className="bg-gray-50 p-4 border-b border-gray-200 animate-in slide-in-from-top-2">
-                <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">System Instructions (The Brain)</p>
-                <textarea 
-                    className="w-full text-xs font-mono p-3 rounded-xl border border-gray-300 focus:border-black focus:ring-0 h-32 bg-white"
-                    value={customPrompt}
-                    onChange={(e) => setCustomPrompt(e.target.value)}
-                />
-            </div>
-        )}
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6 scroll-smooth bg-[#fafafa]">
             {messages.map((m, i) => (
@@ -236,6 +220,8 @@ export default function ChatPage({ params }: { params: any }) {
                     {m.role === 'ai' && m.citations && m.citations.length > 0 && (
                         <div className="mt-3 w-[85%] space-y-2">
                             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1"><MapPin size={10} /> Source Highlights</p>
+                            
+                            {/* GROUPED CITATIONS */}
                             {groupCitations(m.citations).map((group, gIdx) => (
                                 <div key={gIdx} className="bg-gray-50 border border-gray-200 rounded-xl overflow-hidden shadow-sm">
                                     <div className="bg-white border-b border-gray-100 px-3 py-2 flex items-center justify-between">
@@ -267,6 +253,7 @@ export default function ChatPage({ params }: { params: any }) {
         <div className="p-5 border-t border-gray-100 bg-white">
             <div className={`flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-2xl p-2 focus-within:ring-4 focus-within:ring-blue-50`}>
                 
+                {/* NEW: AUDIO BUTTON */}
                 <button 
                     onMouseDown={startRecording} 
                     onMouseUp={stopRecording} 
