@@ -128,7 +128,7 @@ function DashboardContent() {
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   
-  // FIX: DEFINED REFS
+  // REFS
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
@@ -278,7 +278,6 @@ function DashboardContent() {
   // --- SMART PARSING LOGIC ---
   const parseCellData = (doc: Doc) => {
       try {
-          // Robust parsing that handles markdown code blocks if present
           const cleanStr = doc.summary.replace(/```json/g, "").replace(/```/g, "").trim();
           if (cleanStr.startsWith("{")) {
               const json = JSON.parse(cleanStr);
@@ -288,7 +287,6 @@ function DashboardContent() {
           }
       } catch(e) {}
       
-      // Fallback: Standard Text
       const tagMatch = doc.summary.match(/\[TAG\]:\s*(.*?)(?=\n|\[|$)/i); 
       const descMatch = doc.summary.match(/\[DESC\]:\s*(.*?)(?=\n|\[|$)/i); 
       return { 
@@ -299,7 +297,7 @@ function DashboardContent() {
   };
 
   const getTagStyle = (tag: string) => { 
-      const t = tag.toUpperCase();
+      const t = (tag || "").toUpperCase();
       if(t.includes("INVOICE")) return 'bg-gray-100 text-gray-700 border-gray-200';
       if(t.includes("RESEARCH") || t.includes("PAPER")) return 'bg-zinc-50 text-zinc-700 border-zinc-200';
       if(t.includes("FINANC")) return 'bg-slate-50 text-slate-700 border-slate-200';
@@ -311,7 +309,8 @@ function DashboardContent() {
 
   const currentConfig = FOLDER_TABLE_CONFIG[currentFolder || ""] || FOLDER_TABLE_CONFIG["default"];
   const filteredDocs = docs.filter(d => d.folder === currentFolder);
-  const uniqueTags = currentConfig.mode === 'standard' ? Array.from(new Set(filteredDocs.map(d => parseCellData(d).tag))).filter(t => t) : [];
+  // FIX: Type Guard to filter out undefined tags
+  const uniqueTags = currentConfig.mode === 'standard' ? Array.from(new Set(filteredDocs.map(d => parseCellData(d).tag))).filter((t): t is string => !!t) : [];
   const displayedDocs = selectedTag && currentConfig.mode !== 'resume' ? filteredDocs.filter(d => parseCellData(d).tag === selectedTag) : filteredDocs;
 
   return (
@@ -350,7 +349,7 @@ function DashboardContent() {
                             {currentConfig.mode !== 'resume' && uniqueTags.length > 0 && (
                                 <div className="flex gap-2 ml-4">
                                     <button onClick={() => setSelectedTag(null)} className={`px-3 py-1.5 rounded-full text-xs font-bold border ${!selectedTag ? 'bg-black text-white' : 'bg-white'}`}>All</button>
-                                    {uniqueTags.map(tag => <button key={tag} onClick={() => setSelectedTag(tag === selectedTag ? null : tag)} className={`px-3 py-1.5 rounded-full text-xs font-bold border ${selectedTag === tag ? 'bg-black text-white' : 'bg-white'}`}>{tag}</button>)}
+                                    {uniqueTags.map((tag: string) => <button key={tag} onClick={() => setSelectedTag(tag === selectedTag ? null : tag)} className={`px-3 py-1.5 rounded-full text-xs font-bold border ${selectedTag === tag ? 'bg-black text-white' : 'bg-white'}`}>{tag}</button>)}
                                 </div>
                             )}
                         </div>
@@ -397,7 +396,12 @@ function DashboardContent() {
                                                 ) : (
                                                     <>
                                                         <td className="px-6 py-4 text-xs text-gray-500 line-clamp-2">{parsed.desc}</td>
-                                                        <td className="px-6 py-4"><span className={`px-2 py-1 rounded text-xs border ${getTagStyle(parsed.tag)}`}>{parsed.tag}</span></td>
+                                                        <td className="px-6 py-4">
+                                                            {/* FIX: Ensure tag is a string */}
+                                                            <span className={`px-2 py-1 rounded text-xs border ${getTagStyle(parsed.tag || "General")}`}>
+                                                                {parsed.tag || "General"}
+                                                            </span>
+                                                        </td>
                                                     </>
                                                 )}
                                                 
