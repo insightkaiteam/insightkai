@@ -8,12 +8,6 @@ from openai import OpenAI
 from supabase import create_client, Client
 from pydantic import BaseModel, Field
 
-# --- SCHEMA DEFINITION (RESTORED) ---
-class VisualContext(BaseModel):
-    image_description: str = Field(..., description="Detailed description of the image visual content.")
-    data_extraction: str = Field(..., description="If this is a chart/table, transcribe the key numbers, axis labels, and trends. If a diagram, describe the flow.")
-    comparative_analysis: str = Field(..., description="What is the key takeaway or insight from this figure?")
-
 class MistralEngine:
     def __init__(self):
         url: str = os.environ.get("SUPABASE_URL")
@@ -25,50 +19,28 @@ class MistralEngine:
             raise ValueError("MISTRAL_API_KEY is missing!")
         self.client = Mistral(api_key=api_key)
 
+    # --- EMBEDDINGS (OPENAI) ---
     def get_embedding(self, text: str) -> List[float]:
         text = text.replace("\n", " ").strip()
         if not text: return []
         # Uses OpenAI to match your existing vector DB schema
         return self.openai.embeddings.create(input=[text], model="text-embedding-3-small").data[0].embedding
 
-    def get_folder_files(self, folder_name: str) -> List[dict]:
-        try:
-            res = self.supabase.table("documents")\
-                .select("id, title, summary")\
-                .eq("folder", folder_name)\
-                .execute()
-            
-            files = []
-            for doc in res.data:
-                raw = doc.get("summary", "")
-                if not raw: continue
-                # Handle your custom separator logic
-                clean = raw.split("---_SEPARATOR_---")[0].replace("**Content Summary:**", "").strip()
-                files.append({
-                    "id": doc["id"],
-                    "title": doc["title"],
-                    "summary": clean
-                })
-            return files
-        except Exception as e:
-            print(f"Error getting folder files: {e}")
-            return []
-
-    # --- RESTORED: Specific Search Logic ---
+    # --- SEARCH LOGIC (FIXED) ---
     def search_single_doc(self, query: str, doc_id: str) -> List[dict]:
         query_vector = self.get_embedding(query)
         try:
-            # --- THE FIX ---
-            # Explicitly cast to string to match the new SQL function signature (TEXT).
-            # This prevents the "operator does not exist: text = uuid" error.
+            # SAFETY FIX: Ensure doc_id is a string or None.
+            # This prevents the "operator does not exist: text = uuid" crash.
             safe_doc_id = str(doc_id) if doc_id else None
 
             params = {
                 "query_embedding": query_vector, 
                 "match_threshold": 0.01, 
                 "match_count": 25, 
-                "filter_doc_id": safe_doc_id # <--- Passing the safe string here
+                "filter_doc_id": safe_doc_id 
             }
+            # RPC call handles the rest
             res = self.supabase.rpc("match_document_pages", params).execute()
             
             chunks = []
@@ -78,20 +50,20 @@ class MistralEngine:
                         "content": row.get('content'),
                         "page": row.get('page_number', 1),
                         "similarity": row.get('similarity', 0),
-                        "id": row.get('id', uuid.uuid4().hex) 
+                        "id": row.get('id', uuid.uuid4().hex),
+                        "document_id": row.get('document_id')
                     })
             return chunks
         except Exception as e:
             print(f"Search Error: {e}")
             return []
 
-    # --- RESTORED: Semantic Chunking ---
+    # --- CHUNKING ---
     def _chunk_markdown(self, text: str) -> List[str]:
         chunks = []
         current_chunk = ""
         lines = text.split('\n')
         for line in lines:
-            # Simple chunking by header or length
             if line.strip().startswith("#") and len(current_chunk) > 600:
                 chunks.append(current_chunk.strip()); current_chunk = line + "\n"
             else: current_chunk += line + "\n"
@@ -99,18 +71,18 @@ class MistralEngine:
         if current_chunk: chunks.append(current_chunk.strip())
         return chunks
 
-    # --- RESTORED: The "Sophisticated" Summary Prompt ---
+    # --- SUMMARY GENERATION ---
     def _generate_summary(self, full_text: str) -> str:
         try:
             if not full_text.strip():
-                return "No content could be extracted from this document."
+                return "No content could be extracted."
                 
             preview_text = full_text[:8000]
             system_prompt = (
                 "You are a sophisticated document analyzer. Analyze the text and return a summary in EXACTLY this format:\n\n"
                 "[TAG]: <Classify into one: INVOICE, RESEARCH, FINANCIAL, LEGAL, RECEIPT, OTHER>\n"
                 "[DESC]: <A single, concise sentence describing the file (e.g. 'August 2023 Power Bill for $150')>\n"
-                "[DETAILED]: <A dense, 5-10 line summary containing specific entities (company names, authors), dates, key outcomes, core themes, and numerical data. This will be used for search retrieval, so be specific.>"
+                "[DETAILED]: <A dense, 5-10 line summary containing specific entities (company names, authors), dates, key outcomes, core themes, and numerical data.>"
             )
             
             response = self.openai.chat.completions.create(
@@ -125,15 +97,15 @@ class MistralEngine:
             print(f"Summary Error: {e}")
             return "Summary unavailable."
 
-    # --- PROCESSOR LOGIC ---
+    # --- MAIN PROCESSOR (CLEANED) ---
     def process_pdf_background(self, doc_id: str, file_bytes: bytes, filename: str, folder: str):
         try:
             print(f"Processing {filename} in {folder}")
             
-            # 1. Upload to Supabase (Storage Backup)
+            # 1. Upload to Supabase
             self.supabase.storage.from_("document-pages").upload(f"{doc_id}/source.pdf", file_bytes, {"content-type": "application/pdf"})
             
-            # 2. Upload to Mistral (REQUIRED)
+            # 2. Upload to Mistral (Required for OCR)
             print("Uploading to Mistral...")
             uploaded_file = self.client.files.upload(
                 file={
@@ -143,25 +115,23 @@ class MistralEngine:
                 purpose="ocr"
             )
             
-            # 3. Mistral OCR using file_id (FIXED TYPE HERE)
+            # 3. Mistral OCR
             print(f"Running OCR on file_id: {uploaded_file.id}...")
             ocr_response = self.client.ocr.process(
                 model="mistral-ocr-latest",
                 document={
-                    "type": "file",  # <--- CRITICAL FIX: Must be 'file', not 'document'
+                    "type": "file", # Required 'file' type
                     "file_id": uploaded_file.id,
                     "file_name": filename
                 },
                 include_image_base64=True
             )
             
-            # 4. Processing & Chunking
+            # 4. Chunk & Embed
             full_document_text = ""
             for page in ocr_response.pages:
-                page_text = page.markdown
-                full_document_text += page_text + "\n\n"
+                full_document_text += page.markdown + "\n\n"
             
-            # Use the semantic chunker
             chunks = self._chunk_markdown(full_document_text)
             
             for i, chunk in enumerate(chunks):
@@ -174,9 +144,9 @@ class MistralEngine:
                     "bboxes": [] 
                 }).execute()
             
-            # 5. Generate Summary
+            # 5. Standard Summary
             summary = self._generate_summary(full_document_text)
-            
+
             # 6. Final Update
             self.supabase.table("documents").update({
                 "status": "ready", 
@@ -201,3 +171,8 @@ class MistralEngine:
     def delete_document(self, doc_id: str):
         self.supabase.table("document_pages").delete().eq("document_id", doc_id).execute()
         self.supabase.table("documents").delete().eq("id", doc_id).execute()
+    
+    def get_folder_files(self, folder_name: str):
+        try:
+            return self.supabase.table("documents").select("id, title, summary").eq("folder", folder_name).execute().data
+        except: return []
