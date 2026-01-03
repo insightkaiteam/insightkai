@@ -55,7 +55,7 @@ class MistralEngine:
             return []
 
     # --- RESTORED: Specific Search Logic ---
-def search_single_doc(self, query: str, doc_id: str) -> List[dict]:
+    def search_single_doc(self, query: str, doc_id: str) -> List[dict]:
         query_vector = self.get_embedding(query)
         try:
             # --- THE FIX ---
