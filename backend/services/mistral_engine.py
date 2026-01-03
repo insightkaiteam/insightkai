@@ -55,14 +55,19 @@ class MistralEngine:
             return []
 
     # --- RESTORED: Specific Search Logic ---
-    def search_single_doc(self, query: str, doc_id: str) -> List[dict]:
+def search_single_doc(self, query: str, doc_id: str) -> List[dict]:
         query_vector = self.get_embedding(query)
         try:
+            # --- THE FIX ---
+            # Explicitly cast to string to match the new SQL function signature (TEXT).
+            # This prevents the "operator does not exist: text = uuid" error.
+            safe_doc_id = str(doc_id) if doc_id else None
+
             params = {
                 "query_embedding": query_vector, 
                 "match_threshold": 0.01, 
                 "match_count": 25, 
-                "filter_doc_id": doc_id
+                "filter_doc_id": safe_doc_id # <--- Passing the safe string here
             }
             res = self.supabase.rpc("match_document_pages", params).execute()
             
